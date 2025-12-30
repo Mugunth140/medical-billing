@@ -1,0 +1,930 @@
+// =====================================================
+// Inventory Page
+// Medicine and Stock Management
+// =====================================================
+
+import {
+    AlertTriangle,
+    Clock,
+    Edit,
+    MapPin,
+    Package,
+    Plus,
+    Search,
+    Trash2,
+    X
+} from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { useToast } from '../components/common/Toast';
+import {
+    createBatch,
+    createMedicine,
+    deleteMedicine,
+    getAllStock,
+    getExpiringItems,
+    getLowStockItems,
+    getMedicines,
+    getNonMovingItems,
+    updateMedicine
+} from '../services/inventory.service';
+import type { CreateBatchInput, CreateMedicineInput, GstRate, Medicine, StockItem } from '../types';
+import { formatCurrency, formatDate, getExpiryStatusInfo, getStockStatusInfo } from '../utils';
+
+type FilterType = 'all' | 'expiring' | 'low-stock' | 'non-moving';
+
+export function Inventory() {
+    const { showToast } = useToast();
+    const [searchParams, setSearchParams] = useSearchParams();
+    const [stockItems, setStockItems] = useState<StockItem[]>([]);
+    const [filteredItems, setFilteredItems] = useState<StockItem[]>([]);
+    const [medicines, setMedicines] = useState<Medicine[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [searchQuery, setSearchQuery] = useState('');
+    const [activeFilter, setActiveFilter] = useState<FilterType>(
+        (searchParams.get('filter') as FilterType) || 'all'
+    );
+    const [showAddMedicineModal, setShowAddMedicineModal] = useState(false);
+    const [showEditMedicineModal, setShowEditMedicineModal] = useState(false);
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+    const [showAddBatchModal, setShowAddBatchModal] = useState(false);
+    const [selectedMedicine, setSelectedMedicine] = useState<Medicine | null>(null);
+    const [editingMedicine, setEditingMedicine] = useState<Medicine | null>(null);
+
+    // Form state for new medicine
+    const [medicineForm, setMedicineForm] = useState<CreateMedicineInput>({
+        name: '',
+        generic_name: '',
+        manufacturer: '',
+        hsn_code: '3004',
+        gst_rate: 12,
+        taxability: 'TAXABLE',
+        category: '',
+        unit: 'PCS',
+        reorder_level: 10
+    });
+
+    // Form state for new batch
+    const [batchForm, setBatchForm] = useState<CreateBatchInput>({
+        medicine_id: 0,
+        batch_number: '',
+        expiry_date: '',
+        purchase_price: 0,
+        mrp: 0,
+        selling_price: 0,
+        price_type: 'INCLUSIVE',
+        quantity: 0,
+        rack: '',
+        box: ''
+    });
+
+    const loadData = async () => {
+        setIsLoading(true);
+        try {
+            let items: StockItem[];
+
+            switch (activeFilter) {
+                case 'expiring':
+                    items = await getExpiringItems(30);
+                    break;
+                case 'low-stock':
+                    items = await getLowStockItems();
+                    break;
+                case 'non-moving':
+                    items = await getNonMovingItems(30);
+                    break;
+                default:
+                    items = await getAllStock();
+            }
+
+            setStockItems(items);
+            setFilteredItems(items);
+
+            const meds = await getMedicines();
+            setMedicines(meds);
+        } catch (error) {
+            console.error('Failed to load inventory:', error);
+        }
+        setIsLoading(false);
+    };
+
+    useEffect(() => {
+        loadData();
+    }, [activeFilter]);
+
+    useEffect(() => {
+        if (!searchQuery) {
+            setFilteredItems(stockItems);
+            return;
+        }
+
+        const query = searchQuery.toLowerCase();
+        setFilteredItems(
+            stockItems.filter(item =>
+                item.medicine_name.toLowerCase().includes(query) ||
+                item.batch_number.toLowerCase().includes(query) ||
+                item.manufacturer?.toLowerCase().includes(query)
+            )
+        );
+    }, [searchQuery, stockItems]);
+
+    const handleFilterChange = (filter: FilterType) => {
+        setActiveFilter(filter);
+        setSearchParams(filter === 'all' ? {} : { filter });
+    };
+
+    const handleAddMedicine = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (isSubmitting) return;
+
+        setIsSubmitting(true);
+        try {
+            await createMedicine(medicineForm);
+            setShowAddMedicineModal(false);
+            setMedicineForm({
+                name: '',
+                generic_name: '',
+                manufacturer: '',
+                hsn_code: '3004',
+                gst_rate: 12,
+                taxability: 'TAXABLE',
+                category: '',
+                unit: 'PCS',
+                reorder_level: 10
+            });
+            showToast('success', `Medicine "${medicineForm.name}" added successfully!`);
+            loadData();
+        } catch (error) {
+            console.error('Failed to add medicine:', error);
+            showToast('error', 'Failed to add medicine. Please try again.');
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    const handleEditMedicine = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!editingMedicine || isSubmitting) return;
+
+        setIsSubmitting(true);
+        try {
+            await updateMedicine(editingMedicine.id, medicineForm);
+            setShowEditMedicineModal(false);
+            setEditingMedicine(null);
+            showToast('success', `Medicine "${medicineForm.name}" updated successfully!`);
+            loadData();
+        } catch (error) {
+            console.error('Failed to update medicine:', error);
+            showToast('error', 'Failed to update medicine. Please try again.');
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    const handleDeleteMedicine = async () => {
+        if (!editingMedicine || isSubmitting) return;
+
+        setIsSubmitting(true);
+        try {
+            const medicineName = editingMedicine.name;
+            await deleteMedicine(editingMedicine.id);
+            setShowDeleteConfirm(false);
+            setEditingMedicine(null);
+            showToast('success', `Medicine "${medicineName}" deleted successfully!`);
+            loadData();
+        } catch (error) {
+            console.error('Failed to delete medicine:', error);
+            showToast('error', 'Failed to delete medicine. Please try again.');
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    const openEditMedicineModal = (medicine: Medicine) => {
+        setEditingMedicine(medicine);
+        setMedicineForm({
+            name: medicine.name,
+            generic_name: medicine.generic_name || '',
+            manufacturer: medicine.manufacturer || '',
+            hsn_code: medicine.hsn_code,
+            gst_rate: medicine.gst_rate,
+            taxability: medicine.taxability,
+            category: medicine.category || '',
+            unit: medicine.unit,
+            reorder_level: medicine.reorder_level
+        });
+        setShowEditMedicineModal(true);
+    };
+
+    const openDeleteConfirm = (medicine: Medicine) => {
+        setEditingMedicine(medicine);
+        setShowDeleteConfirm(true);
+    };
+
+    const handleAddBatch = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!selectedMedicine || isSubmitting) return;
+
+        setIsSubmitting(true);
+        try {
+            await createBatch({ ...batchForm, medicine_id: selectedMedicine.id });
+            setShowAddBatchModal(false);
+            setBatchForm({
+                medicine_id: 0,
+                batch_number: '',
+                expiry_date: '',
+                purchase_price: 0,
+                mrp: 0,
+                selling_price: 0,
+                price_type: 'INCLUSIVE',
+                quantity: 0,
+                rack: '',
+                box: ''
+            });
+            showToast('success', `Stock added for "${selectedMedicine.name}" (Batch: ${batchForm.batch_number})`);
+            setSelectedMedicine(null);
+            loadData();
+        } catch (error) {
+            console.error('Failed to add batch:', error);
+            showToast('error', 'Failed to add stock. Please check your inputs.');
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    return (
+        <>
+            <header className="page-header">
+                <h1 className="page-title">Inventory</h1>
+                <div className="page-actions">
+                    <button
+                        className="btn btn-secondary"
+                        onClick={() => {
+                            setSelectedMedicine(null);
+                            setShowAddBatchModal(true);
+                        }}
+                    >
+                        <Plus size={18} />
+                        Add Stock
+                    </button>
+                    <button
+                        className="btn btn-primary"
+                        onClick={() => setShowAddMedicineModal(true)}
+                    >
+                        <Plus size={18} />
+                        New Medicine
+                    </button>
+                </div>
+            </header>
+
+            <div className="page-body">
+                <style>{`
+          .inventory-filters {
+            display: flex;
+            gap: var(--space-2);
+            margin-bottom: var(--space-4);
+            flex-wrap: wrap;
+          }
+          
+          .filter-btn {
+            display: flex;
+            align-items: center;
+            gap: var(--space-2);
+            padding: var(--space-2) var(--space-4);
+            border: 1px solid var(--border-medium);
+            border-radius: var(--radius-full);
+            background: var(--bg-secondary);
+            cursor: pointer;
+            transition: all var(--transition-fast);
+            font-size: var(--text-sm);
+          }
+          
+          .filter-btn:hover {
+            border-color: var(--color-primary-300);
+          }
+          
+          .filter-btn.active {
+            background: var(--color-primary-600);
+            color: var(--text-inverse);
+            border-color: var(--color-primary-600);
+          }
+          
+          .filter-btn.danger.active {
+            background: var(--color-danger-600);
+            border-color: var(--color-danger-600);
+          }
+          
+          .filter-btn.warning.active {
+            background: var(--color-warning-600);
+            border-color: var(--color-warning-600);
+          }
+          
+          .inventory-search {
+            position: relative;
+            max-width: 400px;
+            margin-bottom: var(--space-4);
+          }
+          
+          .inventory-search input {
+            padding-left: var(--space-10);
+          }
+          
+          .inventory-search-icon {
+            position: absolute;
+            left: var(--space-3);
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-tertiary);
+          }
+          
+          .stock-grid {
+            display: grid;
+            gap: var(--space-3);
+          }
+          
+          .stock-row {
+            display: grid;
+            grid-template-columns: 2fr 1fr 100px 100px 100px 120px 100px 80px;
+            gap: var(--space-3);
+            align-items: center;
+            padding: var(--space-3) var(--space-4);
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius-md);
+          }
+          
+          .stock-row:hover {
+            border-color: var(--color-primary-200);
+          }
+          
+          .stock-header {
+            font-weight: var(--font-semibold);
+            color: var(--text-secondary);
+            font-size: var(--text-sm);
+            background: transparent;
+            border: none;
+          }
+          
+          .medicine-info {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+          }
+          
+          .medicine-name {
+            font-weight: var(--font-medium);
+          }
+          
+          .medicine-meta {
+            font-size: var(--text-xs);
+            color: var(--text-tertiary);
+          }
+          
+          .location-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: var(--space-1);
+            font-size: var(--text-xs);
+            color: var(--text-secondary);
+          }
+          
+          .action-btns {
+            display: flex;
+            gap: var(--space-1);
+          }
+          
+          .action-btn {
+            padding: var(--space-1);
+            border: none;
+            background: transparent;
+            cursor: pointer;
+            color: var(--text-tertiary);
+            border-radius: var(--radius-sm);
+            transition: all var(--transition-fast);
+          }
+          
+          .action-btn:hover {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+          }
+          
+          .action-btn.delete:hover {
+            color: var(--color-danger-600);
+          }
+        `}</style>
+
+                {/* Filters */}
+                <div className="inventory-filters">
+                    <button
+                        className={`filter-btn ${activeFilter === 'all' ? 'active' : ''}`}
+                        onClick={() => handleFilterChange('all')}
+                    >
+                        <Package size={16} />
+                        All Stock
+                    </button>
+                    <button
+                        className={`filter-btn danger ${activeFilter === 'expiring' ? 'active' : ''}`}
+                        onClick={() => handleFilterChange('expiring')}
+                    >
+                        <AlertTriangle size={16} />
+                        Expiring Soon
+                    </button>
+                    <button
+                        className={`filter-btn warning ${activeFilter === 'low-stock' ? 'active' : ''}`}
+                        onClick={() => handleFilterChange('low-stock')}
+                    >
+                        <Package size={16} />
+                        Low Stock
+                    </button>
+                    <button
+                        className={`filter-btn ${activeFilter === 'non-moving' ? 'active' : ''}`}
+                        onClick={() => handleFilterChange('non-moving')}
+                    >
+                        <Clock size={16} />
+                        Non-Moving
+                    </button>
+                </div>
+
+                {/* Search */}
+                <div className="inventory-search">
+                    <Search className="inventory-search-icon" size={18} />
+                    <input
+                        type="text"
+                        className="form-input"
+                        placeholder="Search medicines..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                    />
+                </div>
+
+                {/* Stock Grid */}
+                <div className="stock-grid">
+                    <div className="stock-row stock-header">
+                        <span>Medicine</span>
+                        <span>Batch</span>
+                        <span>Expiry</span>
+                        <span>Stock</span>
+                        <span>MRP</span>
+                        <span>Location</span>
+                        <span>Status</span>
+                        <span>Actions</span>
+                    </div>
+
+                    {isLoading ? (
+                        <div className="empty-state">
+                            <div className="loading-spinner" />
+                        </div>
+                    ) : filteredItems.length > 0 ? (
+                        filteredItems.map((item) => {
+                            const stockInfo = getStockStatusInfo(item.stock_status);
+                            const expiryInfo = getExpiryStatusInfo(item.expiry_status);
+                            const medicine = medicines.find(m => m.id === item.medicine_id);
+
+                            return (
+                                <div key={item.batch_id} className="stock-row">
+                                    <div className="medicine-info">
+                                        <span className="medicine-name">{item.medicine_name}</span>
+                                        <span className="medicine-meta">
+                                            {item.manufacturer} | HSN: {item.hsn_code} | GST: {item.gst_rate}%
+                                        </span>
+                                    </div>
+                                    <span className="font-mono text-sm">{item.batch_number}</span>
+                                    <span className={`text-sm ${item.expiry_status !== 'OK' ? 'text-danger font-semibold' : ''}`}>
+                                        {formatDate(item.expiry_date)}
+                                    </span>
+                                    <span className={`font-mono font-semibold ${item.stock_status !== 'IN_STOCK' ? 'text-warning' : ''}`}>
+                                        {item.quantity} {item.unit}
+                                    </span>
+                                    <span className="font-mono">{formatCurrency(item.mrp)}</span>
+                                    <span className="location-badge">
+                                        <MapPin size={12} />
+                                        {item.rack || '-'} / {item.box || '-'}
+                                    </span>
+                                    <span className={`badge badge-${item.expiry_status !== 'OK' ? 'danger' : stockInfo.color === 'green' ? 'success' : 'warning'}`}>
+                                        {item.expiry_status !== 'OK' ? expiryInfo.label : stockInfo.label}
+                                    </span>
+                                    <div className="action-btns">
+                                        {medicine && (
+                                            <>
+                                                <button
+                                                    className="action-btn"
+                                                    onClick={() => openEditMedicineModal(medicine)}
+                                                    title="Edit Medicine"
+                                                >
+                                                    <Edit size={16} />
+                                                </button>
+                                                <button
+                                                    className="action-btn delete"
+                                                    onClick={() => openDeleteConfirm(medicine)}
+                                                    title="Delete Medicine"
+                                                >
+                                                    <Trash2 size={16} />
+                                                </button>
+                                            </>
+                                        )}
+                                    </div>
+                                </div>
+                            );
+                        })
+                    ) : (
+                        <div className="empty-state">
+                            <Package size={48} strokeWidth={1} />
+                            <p className="mt-4">No items found</p>
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            {/* Add Medicine Modal */}
+            {showAddMedicineModal && (
+                <div className="modal-overlay" onClick={() => setShowAddMedicineModal(false)}>
+                    <div className="modal modal-lg" onClick={(e) => e.stopPropagation()}>
+                        <div className="modal-header">
+                            <h3 className="modal-title">Add New Medicine</h3>
+                            <button className="btn btn-ghost btn-icon" onClick={() => setShowAddMedicineModal(false)}>
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <form onSubmit={handleAddMedicine}>
+                            <div className="modal-body">
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)' }}>
+                                    <div className="form-group">
+                                        <label className="form-label">Medicine Name *</label>
+                                        <input
+                                            type="text"
+                                            className="form-input"
+                                            value={medicineForm.name}
+                                            onChange={(e) => setMedicineForm({ ...medicineForm, name: e.target.value })}
+                                            required
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Generic Name</label>
+                                        <input
+                                            type="text"
+                                            className="form-input"
+                                            value={medicineForm.generic_name}
+                                            onChange={(e) => setMedicineForm({ ...medicineForm, generic_name: e.target.value })}
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Manufacturer</label>
+                                        <input
+                                            type="text"
+                                            className="form-input"
+                                            value={medicineForm.manufacturer}
+                                            onChange={(e) => setMedicineForm({ ...medicineForm, manufacturer: e.target.value })}
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">HSN Code *</label>
+                                        <input
+                                            type="text"
+                                            className="form-input"
+                                            value={medicineForm.hsn_code}
+                                            onChange={(e) => setMedicineForm({ ...medicineForm, hsn_code: e.target.value })}
+                                            required
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">GST Rate *</label>
+                                        <select
+                                            className="form-select"
+                                            value={medicineForm.gst_rate}
+                                            onChange={(e) => setMedicineForm({ ...medicineForm, gst_rate: parseInt(e.target.value) as GstRate })}
+                                        >
+                                            <option value={0}>0% (Exempt)</option>
+                                            <option value={5}>5%</option>
+                                            <option value={12}>12%</option>
+                                            <option value={18}>18%</option>
+                                        </select>
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Unit</label>
+                                        <select
+                                            className="form-select"
+                                            value={medicineForm.unit}
+                                            onChange={(e) => setMedicineForm({ ...medicineForm, unit: e.target.value })}
+                                        >
+                                            <option value="PCS">Pieces</option>
+                                            <option value="STRIP">Strip</option>
+                                            <option value="BOX">Box</option>
+                                            <option value="BOTTLE">Bottle</option>
+                                            <option value="TUBE">Tube</option>
+                                        </select>
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Category</label>
+                                        <input
+                                            type="text"
+                                            className="form-input"
+                                            value={medicineForm.category}
+                                            onChange={(e) => setMedicineForm({ ...medicineForm, category: e.target.value })}
+                                            placeholder="e.g., Antibiotics, Pain Relief"
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Reorder Level</label>
+                                        <input
+                                            type="number"
+                                            className="form-input"
+                                            value={medicineForm.reorder_level}
+                                            onChange={(e) => setMedicineForm({ ...medicineForm, reorder_level: parseInt(e.target.value) || 10 })}
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="modal-footer">
+                                <button type="button" className="btn btn-secondary" onClick={() => setShowAddMedicineModal(false)}>
+                                    Cancel
+                                </button>
+                                <button type="submit" className="btn btn-primary">
+                                    Add Medicine
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Edit Medicine Modal */}
+            {showEditMedicineModal && editingMedicine && (
+                <div className="modal-overlay" onClick={() => setShowEditMedicineModal(false)}>
+                    <div className="modal modal-lg" onClick={(e) => e.stopPropagation()}>
+                        <div className="modal-header">
+                            <h3 className="modal-title">Edit Medicine</h3>
+                            <button className="btn btn-ghost btn-icon" onClick={() => setShowEditMedicineModal(false)}>
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <form onSubmit={handleEditMedicine}>
+                            <div className="modal-body">
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)' }}>
+                                    <div className="form-group">
+                                        <label className="form-label">Medicine Name *</label>
+                                        <input
+                                            type="text"
+                                            className="form-input"
+                                            value={medicineForm.name}
+                                            onChange={(e) => setMedicineForm({ ...medicineForm, name: e.target.value })}
+                                            required
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Generic Name</label>
+                                        <input
+                                            type="text"
+                                            className="form-input"
+                                            value={medicineForm.generic_name}
+                                            onChange={(e) => setMedicineForm({ ...medicineForm, generic_name: e.target.value })}
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Manufacturer</label>
+                                        <input
+                                            type="text"
+                                            className="form-input"
+                                            value={medicineForm.manufacturer}
+                                            onChange={(e) => setMedicineForm({ ...medicineForm, manufacturer: e.target.value })}
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">HSN Code *</label>
+                                        <input
+                                            type="text"
+                                            className="form-input"
+                                            value={medicineForm.hsn_code}
+                                            onChange={(e) => setMedicineForm({ ...medicineForm, hsn_code: e.target.value })}
+                                            required
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">GST Rate *</label>
+                                        <select
+                                            className="form-select"
+                                            value={medicineForm.gst_rate}
+                                            onChange={(e) => setMedicineForm({ ...medicineForm, gst_rate: parseInt(e.target.value) as GstRate })}
+                                        >
+                                            <option value={0}>0% (Exempt)</option>
+                                            <option value={5}>5%</option>
+                                            <option value={12}>12%</option>
+                                            <option value={18}>18%</option>
+                                        </select>
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Unit</label>
+                                        <select
+                                            className="form-select"
+                                            value={medicineForm.unit}
+                                            onChange={(e) => setMedicineForm({ ...medicineForm, unit: e.target.value })}
+                                        >
+                                            <option value="PCS">Pieces</option>
+                                            <option value="STRIP">Strip</option>
+                                            <option value="BOX">Box</option>
+                                            <option value="BOTTLE">Bottle</option>
+                                            <option value="TUBE">Tube</option>
+                                        </select>
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Category</label>
+                                        <input
+                                            type="text"
+                                            className="form-input"
+                                            value={medicineForm.category}
+                                            onChange={(e) => setMedicineForm({ ...medicineForm, category: e.target.value })}
+                                            placeholder="e.g., Antibiotics, Pain Relief"
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Reorder Level</label>
+                                        <input
+                                            type="number"
+                                            className="form-input"
+                                            value={medicineForm.reorder_level}
+                                            onChange={(e) => setMedicineForm({ ...medicineForm, reorder_level: parseInt(e.target.value) || 10 })}
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="modal-footer">
+                                <button type="button" className="btn btn-secondary" onClick={() => setShowEditMedicineModal(false)}>
+                                    Cancel
+                                </button>
+                                <button type="submit" className="btn btn-primary">
+                                    Save Changes
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Delete Confirmation Modal */}
+            {showDeleteConfirm && editingMedicine && (
+                <div className="modal-overlay" onClick={() => setShowDeleteConfirm(false)}>
+                    <div className="modal modal-sm" onClick={(e) => e.stopPropagation()}>
+                        <div className="modal-header">
+                            <h3 className="modal-title">Delete Medicine</h3>
+                            <button className="btn btn-ghost btn-icon" onClick={() => setShowDeleteConfirm(false)}>
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <div className="modal-body">
+                            <p>Are you sure you want to delete <strong>{editingMedicine.name}</strong>?</p>
+                            <p className="text-secondary mt-2">This will also remove all associated batches from inventory.</p>
+                        </div>
+                        <div className="modal-footer">
+                            <button className="btn btn-secondary" onClick={() => setShowDeleteConfirm(false)}>
+                                Cancel
+                            </button>
+                            <button className="btn btn-danger" onClick={handleDeleteMedicine}>
+                                Delete Medicine
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Add Batch Modal */}
+            {showAddBatchModal && (
+                <div className="modal-overlay" onClick={() => setShowAddBatchModal(false)}>
+                    <div className="modal modal-lg" onClick={(e) => e.stopPropagation()}>
+                        <div className="modal-header">
+                            <h3 className="modal-title">Add Stock / New Batch</h3>
+                            <button className="btn btn-ghost btn-icon" onClick={() => setShowAddBatchModal(false)}>
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <form onSubmit={handleAddBatch}>
+                            <div className="modal-body">
+                                <div className="form-group">
+                                    <label className="form-label">Select Medicine *</label>
+                                    <select
+                                        className="form-select"
+                                        value={selectedMedicine?.id ?? ''}
+                                        onChange={(e) => setSelectedMedicine(medicines.find(m => m.id === parseInt(e.target.value)) ?? null)}
+                                        required
+                                    >
+                                        <option value="">Select a medicine...</option>
+                                        {medicines.map(m => (
+                                            <option key={m.id} value={m.id}>{m.name} ({m.gst_rate}% GST)</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)' }}>
+                                    <div className="form-group">
+                                        <label className="form-label">Batch Number *</label>
+                                        <input
+                                            type="text"
+                                            className="form-input"
+                                            value={batchForm.batch_number}
+                                            onChange={(e) => setBatchForm({ ...batchForm, batch_number: e.target.value })}
+                                            required
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Expiry Date *</label>
+                                        <input
+                                            type="date"
+                                            className="form-input"
+                                            value={batchForm.expiry_date}
+                                            onChange={(e) => setBatchForm({ ...batchForm, expiry_date: e.target.value })}
+                                            required
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Purchase Price *</label>
+                                        <input
+                                            type="number"
+                                            step="0.01"
+                                            className="form-input"
+                                            value={batchForm.purchase_price || ''}
+                                            onChange={(e) => setBatchForm({ ...batchForm, purchase_price: parseFloat(e.target.value) || 0 })}
+                                            required
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">MRP *</label>
+                                        <input
+                                            type="number"
+                                            step="0.01"
+                                            className="form-input"
+                                            value={batchForm.mrp || ''}
+                                            onChange={(e) => {
+                                                const mrp = parseFloat(e.target.value) || 0;
+                                                setBatchForm({ ...batchForm, mrp, selling_price: mrp });
+                                            }}
+                                            required
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Selling Price *</label>
+                                        <input
+                                            type="number"
+                                            step="0.01"
+                                            className="form-input"
+                                            value={batchForm.selling_price || ''}
+                                            onChange={(e) => setBatchForm({ ...batchForm, selling_price: parseFloat(e.target.value) || 0 })}
+                                            required
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Price Type</label>
+                                        <select
+                                            className="form-select"
+                                            value={batchForm.price_type}
+                                            onChange={(e) => setBatchForm({ ...batchForm, price_type: e.target.value as 'INCLUSIVE' | 'EXCLUSIVE' })}
+                                        >
+                                            <option value="INCLUSIVE">GST Inclusive (MRP)</option>
+                                            <option value="EXCLUSIVE">GST Exclusive</option>
+                                        </select>
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Quantity *</label>
+                                        <input
+                                            type="number"
+                                            className="form-input"
+                                            value={batchForm.quantity || ''}
+                                            onChange={(e) => setBatchForm({ ...batchForm, quantity: parseInt(e.target.value) || 0 })}
+                                            required
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Rack Location</label>
+                                        <input
+                                            type="text"
+                                            className="form-input"
+                                            value={batchForm.rack}
+                                            onChange={(e) => setBatchForm({ ...batchForm, rack: e.target.value })}
+                                            placeholder="e.g., A1"
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Box Location</label>
+                                        <input
+                                            type="text"
+                                            className="form-input"
+                                            value={batchForm.box}
+                                            onChange={(e) => setBatchForm({ ...batchForm, box: e.target.value })}
+                                            placeholder="e.g., 1"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="modal-footer">
+                                <button type="button" className="btn btn-secondary" onClick={() => setShowAddBatchModal(false)}>
+                                    Cancel
+                                </button>
+                                <button type="submit" className="btn btn-primary" disabled={!selectedMedicine}>
+                                    Add Stock
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+        </>
+    );
+}
