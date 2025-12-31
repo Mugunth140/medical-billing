@@ -142,11 +142,12 @@ export interface Bill {
     round_off: number;
 
     payment_mode: PaymentMode;
+    payment_status: PaymentStatus;
     cash_amount: number;
     online_amount: number;
     credit_amount: number;
 
-    status: BillStatus;
+    is_cancelled: number;
     notes?: string;
 
     created_at: string;

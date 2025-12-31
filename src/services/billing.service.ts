@@ -22,29 +22,27 @@ import { getBatchWithMedicine, updateBatchQuantity } from './inventory.service';
  * Generate next bill number
  */
 export async function generateBillNumber(): Promise<string> {
-    return await transaction(async () => {
-        // Get current sequence
-        const seq = await queryOne<{
-            prefix: string;
-            current_number: number;
-            financial_year: string;
-        }>('SELECT prefix, current_number, financial_year FROM bill_sequence WHERE id = 1', []);
+    // Get current sequence
+    const seq = await queryOne<{
+        prefix: string;
+        current_number: number;
+        financial_year: string;
+    }>('SELECT prefix, current_number, financial_year FROM bill_sequence WHERE id = 1', []);
 
-        if (!seq) {
-            throw new Error('Bill sequence not initialized');
-        }
+    if (!seq) {
+        throw new Error('Bill sequence not initialized');
+    }
 
-        // Increment sequence
-        const nextNumber = seq.current_number + 1;
-        await execute(
-            'UPDATE bill_sequence SET current_number = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1',
-            [nextNumber]
-        );
+    // Increment sequence
+    const nextNumber = seq.current_number + 1;
+    await execute(
+        'UPDATE bill_sequence SET current_number = ?, updated_at = CURRENT_TIMESTAMP WHERE id = 1',
+        [nextNumber]
+    );
 
-        // Format: INV/2024-25/00001
-        const paddedNumber = nextNumber.toString().padStart(5, '0');
-        return `${seq.prefix}/${seq.financial_year}/${paddedNumber}`;
-    });
+    // Format: INV/2024-25/00001
+    const paddedNumber = nextNumber.toString().padStart(5, '0');
+    return `${seq.prefix}/${seq.financial_year}/${paddedNumber}`;
 }
 
 // =====================================================
@@ -122,23 +120,23 @@ export async function createBill(
         const billNumber = await generateBillNumber();
 
         // 5. Insert bill
+        console.log('Inserting bill...', { billNumber, userId, totals: billCalc });
         const billResult = await execute(
             `INSERT INTO bills (
         bill_number, customer_id, customer_name, user_id,
-        subtotal, discount_type, discount_value, discount_amount,
-        taxable_total, total_cgst, total_sgst, total_gst,
+        subtotal, discount_amount, discount_percent,
+        taxable_amount, cgst_amount, sgst_amount, total_gst,
         grand_total, round_off, payment_mode,
         cash_amount, online_amount, credit_amount, notes
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 billNumber,
                 input.customer_id ?? null,
                 input.customer_name ?? null,
                 userId,
                 billCalc.subtotal,
-                input.discount_type ?? null,
-                input.discount_value ?? 0,
                 billCalc.billDiscount,
+                input.discount_value ?? 0,
                 billCalc.taxableTotal,
                 billCalc.totalCgst,
                 billCalc.totalSgst,
@@ -154,19 +152,21 @@ export async function createBill(
         );
 
         const billId = billResult.lastInsertId;
+        console.log('Bill inserted, ID:', billId);
 
         // 6. Insert bill items and update stock
         for (let i = 0; i < batchDetails.length; i++) {
             const { input: itemInput, batch } = batchDetails[i];
             const itemCalc = billCalc.items[i];
 
+            console.log(`Inserting item ${i + 1}/${batchDetails.length}`, { batchId: batch.batch_id, quantity: itemInput.quantity });
             await execute(
                 `INSERT INTO bill_items (
           bill_id, batch_id, medicine_id, medicine_name, hsn_code,
-          batch_number, expiry_date, rack, box, quantity, unit_price,
-          price_type, discount_type, discount_value, discount_amount,
-          taxable_value, gst_rate, cgst, sgst, total_gst, total
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          batch_number, quantity, unit, mrp, selling_price,
+          discount_percent, discount_amount, taxable_amount,
+          gst_rate, cgst_amount, sgst_amount, total_amount
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     billId,
                     batch.batch_id,
@@ -174,20 +174,16 @@ export async function createBill(
                     batch.medicine_name,
                     batch.hsn_code,
                     batch.batch_number,
-                    batch.expiry_date,
-                    batch.rack ?? null,
-                    batch.box ?? null,
                     itemInput.quantity,
+                    batch.unit ?? 'PCS',
+                    batch.mrp,
                     batch.selling_price,
-                    batch.price_type,
-                    itemInput.discount_type ?? null,
                     itemInput.discount_value ?? 0,
                     itemCalc.discountAmount,
                     itemCalc.taxableValue,
                     batch.gst_rate,
                     itemCalc.cgst,
                     itemCalc.sgst,
-                    itemCalc.totalGst,
                     itemCalc.total
                 ]
             );
@@ -222,8 +218,12 @@ export async function createBill(
         }
 
         // 8. Return created bill
+        console.log('Fetching created bill:', billId);
         const bill = await getBillById(billId);
-        if (!bill) throw new Error('Failed to create bill');
+        if (!bill) {
+            console.error('Failed to fetch created bill', billId);
+            throw new Error('Failed to create bill - could not fetch after insert');
+        }
         return bill;
     });
 }
@@ -301,9 +301,10 @@ export async function getBills(options: {
         sql += ` AND payment_mode = ?`;
         params.push(options.paymentMode);
     }
-    if (options.status) {
-        sql += ` AND status = ?`;
-        params.push(options.status);
+    if (options.status === 'COMPLETED') {
+        sql += ` AND is_cancelled = 0`;
+    } else if (options.status === 'CANCELLED') {
+        sql += ` AND is_cancelled = 1`;
     }
 
     sql += ` ORDER BY bill_date DESC`;
@@ -361,7 +362,7 @@ export async function getTodaysSalesSummary(): Promise<{
       COALESCE(SUM(credit_amount), 0) AS credit_amount,
       COALESCE(SUM(total_gst), 0) AS total_gst
     FROM bills
-    WHERE date(bill_date) = date('now') AND status = 'COMPLETED'`,
+    WHERE date(bill_date) = date('now') AND is_cancelled = 0`,
         []
     );
 
@@ -396,7 +397,7 @@ export async function getMonthlySalesSummary(year: number, month: number): Promi
       COALESCE(SUM(grand_total), 0) AS total_amount,
       COALESCE(SUM(total_gst), 0) AS total_gst
     FROM bills
-    WHERE date(bill_date) BETWEEN ? AND ? AND status = 'COMPLETED'`,
+    WHERE date(bill_date) BETWEEN ? AND ? AND is_cancelled = 0`,
         [startDate, endDate]
     );
 
@@ -426,7 +427,7 @@ export async function getSalesTrend(days: number = 30): Promise<Array<{
       COUNT(*) AS bills
     FROM bills
     WHERE date(bill_date) >= date('now', '-' || ? || ' days')
-      AND status = 'COMPLETED'
+      AND is_cancelled = 0
     GROUP BY date(bill_date)
     ORDER BY date ASC`,
         [days]
@@ -449,7 +450,7 @@ export async function getPaymentModeBreakdown(startDate?: string, endDate?: stri
       COALESCE(SUM(grand_total), 0) AS amount,
       COUNT(*) AS count
     FROM bills
-    WHERE status = 'COMPLETED'
+    WHERE is_cancelled = 0
   `;
     const params: unknown[] = [];
 
@@ -492,7 +493,7 @@ export async function getTopSellingMedicines(
       SUM(bi.total) AS total_revenue
     FROM bill_items bi
     JOIN bills b ON bi.bill_id = b.id
-    WHERE b.status = 'COMPLETED'
+    WHERE b.is_cancelled = 0
       AND date(b.bill_date) >= date('now', '-' || ? || ' days')
     GROUP BY bi.medicine_id, bi.medicine_name
     ORDER BY quantity_sold DESC
@@ -515,7 +516,7 @@ export async function cancelBill(billId: number, userId: number, reason: string)
         // Get bill with items
         const bill = await getBillById(billId);
         if (!bill) throw new Error('Bill not found');
-        if (bill.status !== 'COMPLETED') throw new Error('Bill already cancelled or returned');
+        if (bill.is_cancelled) throw new Error('Bill already cancelled or returned');
 
         // Restore stock for each item
         for (const item of bill.items ?? []) {
@@ -546,7 +547,7 @@ export async function cancelBill(billId: number, userId: number, reason: string)
 
         // Update bill status
         await execute(
-            `UPDATE bills SET status = 'CANCELLED', notes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+            `UPDATE bills SET is_cancelled = 1, notes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
             [reason, billId]
         );
 

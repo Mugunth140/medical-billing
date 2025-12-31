@@ -629,8 +629,9 @@ export function Inventory() {
                                         <input
                                             type="number"
                                             className="form-input"
-                                            value={medicineForm.reorder_level}
-                                            onChange={(e) => setMedicineForm({ ...medicineForm, reorder_level: parseInt(e.target.value) || 10 })}
+                                            value={medicineForm.reorder_level === 0 ? '' : medicineForm.reorder_level}
+                                            onChange={(e) => setMedicineForm({ ...medicineForm, reorder_level: e.target.value === '' ? 0 : parseInt(e.target.value) })}
+                                            min="0"
                                         />
                                     </div>
                                 </div>
@@ -741,8 +742,9 @@ export function Inventory() {
                                         <input
                                             type="number"
                                             className="form-input"
-                                            value={medicineForm.reorder_level}
-                                            onChange={(e) => setMedicineForm({ ...medicineForm, reorder_level: parseInt(e.target.value) || 10 })}
+                                            value={medicineForm.reorder_level === 0 ? '' : medicineForm.reorder_level}
+                                            onChange={(e) => setMedicineForm({ ...medicineForm, reorder_level: e.target.value === '' ? 0 : parseInt(e.target.value) })}
+                                            min="0"
                                         />
                                     </div>
                                 </div>
@@ -841,7 +843,7 @@ export function Inventory() {
                                             step="0.01"
                                             className="form-input"
                                             value={batchForm.purchase_price || ''}
-                                            onChange={(e) => setBatchForm({ ...batchForm, purchase_price: parseFloat(e.target.value) || 0 })}
+                                            onChange={(e) => setBatchForm({ ...batchForm, purchase_price: e.target.value === '' ? 0 : parseFloat(e.target.value) })}
                                             required
                                         />
                                     </div>
@@ -853,7 +855,7 @@ export function Inventory() {
                                             className="form-input"
                                             value={batchForm.mrp || ''}
                                             onChange={(e) => {
-                                                const mrp = parseFloat(e.target.value) || 0;
+                                                const mrp = e.target.value === '' ? 0 : parseFloat(e.target.value);
                                                 setBatchForm({ ...batchForm, mrp, selling_price: mrp });
                                             }}
                                             required
@@ -866,7 +868,7 @@ export function Inventory() {
                                             step="0.01"
                                             className="form-input"
                                             value={batchForm.selling_price || ''}
-                                            onChange={(e) => setBatchForm({ ...batchForm, selling_price: parseFloat(e.target.value) || 0 })}
+                                            onChange={(e) => setBatchForm({ ...batchForm, selling_price: e.target.value === '' ? 0 : parseFloat(e.target.value) })}
                                             required
                                         />
                                     </div>
@@ -887,8 +889,9 @@ export function Inventory() {
                                             type="number"
                                             className="form-input"
                                             value={batchForm.quantity || ''}
-                                            onChange={(e) => setBatchForm({ ...batchForm, quantity: parseInt(e.target.value) || 0 })}
+                                            onChange={(e) => setBatchForm({ ...batchForm, quantity: e.target.value === '' ? 0 : parseInt(e.target.value) })}
                                             required
+                                            min="0"
                                         />
                                     </div>
                                     <div className="form-group">

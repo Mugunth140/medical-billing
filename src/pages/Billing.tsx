@@ -1,5 +1,5 @@
 // =====================================================
-// MedBill - Billing Page
+// Billing Page
 // POS-style multi-item billing with GST calculations
 // =====================================================
 
@@ -19,6 +19,7 @@ import {
     X
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useToast } from '../components/common/Toast';
 import { createBill } from '../services/billing.service';
 import { query } from '../services/database';
 import { calculateBill, formatCurrency } from '../services/gst.service';
@@ -49,6 +50,7 @@ export function Billing() {
         clearBill
     } = useBillingStore();
 
+    const { showToast } = useToast();
     const [searchQuery, setSearchQuery] = useState('');
     const [searchResults, setSearchResults] = useState<StockItem[]>([]);
     const [showSearchDropdown, setShowSearchDropdown] = useState(false);
@@ -156,6 +158,7 @@ export function Billing() {
         // Validate credit sale requires customer
         if (paymentMode === 'CREDIT' && !customerId) {
             setError('Please select a customer for credit sale');
+            showToast('warning', 'Please select a customer for credit sale');
             return;
         }
 
@@ -185,17 +188,35 @@ export function Billing() {
 
             setLastBill(bill);
             setShowSuccessModal(true);
+            showToast('success', `Bill ${bill.bill_number} created successfully!`);
             clearBill();
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Failed to create bill');
+            console.error('Bill creation error:', err);
+            let errorMessage = 'Failed to create bill';
+            if (err instanceof Error) {
+                errorMessage = err.message;
+            } else if (typeof err === 'string') {
+                errorMessage = err;
+            } else {
+                errorMessage = JSON.stringify(err);
+            }
+
+            setError(errorMessage);
+            showToast('error', errorMessage);
         }
 
         setIsSubmitting(false);
     };
 
     const handlePrint = () => {
-        // TODO: Implement thermal printing
-        window.print();
+        // Note: Thermal printing requires proper printer setup
+        // For now, use browser print which works without a connected printer
+        try {
+            window.print();
+            showToast('info', 'Print dialog opened. Bill saved to history.');
+        } catch {
+            showToast('warning', 'Printer not connected. Bill has been saved to history.');
+        }
     };
 
     return (
@@ -607,7 +628,10 @@ export function Billing() {
                                                         type="number"
                                                         className="qty-input"
                                                         value={item.quantity}
-                                                        onChange={(e) => updateItemQuantity(item.batch.batch_id, parseInt(e.target.value) || 1)}
+                                                        onChange={(e) => {
+                                                            const val = e.target.value === '' ? 1 : parseInt(e.target.value);
+                                                            updateItemQuantity(item.batch.batch_id, Math.max(1, val));
+                                                        }}
                                                         min={1}
                                                         max={item.batch.quantity}
                                                     />
@@ -721,8 +745,8 @@ export function Billing() {
                                         <input
                                             type="number"
                                             className="form-input"
-                                            value={cashAmount}
-                                            onChange={(e) => setSplitAmounts(parseFloat(e.target.value) || 0, onlineAmount)}
+                                            value={cashAmount || ''}
+                                            onChange={(e) => setSplitAmounts(e.target.value === '' ? 0 : parseFloat(e.target.value), onlineAmount)}
                                         />
                                     </div>
                                     <div className="form-group mb-0">
@@ -730,8 +754,8 @@ export function Billing() {
                                         <input
                                             type="number"
                                             className="form-input"
-                                            value={onlineAmount}
-                                            onChange={(e) => setSplitAmounts(cashAmount, parseFloat(e.target.value) || 0)}
+                                            value={onlineAmount || ''}
+                                            onChange={(e) => setSplitAmounts(cashAmount, e.target.value === '' ? 0 : parseFloat(e.target.value))}
                                         />
                                     </div>
                                 </div>
@@ -765,7 +789,7 @@ export function Billing() {
                                     value={discountValue || ''}
                                     onChange={(e) => setBillDiscount(
                                         discountType,
-                                        parseFloat(e.target.value) || 0
+                                        e.target.value === '' ? 0 : parseFloat(e.target.value)
                                     )}
                                     disabled={!discountType}
                                 />

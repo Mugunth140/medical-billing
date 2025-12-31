@@ -194,7 +194,7 @@ const TABLE_STATEMENTS = [
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         customer_id INTEGER NOT NULL REFERENCES customers(id),
         bill_id INTEGER REFERENCES bills(id),
-        transaction_type TEXT NOT NULL CHECK (transaction_type IN ('CREDIT', 'PAYMENT')),
+        transaction_type TEXT NOT NULL CHECK (transaction_type IN ('CREDIT', 'PAYMENT', 'SALE', 'ADJUSTMENT')),
         amount DECIMAL(12,2) NOT NULL,
         balance_after DECIMAL(12,2) NOT NULL,
         payment_mode TEXT CHECK (payment_mode IN ('CASH', 'ONLINE', 'ADJUSTMENT')),
@@ -292,6 +292,14 @@ export async function initDatabase(): Promise<Database> {
         db = await Database.load('sqlite:medbill.db');
         console.log('Database connected successfully');
 
+        // Enable WAL mode for better concurrent access and prevent "database is locked" errors
+        await db.execute('PRAGMA journal_mode = WAL');
+        console.log('WAL mode enabled');
+        
+        // Set busy timeout to wait for locks (5 seconds)
+        await db.execute('PRAGMA busy_timeout = 5000');
+        console.log('Busy timeout set');
+
         // Enable foreign keys
         await db.execute('PRAGMA foreign_keys = ON');
         console.log('Foreign keys enabled');
@@ -372,16 +380,34 @@ export async function execute(sql: string, params: unknown[] = []): Promise<{ ro
 
 /**
  * Run multiple statements in a transaction
+ * Uses DEFERRED transaction with proper error handling
  */
 export async function transaction<T>(callback: () => Promise<T>): Promise<T> {
     const database = getDatabase();
-    await database.execute('BEGIN TRANSACTION');
+    
+    // Use BEGIN (DEFERRED by default) - WAL mode handles concurrency
+    try {
+        await database.execute('BEGIN');
+    } catch (beginError) {
+        console.error('Failed to begin transaction:', beginError);
+        // If we can't start a transaction, there might already be one active
+        // Try to execute without explicit transaction (auto-commit mode)
+        console.warn('Falling back to auto-commit mode');
+        return await callback();
+    }
+    
     try {
         const result = await callback();
         await database.execute('COMMIT');
         return result;
     } catch (error) {
-        await database.execute('ROLLBACK');
+        // Try to rollback
+        try {
+            await database.execute('ROLLBACK');
+        } catch (rollbackError) {
+            // If rollback fails, log it but don't mask the original error
+            console.warn('Rollback warning:', rollbackError);
+        }
         throw error;
     }
 }

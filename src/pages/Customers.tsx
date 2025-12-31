@@ -38,6 +38,7 @@ export function Customers() {
         name: '',
         phone: '',
         email: '',
+        gstin: '',
         address: '',
         credit_limit: 5000
     });
@@ -100,19 +101,20 @@ export function Customers() {
         e.preventDefault();
         try {
             await execute(
-                `INSERT INTO customers (name, phone, email, address, credit_limit)
-         VALUES (?, ?, ?, ?, ?)`,
+                `INSERT INTO customers (name, phone, email, gstin, address, credit_limit)
+         VALUES (?, ?, ?, ?, ?, ?)`,
                 [
                     customerForm.name,
                     customerForm.phone || null,
                     customerForm.email || null,
+                    customerForm.gstin || null,
                     customerForm.address || null,
                     customerForm.credit_limit || 5000
                 ]
             );
             showToast('success', `Customer "${customerForm.name}" added successfully!`);
             setShowAddModal(false);
-            setCustomerForm({ name: '', phone: '', email: '', address: '', credit_limit: 5000 });
+            setCustomerForm({ name: '', phone: '', email: '', gstin: '', address: '', credit_limit: 5000 });
             loadCustomers();
         } catch (error) {
             console.error('Failed to add customer:', error);
@@ -125,11 +127,12 @@ export function Customers() {
         if (!selectedCustomer) return;
         try {
             await execute(
-                `UPDATE customers SET name = ?, phone = ?, email = ?, address = ?, credit_limit = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+                `UPDATE customers SET name = ?, phone = ?, email = ?, gstin = ?, address = ?, credit_limit = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
                 [
                     customerForm.name,
                     customerForm.phone || null,
                     customerForm.email || null,
+                    customerForm.gstin || null,
                     customerForm.address || null,
                     customerForm.credit_limit || 5000,
                     selectedCustomer.id
@@ -197,6 +200,7 @@ export function Customers() {
                 name: selectedCustomer.name,
                 phone: selectedCustomer.phone || '',
                 email: selectedCustomer.email || '',
+                gstin: selectedCustomer.gstin || '',
                 address: selectedCustomer.address || '',
                 credit_limit: selectedCustomer.credit_limit
             });
@@ -614,6 +618,18 @@ export function Customers() {
                                     />
                                 </div>
                                 <div className="form-group">
+                                    <label className="form-label">GSTIN (Optional)</label>
+                                    <input
+                                        type="text"
+                                        className="form-input"
+                                        value={customerForm.gstin}
+                                        onChange={(e) => setCustomerForm({ ...customerForm, gstin: e.target.value.toUpperCase() })}
+                                        placeholder="e.g., 22AAAAA0000A1Z5"
+                                        maxLength={15}
+                                    />
+                                    <small className="text-secondary">For B2B billing with GST credit</small>
+                                </div>
+                                <div className="form-group">
                                     <label className="form-label">Address</label>
                                     <textarea
                                         className="form-textarea"
@@ -627,8 +643,9 @@ export function Customers() {
                                     <input
                                         type="number"
                                         className="form-input"
-                                        value={customerForm.credit_limit}
-                                        onChange={(e) => setCustomerForm({ ...customerForm, credit_limit: parseFloat(e.target.value) || 0 })}
+                                        value={customerForm.credit_limit || ''}
+                                        onChange={(e) => setCustomerForm({ ...customerForm, credit_limit: e.target.value === '' ? 0 : parseFloat(e.target.value) })}
+                                        min="0"
                                     />
                                 </div>
                             </div>
@@ -686,6 +703,18 @@ export function Customers() {
                                     />
                                 </div>
                                 <div className="form-group">
+                                    <label className="form-label">GSTIN (Optional)</label>
+                                    <input
+                                        type="text"
+                                        className="form-input"
+                                        value={customerForm.gstin}
+                                        onChange={(e) => setCustomerForm({ ...customerForm, gstin: e.target.value.toUpperCase() })}
+                                        placeholder="e.g., 22AAAAA0000A1Z5"
+                                        maxLength={15}
+                                    />
+                                    <small className="text-secondary">For B2B billing with GST credit</small>
+                                </div>
+                                <div className="form-group">
                                     <label className="form-label">Address</label>
                                     <textarea
                                         className="form-textarea"
@@ -699,8 +728,9 @@ export function Customers() {
                                     <input
                                         type="number"
                                         className="form-input"
-                                        value={customerForm.credit_limit}
-                                        onChange={(e) => setCustomerForm({ ...customerForm, credit_limit: parseFloat(e.target.value) || 0 })}
+                                        value={customerForm.credit_limit || ''}
+                                        onChange={(e) => setCustomerForm({ ...customerForm, credit_limit: e.target.value === '' ? 0 : parseFloat(e.target.value) })}
+                                        min="0"
                                     />
                                 </div>
                             </div>
@@ -769,9 +799,10 @@ export function Customers() {
                                 <input
                                     type="number"
                                     className="form-input form-input-lg"
-                                    value={paymentAmount}
-                                    onChange={(e) => setPaymentAmount(parseFloat(e.target.value) || 0)}
+                                    value={paymentAmount || ''}
+                                    onChange={(e) => setPaymentAmount(e.target.value === '' ? 0 : parseFloat(e.target.value))}
                                     max={selectedCustomer.current_balance}
+                                    min="0"
                                     autoFocus
                                 />
                             </div>
