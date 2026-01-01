@@ -35,6 +35,7 @@ const TABLE_STATEMENTS = [
         drug_type TEXT,
         unit TEXT DEFAULT 'PCS',
         reorder_level INTEGER DEFAULT 10,
+        is_schedule INTEGER DEFAULT 0,
         is_active INTEGER DEFAULT 1,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -237,6 +238,24 @@ const TABLE_STATEMENTS = [
         current_number INTEGER NOT NULL DEFAULT 0,
         financial_year TEXT NOT NULL,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`,
+
+    // Scheduled Medicine Records Table - Patient details for scheduled drug sales
+    `CREATE TABLE IF NOT EXISTS scheduled_medicine_records (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        bill_id INTEGER NOT NULL REFERENCES bills(id),
+        bill_item_id INTEGER NOT NULL REFERENCES bill_items(id),
+        medicine_id INTEGER NOT NULL REFERENCES medicines(id),
+        batch_id INTEGER NOT NULL REFERENCES batches(id),
+        patient_name TEXT NOT NULL,
+        patient_age INTEGER,
+        patient_gender TEXT CHECK (patient_gender IN ('M', 'F', 'O')),
+        patient_phone TEXT,
+        patient_address TEXT,
+        doctor_name TEXT,
+        prescription_number TEXT,
+        quantity INTEGER NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`
 ];
 
@@ -245,6 +264,7 @@ const INDEX_STATEMENTS = [
     `CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)`,
     `CREATE INDEX IF NOT EXISTS idx_medicines_name ON medicines(name)`,
     `CREATE INDEX IF NOT EXISTS idx_medicines_hsn ON medicines(hsn_code)`,
+    `CREATE INDEX IF NOT EXISTS idx_medicines_schedule ON medicines(is_schedule)`,
     `CREATE INDEX IF NOT EXISTS idx_batches_medicine ON batches(medicine_id)`,
     `CREATE INDEX IF NOT EXISTS idx_batches_expiry ON batches(expiry_date)`,
     `CREATE INDEX IF NOT EXISTS idx_batches_location ON batches(rack, box)`,
@@ -254,7 +274,9 @@ const INDEX_STATEMENTS = [
     `CREATE INDEX IF NOT EXISTS idx_bill_items_bill ON bill_items(bill_id)`,
     `CREATE INDEX IF NOT EXISTS idx_purchases_supplier ON purchases(supplier_id)`,
     `CREATE INDEX IF NOT EXISTS idx_credits_customer ON credits(customer_id)`,
-    `CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_log(entity_type, entity_id)`
+    `CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_log(entity_type, entity_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_scheduled_medicine_bill ON scheduled_medicine_records(bill_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_scheduled_medicine_medicine ON scheduled_medicine_records(medicine_id)`
 ];
 
 // Default data statements
@@ -354,7 +376,9 @@ export async function initDatabase(): Promise<Database> {
             `ALTER TABLE bill_items ADD COLUMN quantity_pieces INTEGER DEFAULT 0`,
             `ALTER TABLE bill_items ADD COLUMN tablets_per_strip INTEGER DEFAULT 10`,
             // Add total_items to bills if not exists
-            `ALTER TABLE bills ADD COLUMN total_items INTEGER DEFAULT 0`
+            `ALTER TABLE bills ADD COLUMN total_items INTEGER DEFAULT 0`,
+            // Add is_schedule column to medicines for scheduled drug tracking
+            `ALTER TABLE medicines ADD COLUMN is_schedule INTEGER DEFAULT 0`
         ];
         for (const migration of migrations) {
             try {

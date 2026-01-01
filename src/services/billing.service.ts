@@ -207,8 +207,37 @@ export async function createBill(
                 ]
             );
 
+            const billItemId = (await queryOne<{ last_insert_rowid: number }>(
+                'SELECT last_insert_rowid() as last_insert_rowid', []
+            ))?.last_insert_rowid ?? 0;
+
             // Update batch quantity (stored in tablets) and last sold date
             await updateBatchQuantity(batch.batch_id, -itemInput.quantity, true);
+
+            // 6b. If this is a scheduled medicine and patient info is provided, save the record
+            if (batch.is_schedule && input.patient_info && input.patient_info.patient_name) {
+                await execute(
+                    `INSERT INTO scheduled_medicine_records (
+                        bill_id, bill_item_id, medicine_id, batch_id,
+                        patient_name, patient_age, patient_gender, patient_phone,
+                        patient_address, doctor_name, prescription_number, quantity
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    [
+                        billId,
+                        billItemId,
+                        batch.medicine_id,
+                        batch.batch_id,
+                        input.patient_info.patient_name,
+                        input.patient_info.patient_age ?? null,
+                        input.patient_info.patient_gender ?? null,
+                        input.patient_info.patient_phone ?? null,
+                        input.patient_info.patient_address ?? null,
+                        input.patient_info.doctor_name ?? null,
+                        input.patient_info.prescription_number ?? null,
+                        itemInput.quantity
+                    ]
+                );
+            }
         }
 
         // 7. Handle credit if applicable

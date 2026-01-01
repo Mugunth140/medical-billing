@@ -6,6 +6,18 @@
 import { execute, initDatabase, query, transaction } from './database';
 
 /**
+ * Safely delete from a table if it exists
+ */
+async function safeDelete(tableName: string): Promise<void> {
+    try {
+        await execute(`DELETE FROM ${tableName}`, []);
+    } catch (error) {
+        // Table might not exist, that's okay
+        console.log(`Skipped clearing ${tableName} (may not exist)`);
+    }
+}
+
+/**
  * Clear all user data from the database (keep schema and default settings)
  */
 export async function clearDatabase(): Promise<void> {
@@ -13,32 +25,40 @@ export async function clearDatabase(): Promise<void> {
 
     await initDatabase();
 
-    await transaction(async () => {
-        // Clear in order respecting foreign keys
-        await execute('DELETE FROM credits', []);
-        await execute('DELETE FROM sales_return_items', []);
-        await execute('DELETE FROM sales_returns', []);
-        await execute('DELETE FROM purchase_return_items', []);
-        await execute('DELETE FROM purchase_returns', []);
-        await execute('DELETE FROM bill_items', []);
-        await execute('DELETE FROM bills', []);
-        await execute('DELETE FROM purchase_items', []);
-        await execute('DELETE FROM purchases', []);
-        await execute('DELETE FROM batches', []);
-        await execute('DELETE FROM medicines', []);
-        await execute('DELETE FROM customers', []);
-        await execute('DELETE FROM suppliers', []);
-        await execute('DELETE FROM audit_log', []);
+    // Clear in order respecting foreign keys
+    // Use safeDelete for tables that may not exist in runtime schema
+    await safeDelete('credits');
+    await safeDelete('scheduled_medicine_records');
+    await safeDelete('sales_return_items');
+    await safeDelete('sales_returns');
+    await safeDelete('purchase_return_items');
+    await safeDelete('purchase_returns');
+    await safeDelete('bill_items');
+    await safeDelete('bills');
+    await safeDelete('purchase_items');
+    await safeDelete('purchases');
+    await safeDelete('batches');
+    await safeDelete('medicines');
+    await safeDelete('customers');
+    await safeDelete('suppliers');
+    await safeDelete('audit_log');
 
-        // Reset bill sequence
+    // Reset bill sequence
+    try {
         await execute('UPDATE bill_sequence SET current_number = 0', []);
+    } catch (error) {
+        console.log('Bill sequence reset skipped');
+    }
 
-        // Mark that we've already done the tablet migration (since we're seeding fresh data in tablets)
+    // Mark that we've already done the tablet migration (since we're seeding fresh data in tablets)
+    try {
         await execute(
             `INSERT OR REPLACE INTO settings (key, value, category, description) VALUES ('tablets_migration_done', 'true', 'system', 'Quantity stored in tablets')`,
             []
         );
-    });
+    } catch (error) {
+        console.log('Settings update skipped');
+    }
 
     console.log('Database cleared successfully!');
 }

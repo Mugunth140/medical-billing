@@ -4,11 +4,11 @@
 // =====================================================
 
 import type {
-  Batch,
-  CreateBatchInput,
-  CreateMedicineInput,
-  Medicine,
-  StockItem
+    Batch,
+    CreateBatchInput,
+    CreateMedicineInput,
+    Medicine,
+    StockItem
 } from '../types';
 import { execute, query, queryOne } from './database';
 
@@ -72,6 +72,7 @@ export async function searchMedicinesForBilling(searchTerm: string): Promise<Sto
       m.category,
       m.unit,
       m.reorder_level,
+      COALESCE(m.is_schedule, 0) AS is_schedule,
       CASE 
         WHEN b.quantity <= 0 THEN 'OUT_OF_STOCK'
         WHEN b.quantity <= m.reorder_level THEN 'LOW_STOCK'
@@ -105,8 +106,8 @@ export async function createMedicine(input: CreateMedicineInput): Promise<number
   const result = await execute(
     `INSERT INTO medicines (
       name, generic_name, manufacturer, hsn_code, gst_rate, 
-      taxability, category, drug_type, unit, reorder_level
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      taxability, category, drug_type, unit, reorder_level, is_schedule
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       input.name,
       input.generic_name ?? null,
@@ -117,7 +118,8 @@ export async function createMedicine(input: CreateMedicineInput): Promise<number
       input.category ?? null,
       input.drug_type ?? null,
       input.unit ?? 'PCS',
-      input.reorder_level ?? 10
+      input.reorder_level ?? 10,
+      input.is_schedule ? 1 : 0
     ]
   );
 
@@ -170,6 +172,10 @@ export async function updateMedicine(id: number, input: Partial<CreateMedicineIn
   if (input.reorder_level !== undefined) {
     sets.push('reorder_level = ?');
     params.push(input.reorder_level);
+  }
+  if (input.is_schedule !== undefined) {
+    sets.push('is_schedule = ?');
+    params.push(input.is_schedule ? 1 : 0);
   }
 
   if (sets.length === 0) return;
@@ -247,6 +253,7 @@ export async function getBatchWithMedicine(batchId: number): Promise<StockItem |
       m.category,
       m.unit,
       m.reorder_level,
+      COALESCE(m.is_schedule, 0) AS is_schedule,
       CASE 
         WHEN b.quantity <= 0 THEN 'OUT_OF_STOCK'
         WHEN b.quantity <= m.reorder_level THEN 'LOW_STOCK'

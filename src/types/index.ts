@@ -63,6 +63,7 @@ export interface Medicine {
     drug_type?: string;
     unit: string;
     reorder_level: number;
+    is_schedule: boolean;
     is_active: boolean;
     created_at: string;
     updated_at: string;
@@ -412,10 +413,43 @@ export interface StockItem {
     category?: string;
     unit: string;
     reorder_level: number;
+    is_schedule: boolean;
 
     stock_status: StockStatus;
     expiry_status: ExpiryStatus;
     days_to_expiry: number;
+}
+
+export interface ScheduledMedicineRecord {
+    id: number;
+    bill_id: number;
+    bill_item_id: number;
+    medicine_id: number;
+    batch_id: number;
+    patient_name: string;
+    patient_age?: number;
+    patient_gender?: 'M' | 'F' | 'O';
+    patient_phone?: string;
+    patient_address?: string;
+    doctor_name?: string;
+    prescription_number?: string;
+    quantity: number;
+    created_at: string;
+    // Joined data
+    medicine_name?: string;
+    batch_number?: string;
+    bill_number?: string;
+    bill_date?: string;
+}
+
+export interface ScheduledMedicineInput {
+    patient_name: string;
+    patient_age?: number;
+    patient_gender?: 'M' | 'F' | 'O';
+    patient_phone?: string;
+    patient_address?: string;
+    doctor_name?: string;
+    prescription_number?: string;
 }
 
 export interface CustomerCreditSummary {
@@ -452,6 +486,7 @@ export interface CreateMedicineInput {
     drug_type?: string;
     unit?: string;
     reorder_level?: number;
+    is_schedule?: boolean;
 }
 
 export interface CreateBatchInput {
@@ -509,6 +544,8 @@ export interface CreateBillInput {
     cash_amount?: number;
     online_amount?: number;
     notes?: string;
+    // Patient details for scheduled medicines
+    patient_info?: ScheduledMedicineInput;
 }
 
 // =====================================================

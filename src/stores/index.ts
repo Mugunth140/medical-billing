@@ -5,7 +5,7 @@
 
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
-import type { DashboardStats, StockItem, User } from '../types';
+import type { DashboardStats, ScheduledMedicineInput, StockItem, User } from '../types';
 
 // =====================================================
 // AUTH STORE
@@ -82,6 +82,8 @@ interface BillingState {
     cashAmount: number;
     onlineAmount: number;
     notes: string;
+    // Patient details for scheduled medicines
+    patientInfo: ScheduledMedicineInput | null;
 
     // Actions
     addItem: (batch: StockItem, quantity?: number) => void;
@@ -94,6 +96,8 @@ interface BillingState {
     setPaymentMode: (mode: 'CASH' | 'ONLINE' | 'CREDIT' | 'SPLIT') => void;
     setSplitAmounts: (cash: number, online: number) => void;
     setNotes: (notes: string) => void;
+    setPatientInfo: (info: ScheduledMedicineInput | null) => void;
+    hasScheduledMedicines: () => boolean;
     clearBill: () => void;
 }
 
@@ -106,7 +110,8 @@ const initialBillingState = {
     paymentMode: 'CASH' as const,
     cashAmount: 0,
     onlineAmount: 0,
-    notes: ''
+    notes: '',
+    patientInfo: null
 };
 
 export const useBillingStore = create<BillingState>()((set, get) => ({
@@ -214,6 +219,13 @@ export const useBillingStore = create<BillingState>()((set, get) => ({
     setSplitAmounts: (cash, online) => set({ cashAmount: cash, onlineAmount: online }),
 
     setNotes: (notes) => set({ notes }),
+
+    setPatientInfo: (info) => set({ patientInfo: info }),
+
+    hasScheduledMedicines: () => {
+        const { items } = get();
+        return items.some(item => item.batch.is_schedule);
+    },
 
     clearBill: () => set(initialBillingState)
 }));

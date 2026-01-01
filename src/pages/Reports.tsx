@@ -4,6 +4,7 @@
 // =====================================================
 
 import {
+    AlertCircle,
     Calendar,
     Download,
     Filter,
@@ -26,9 +27,10 @@ import {
 import { getBills, getPaymentModeBreakdown, getSalesTrend, getTopSellingMedicines } from '../services/billing.service';
 import { query } from '../services/database';
 import { getExpiringItems, getStockValue } from '../services/inventory.service';
+import type { ScheduledMedicineRecord } from '../types';
 import { formatCurrency, formatDate, toISODate } from '../utils';
 
-type ReportType = 'sales' | 'gst' | 'inventory' | 'expiry' | 'credit';
+type ReportType = 'sales' | 'gst' | 'inventory' | 'expiry' | 'credit' | 'scheduled';
 
 interface ReportData {
     sales: any;
@@ -36,6 +38,7 @@ interface ReportData {
     inventory: any;
     expiry: any;
     credit: any;
+    scheduled: any;
 }
 
 export function Reports() {
@@ -152,6 +155,33 @@ export function Reports() {
                     });
                     break;
                 }
+                case 'scheduled': {
+                    const scheduledRecords = await query<ScheduledMedicineRecord>(
+                        `SELECT 
+                            smr.*,
+                            m.name as medicine_name,
+                            b.batch_number,
+                            bills.bill_number,
+                            bills.bill_date
+                        FROM scheduled_medicine_records smr
+                        JOIN medicines m ON smr.medicine_id = m.id
+                        JOIN batches b ON smr.batch_id = b.id
+                        JOIN bills ON smr.bill_id = bills.id
+                        WHERE date(smr.created_at) BETWEEN ? AND ?
+                        ORDER BY smr.created_at DESC`,
+                        [dateRange.start, dateRange.end]
+                    );
+
+                    setReportData({
+                        ...reportData,
+                        scheduled: {
+                            records: scheduledRecords,
+                            totalRecords: scheduledRecords.length,
+                            totalQuantity: scheduledRecords.reduce((sum: number, r: any) => sum + r.quantity, 0)
+                        }
+                    });
+                    break;
+                }
             }
         } catch (error) {
             console.error('Failed to load report:', error);
@@ -173,6 +203,7 @@ export function Reports() {
         { id: 'inventory', label: 'Stock Value', icon: Package },
         { id: 'expiry', label: 'Expiry Report', icon: Calendar },
         { id: 'credit', label: 'Credit Report', icon: Users },
+        { id: 'scheduled', label: 'Scheduled Drugs', icon: AlertCircle },
     ] as const;
 
     return (
@@ -646,6 +677,70 @@ export function Reports() {
                                                 </tr>
                                             </tfoot>
                                         </table>
+                                    </>
+                                )}
+
+                                {/* Scheduled Drugs Report */}
+                                {activeReport === 'scheduled' && reportData.scheduled && (
+                                    <>
+                                        <div className="report-header">
+                                            <h2 className="report-title">Scheduled Drugs Sales Report</h2>
+                                            <p style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
+                                                Register of Schedule H/H1 drug sales with patient details
+                                            </p>
+                                        </div>
+
+                                        <div className="summary-cards" style={{ gridTemplateColumns: 'repeat(2, 1fr)' }}>
+                                            <div className="summary-card">
+                                                <div className="summary-value">{reportData.scheduled.totalRecords}</div>
+                                                <div className="summary-label">Total Records</div>
+                                            </div>
+                                            <div className="summary-card">
+                                                <div className="summary-value">{reportData.scheduled.totalQuantity}</div>
+                                                <div className="summary-label">Total Quantity Sold</div>
+                                            </div>
+                                        </div>
+
+                                        {reportData.scheduled.records.length > 0 ? (
+                                            <table className="report-table">
+                                                <thead>
+                                                    <tr>
+                                                        <th>Date</th>
+                                                        <th>Bill #</th>
+                                                        <th>Medicine</th>
+                                                        <th>Batch</th>
+                                                        <th className="numeric">Qty</th>
+                                                        <th>Patient Name</th>
+                                                        <th>Age/Gender</th>
+                                                        <th>Phone</th>
+                                                        <th>Doctor</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {reportData.scheduled.records.map((r: ScheduledMedicineRecord) => (
+                                                        <tr key={r.id}>
+                                                            <td>{formatDate(r.bill_date || r.created_at)}</td>
+                                                            <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.bill_number}</td>
+                                                            <td>{r.medicine_name}</td>
+                                                            <td>{r.batch_number}</td>
+                                                            <td className="numeric">{r.quantity}</td>
+                                                            <td style={{ fontWeight: 500 }}>{r.patient_name}</td>
+                                                            <td>
+                                                                {r.patient_age ? `${r.patient_age}Y` : '-'}
+                                                                {r.patient_gender ? `/${r.patient_gender}` : ''}
+                                                            </td>
+                                                            <td>{r.patient_phone || '-'}</td>
+                                                            <td>{r.doctor_name || '-'}</td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        ) : (
+                                            <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-tertiary)' }}>
+                                                <AlertCircle size={48} strokeWidth={1} />
+                                                <p style={{ marginTop: 16 }}>No scheduled drug sales found for this period</p>
+                                            </div>
+                                        )}
                                     </>
                                 )}
                             </>

@@ -62,7 +62,8 @@ export function Inventory() {
         taxability: 'TAXABLE',
         category: '',
         unit: 'PCS',
-        reorder_level: 10
+        reorder_level: 10,
+        is_schedule: false
     });
 
     // Form state for new batch
@@ -152,7 +153,8 @@ export function Inventory() {
                 taxability: 'TAXABLE',
                 category: '',
                 unit: 'PCS',
-                reorder_level: 10
+                reorder_level: 10,
+                is_schedule: false
             });
             showToast('success', `Medicine "${medicineForm.name}" added successfully!`);
             loadData();
@@ -213,7 +215,8 @@ export function Inventory() {
             taxability: medicine.taxability,
             category: medicine.category || '',
             unit: medicine.unit,
-            reorder_level: medicine.reorder_level
+            reorder_level: medicine.reorder_level,
+            is_schedule: medicine.is_schedule || false
         });
         setShowEditMedicineModal(true);
     };
@@ -647,6 +650,20 @@ export function Inventory() {
                                             min="0"
                                         />
                                     </div>
+                                    <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                                        <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', cursor: 'pointer' }}>
+                                            <input
+                                                type="checkbox"
+                                                checked={medicineForm.is_schedule || false}
+                                                onChange={(e) => setMedicineForm({ ...medicineForm, is_schedule: e.target.checked })}
+                                                style={{ width: '18px', height: '18px' }}
+                                            />
+                                            <span style={{ fontWeight: 500 }}>Schedule H/H1 Drug</span>
+                                            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
+                                                (Requires patient details when billing)
+                                            </span>
+                                        </label>
+                                    </div>
                                 </div>
                             </div>
                             <div className="modal-footer">
@@ -759,6 +776,20 @@ export function Inventory() {
                                             onChange={(e) => setMedicineForm({ ...medicineForm, reorder_level: e.target.value === '' ? 0 : parseInt(e.target.value) })}
                                             min="0"
                                         />
+                                    </div>
+                                    <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                                        <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', cursor: 'pointer' }}>
+                                            <input
+                                                type="checkbox"
+                                                checked={medicineForm.is_schedule || false}
+                                                onChange={(e) => setMedicineForm({ ...medicineForm, is_schedule: e.target.checked })}
+                                                style={{ width: '18px', height: '18px' }}
+                                            />
+                                            <span style={{ fontWeight: 500 }}>Schedule H/H1 Drug</span>
+                                            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
+                                                (Requires patient details when billing)
+                                            </span>
+                                        </label>
                                     </div>
                                 </div>
                             </div>

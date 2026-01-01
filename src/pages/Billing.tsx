@@ -23,7 +23,7 @@ import { query } from '../services/database';
 import { calculateBill, formatCurrency } from '../services/gst.service';
 import { searchMedicinesForBilling } from '../services/inventory.service';
 import { useAuthStore, useBillingStore } from '../stores';
-import type { Bill, Customer, StockItem } from '../types';
+import type { Bill, Customer, ScheduledMedicineInput, StockItem } from '../types';
 import { debounce, formatDate } from '../utils';
 
 export function Billing() {
@@ -38,6 +38,7 @@ export function Billing() {
         cashAmount,
         onlineAmount,
         notes,
+        patientInfo,
         addItem,
         updateItemStripsPieces,
         removeItem,
@@ -45,6 +46,8 @@ export function Billing() {
         setBillDiscount,
         setPaymentMode,
         setSplitAmounts,
+        setPatientInfo,
+        hasScheduledMedicines,
         clearBill
     } = useBillingStore();
 
@@ -57,7 +60,19 @@ export function Billing() {
     const [lastBill, setLastBill] = useState<Bill | null>(null);
     const [showSuccessModal, setShowSuccessModal] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [showPatientModal, setShowPatientModal] = useState(false);
+    const [tempPatientInfo, setTempPatientInfo] = useState<ScheduledMedicineInput>({
+        patient_name: '',
+        patient_age: undefined,
+        patient_gender: undefined,
+        patient_phone: '',
+        patient_address: '',
+        doctor_name: '',
+        prescription_number: ''
+    });
 
+    // Check if cart has scheduled medicines
+    const hasScheduled = hasScheduledMedicines();
     const searchInputRef = useRef<HTMLInputElement>(null);
 
     // Calculate bill totals (per-piece pricing)
@@ -149,6 +164,14 @@ export function Billing() {
             return;
         }
 
+        // Check if scheduled medicines require patient info
+        if (hasScheduled && (!patientInfo || !patientInfo.patient_name)) {
+            setError('Patient details required for scheduled medicines');
+            showToast('warning', 'Please enter patient details for scheduled medicines');
+            setShowPatientModal(true);
+            return;
+        }
+
         setIsSubmitting(true);
         setError(null);
 
@@ -170,7 +193,8 @@ export function Billing() {
                     payment_mode: paymentMode,
                     cash_amount: cashAmount,
                     online_amount: onlineAmount,
-                    notes: notes || undefined
+                    notes: notes || undefined,
+                    patient_info: hasScheduled ? patientInfo ?? undefined : undefined
                 },
                 user!.id
             );
@@ -179,6 +203,16 @@ export function Billing() {
             setShowSuccessModal(true);
             showToast('success', `Bill ${bill.bill_number} created!`);
             clearBill();
+            // Reset patient info form
+            setTempPatientInfo({
+                patient_name: '',
+                patient_age: undefined,
+                patient_gender: undefined,
+                patient_phone: '',
+                patient_address: '',
+                doctor_name: '',
+                prescription_number: ''
+            });
         } catch (err) {
             console.error('Bill creation error:', err);
             const errorMessage = err instanceof Error ? err.message : 'Failed to create bill';
@@ -644,6 +678,42 @@ export function Billing() {
                         </select>
                     </div>
 
+                    {/* Patient Details for Scheduled Medicines */}
+                    {hasScheduled && (
+                        <div className="pos-card" style={{ borderColor: patientInfo?.patient_name ? 'var(--color-success-500)' : 'var(--color-warning-500)', borderWidth: 2 }}>
+                            <div className="pos-card-title" style={{ color: patientInfo?.patient_name ? 'var(--color-success-600)' : 'var(--color-warning-600)' }}>
+                                <AlertCircle size={14} /> Patient Details (Required)
+                            </div>
+                            {patientInfo?.patient_name ? (
+                                <div style={{ fontSize: 12 }}>
+                                    <div style={{ fontWeight: 600 }}>{patientInfo.patient_name}</div>
+                                    {patientInfo.patient_age && <span>Age: {patientInfo.patient_age} </span>}
+                                    {patientInfo.patient_gender && <span>({patientInfo.patient_gender}) </span>}
+                                    {patientInfo.patient_phone && <div>📞 {patientInfo.patient_phone}</div>}
+                                    {patientInfo.doctor_name && <div>Dr. {patientInfo.doctor_name}</div>}
+                                    <button
+                                        className="btn btn-sm btn-secondary"
+                                        style={{ marginTop: 8, width: '100%' }}
+                                        onClick={() => {
+                                            setTempPatientInfo(patientInfo);
+                                            setShowPatientModal(true);
+                                        }}
+                                    >
+                                        Edit Details
+                                    </button>
+                                </div>
+                            ) : (
+                                <button
+                                    className="btn btn-warning"
+                                    style={{ width: '100%' }}
+                                    onClick={() => setShowPatientModal(true)}
+                                >
+                                    Enter Patient Details
+                                </button>
+                            )}
+                        </div>
+                    )}
+
                     {/* Payment */}
                     <div className="pos-card">
                         <div className="pos-card-title">
@@ -788,6 +858,115 @@ export function Billing() {
                                 </button>
                             </div>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Patient Details Modal for Scheduled Medicines */}
+            {showPatientModal && (
+                <div className="modal-overlay" onClick={() => setShowPatientModal(false)}>
+                    <div className="modal modal-md" onClick={(e) => e.stopPropagation()}>
+                        <div className="modal-header">
+                            <h3 className="modal-title">Patient Details (Schedule H/H1 Drug)</h3>
+                            <button className="btn btn-ghost btn-icon" onClick={() => setShowPatientModal(false)}>
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <form onSubmit={(e) => {
+                            e.preventDefault();
+                            if (tempPatientInfo.patient_name) {
+                                setPatientInfo(tempPatientInfo);
+                                setShowPatientModal(false);
+                            }
+                        }}>
+                            <div className="modal-body">
+                                <p style={{ marginBottom: 16, color: 'var(--text-secondary)', fontSize: 13 }}>
+                                    As per drug regulations, patient details are required for scheduled medicines.
+                                </p>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)' }}>
+                                    <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                                        <label className="form-label">Patient Name *</label>
+                                        <input
+                                            type="text"
+                                            className="form-input"
+                                            value={tempPatientInfo.patient_name}
+                                            onChange={(e) => setTempPatientInfo({ ...tempPatientInfo, patient_name: e.target.value })}
+                                            required
+                                            autoFocus
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Age</label>
+                                        <input
+                                            type="number"
+                                            className="form-input"
+                                            value={tempPatientInfo.patient_age ?? ''}
+                                            onChange={(e) => setTempPatientInfo({ ...tempPatientInfo, patient_age: e.target.value ? parseInt(e.target.value) : undefined })}
+                                            min="0"
+                                            max="150"
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Gender</label>
+                                        <select
+                                            className="form-select"
+                                            value={tempPatientInfo.patient_gender ?? ''}
+                                            onChange={(e) => setTempPatientInfo({ ...tempPatientInfo, patient_gender: e.target.value as 'M' | 'F' | 'O' | undefined || undefined })}
+                                        >
+                                            <option value="">Select</option>
+                                            <option value="M">Male</option>
+                                            <option value="F">Female</option>
+                                            <option value="O">Other</option>
+                                        </select>
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Phone</label>
+                                        <input
+                                            type="tel"
+                                            className="form-input"
+                                            value={tempPatientInfo.patient_phone ?? ''}
+                                            onChange={(e) => setTempPatientInfo({ ...tempPatientInfo, patient_phone: e.target.value })}
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Doctor Name</label>
+                                        <input
+                                            type="text"
+                                            className="form-input"
+                                            value={tempPatientInfo.doctor_name ?? ''}
+                                            onChange={(e) => setTempPatientInfo({ ...tempPatientInfo, doctor_name: e.target.value })}
+                                        />
+                                    </div>
+                                    <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                                        <label className="form-label">Address</label>
+                                        <input
+                                            type="text"
+                                            className="form-input"
+                                            value={tempPatientInfo.patient_address ?? ''}
+                                            onChange={(e) => setTempPatientInfo({ ...tempPatientInfo, patient_address: e.target.value })}
+                                        />
+                                    </div>
+                                    <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                                        <label className="form-label">Prescription Number</label>
+                                        <input
+                                            type="text"
+                                            className="form-input"
+                                            value={tempPatientInfo.prescription_number ?? ''}
+                                            onChange={(e) => setTempPatientInfo({ ...tempPatientInfo, prescription_number: e.target.value })}
+                                            placeholder="Optional"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="modal-footer">
+                                <button type="button" className="btn btn-secondary" onClick={() => setShowPatientModal(false)}>
+                                    Cancel
+                                </button>
+                                <button type="submit" className="btn btn-primary" disabled={!tempPatientInfo.patient_name}>
+                                    Save Patient Details
+                                </button>
+                            </div>
+                        </form>
                     </div>
                 </div>
             )}
