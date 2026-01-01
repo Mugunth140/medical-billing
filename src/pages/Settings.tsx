@@ -3,11 +3,14 @@
 // Application Settings and Configuration
 // =====================================================
 
+import { open, save } from '@tauri-apps/plugin-dialog';
+import { readFile, writeFile } from '@tauri-apps/plugin-fs';
 import {
     AlertCircle,
     Check,
     Database,
     Download,
+    Edit2,
     HardDrive,
     Package,
     Printer,
@@ -15,15 +18,33 @@ import {
     Store,
     Trash2,
     Upload,
-    Users
+    Users,
+    X
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { execute, query } from '../services/database';
+import { createUser, deactivateUser, updateUser } from '../services/auth.service';
+import { execute, exportDatabase, importDatabase, query } from '../services/database';
 import { clearDatabase, seedDatabase } from '../services/seed';
 import { useAuthStore, useSettingsStore } from '../stores';
-import type { User } from '../types';
+import type { User, UserRole } from '../types';
 
 type SettingsTab = 'shop' | 'billing' | 'users' | 'backup' | 'about';
+
+interface UserFormData {
+    username: string;
+    password: string;
+    confirmPassword: string;
+    full_name: string;
+    role: UserRole;
+}
+
+const initialUserForm: UserFormData = {
+    username: '',
+    password: '',
+    confirmPassword: '',
+    full_name: '',
+    role: 'staff'
+};
 
 export function Settings() {
     const { user } = useAuthStore();
@@ -32,6 +53,16 @@ export function Settings() {
     const [isSaving, setIsSaving] = useState(false);
     const [saveSuccess, setSaveSuccess] = useState(false);
     const [users, setUsers] = useState<User[]>([]);
+    
+    // User management state
+    const [showUserModal, setShowUserModal] = useState(false);
+    const [editingUser, setEditingUser] = useState<User | null>(null);
+    const [userForm, setUserForm] = useState<UserFormData>(initialUserForm);
+    const [userFormError, setUserFormError] = useState<string>('');
+    
+    // Backup state
+    const [isBackingUp, setIsBackingUp] = useState(false);
+    const [isRestoring, setIsRestoring] = useState(false);
 
     // Shop settings form
     const [shopForm, setShopForm] = useState({
@@ -123,13 +154,198 @@ export function Settings() {
     };
 
     const handleBackup = async () => {
-        // TODO: Implement actual backup using Tauri FS plugin
-        alert('Backup functionality will be implemented with Tauri FS plugin');
+        setIsBackingUp(true);
+        try {
+            // Get the database content as JSON
+            const backupData = await exportDatabase();
+            
+            // Show save dialog
+            const filePath = await save({
+                title: 'Save Database Backup',
+                defaultPath: `medbill_backup_${new Date().toISOString().split('T')[0]}.json`,
+                filters: [{ name: 'JSON Backup', extensions: ['json'] }]
+            });
+            
+            if (filePath) {
+                // Write the backup file
+                const encoder = new TextEncoder();
+                await writeFile(filePath, encoder.encode(JSON.stringify(backupData, null, 2)));
+                alert('Backup created successfully!');
+            }
+        } catch (error) {
+            console.error('Backup failed:', error);
+            alert('Failed to create backup. Check console for details.');
+        }
+        setIsBackingUp(false);
     };
 
     const handleRestore = async () => {
-        // TODO: Implement actual restore using Tauri dialog and FS plugins
-        alert('Restore functionality will be implemented with Tauri dialog plugin');
+        if (!confirm('⚠️ WARNING: This will replace ALL current data with the backup data.\n\nAre you sure you want to continue?')) {
+            return;
+        }
+        
+        setIsRestoring(true);
+        try {
+            // Show open dialog
+            const filePath = await open({
+                title: 'Select Backup File',
+                filters: [{ name: 'JSON Backup', extensions: ['json'] }],
+                multiple: false
+            });
+            
+            if (filePath && typeof filePath === 'string') {
+                // Read the backup file
+                const fileData = await readFile(filePath);
+                const decoder = new TextDecoder();
+                const jsonString = decoder.decode(fileData);
+                const backupData = JSON.parse(jsonString);
+                
+                // Import the data
+                await importDatabase(backupData);
+                alert('Database restored successfully! The app will now reload.');
+                window.location.reload();
+            }
+        } catch (error) {
+            console.error('Restore failed:', error);
+            alert('Failed to restore backup. The file may be corrupted or incompatible.');
+        }
+        setIsRestoring(false);
+    };
+
+    // User management functions
+    const handleOpenUserModal = (userToEdit?: User) => {
+        if (userToEdit) {
+            setEditingUser(userToEdit);
+            setUserForm({
+                username: userToEdit.username,
+                password: '',
+                confirmPassword: '',
+                full_name: userToEdit.full_name,
+                role: userToEdit.role
+            });
+        } else {
+            setEditingUser(null);
+            setUserForm(initialUserForm);
+        }
+        setUserFormError('');
+        setShowUserModal(true);
+    };
+
+    const handleCloseUserModal = () => {
+        setShowUserModal(false);
+        setEditingUser(null);
+        setUserForm(initialUserForm);
+        setUserFormError('');
+    };
+
+    const handleSaveUser = async () => {
+        // Validation
+        if (!userForm.full_name.trim()) {
+            setUserFormError('Full name is required');
+            return;
+        }
+        if (!userForm.username.trim()) {
+            setUserFormError('Username is required');
+            return;
+        }
+        if (userForm.username.length < 3) {
+            setUserFormError('Username must be at least 3 characters');
+            return;
+        }
+        
+        if (!editingUser) {
+            // New user - password required
+            if (!userForm.password) {
+                setUserFormError('Password is required');
+                return;
+            }
+            if (userForm.password.length < 4) {
+                setUserFormError('Password must be at least 4 characters');
+                return;
+            }
+            if (userForm.password !== userForm.confirmPassword) {
+                setUserFormError('Passwords do not match');
+                return;
+            }
+        } else if (userForm.password) {
+            // Editing user with new password
+            if (userForm.password.length < 4) {
+                setUserFormError('Password must be at least 4 characters');
+                return;
+            }
+            if (userForm.password !== userForm.confirmPassword) {
+                setUserFormError('Passwords do not match');
+                return;
+            }
+        }
+
+        setIsSaving(true);
+        try {
+            if (editingUser) {
+                // Update existing user
+                await updateUser(editingUser.id, {
+                    full_name: userForm.full_name,
+                    role: userForm.role
+                });
+                // Update password if provided
+                if (userForm.password) {
+                    await execute(
+                        'UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+                        [userForm.password, editingUser.id]
+                    );
+                }
+            } else {
+                // Create new user
+                await createUser(
+                    userForm.username.trim().toLowerCase(),
+                    userForm.password,
+                    userForm.full_name.trim(),
+                    userForm.role
+                );
+            }
+            
+            handleCloseUserModal();
+            await loadUsers();
+            setSaveSuccess(true);
+            setTimeout(() => setSaveSuccess(false), 3000);
+        } catch (error: any) {
+            console.error('Failed to save user:', error);
+            if (error.message?.includes('UNIQUE constraint')) {
+                setUserFormError('Username already exists');
+            } else {
+                setUserFormError('Failed to save user. Please try again.');
+            }
+        }
+        setIsSaving(false);
+    };
+
+    const handleDeleteUser = async (userToDelete: User) => {
+        // Prevent deleting yourself
+        if (userToDelete.id === user?.id) {
+            alert('You cannot delete your own account!');
+            return;
+        }
+        
+        // Prevent deleting the last admin
+        const adminCount = users.filter(u => u.role === 'admin').length;
+        if (userToDelete.role === 'admin' && adminCount <= 1) {
+            alert('Cannot delete the last admin user!');
+            return;
+        }
+        
+        if (!confirm(`Are you sure you want to delete user "${userToDelete.full_name}"?`)) {
+            return;
+        }
+        
+        try {
+            await deactivateUser(userToDelete.id);
+            await loadUsers();
+            setSaveSuccess(true);
+            setTimeout(() => setSaveSuccess(false), 3000);
+        } catch (error) {
+            console.error('Failed to delete user:', error);
+            alert('Failed to delete user. Please try again.');
+        }
     };
 
     const handleSeedDatabase = async () => {
@@ -624,13 +840,18 @@ export function Settings() {
                                         <h2 className="settings-section-title" style={{ margin: 0, border: 'none', padding: 0 }}>
                                             User Management
                                         </h2>
-                                        <button className="btn btn-primary btn-sm">
+                                        <button className="btn btn-primary btn-sm" onClick={() => handleOpenUserModal()}>
                                             <Users size={16} />
                                             Add User
                                         </button>
                                     </div>
 
                                     <div className="user-list">
+                                        {users.length === 0 && (
+                                            <div className="text-center text-secondary py-8">
+                                                No users found. Click "Add User" to create one.
+                                            </div>
+                                        )}
                                         {users.map((u) => (
                                             <div key={u.id} className="user-card">
                                                 <div className="user-info">
@@ -644,10 +865,26 @@ export function Settings() {
                                                         </div>
                                                     </div>
                                                 </div>
-                                                <div className="flex gap-2">
+                                                <div className="flex gap-2 items-center">
                                                     <span className={`badge ${u.role === 'admin' ? 'badge-primary' : 'badge-gray'}`}>
                                                         {u.role}
                                                     </span>
+                                                    <button
+                                                        className="btn btn-ghost btn-sm"
+                                                        onClick={() => handleOpenUserModal(u)}
+                                                        title="Edit User"
+                                                    >
+                                                        <Edit2 size={16} />
+                                                    </button>
+                                                    {u.id !== user?.id && (
+                                                        <button
+                                                            className="btn btn-ghost btn-sm text-danger"
+                                                            onClick={() => handleDeleteUser(u)}
+                                                            title="Delete User"
+                                                        >
+                                                            <Trash2 size={16} />
+                                                        </button>
+                                                    )}
                                                 </div>
                                             </div>
                                         ))}
@@ -671,9 +908,9 @@ export function Settings() {
                                             Download a complete backup of your database including all medicines,
                                             bills, customers, and settings.
                                         </p>
-                                        <button className="btn btn-primary" onClick={handleBackup}>
+                                        <button className="btn btn-primary" onClick={handleBackup} disabled={isBackingUp}>
                                             <Download size={18} />
-                                            Download Backup
+                                            {isBackingUp ? 'Creating Backup...' : 'Download Backup'}
                                         </button>
                                     </div>
 
@@ -686,9 +923,9 @@ export function Settings() {
                                             Restore your database from a previously created backup file.
                                             This will replace all current data.
                                         </p>
-                                        <button className="btn btn-secondary" onClick={handleRestore}>
+                                        <button className="btn btn-secondary" onClick={handleRestore} disabled={isRestoring}>
                                             <Upload size={18} />
-                                            Restore Backup
+                                            {isRestoring ? 'Restoring...' : 'Restore Backup'}
                                         </button>
                                     </div>
 
@@ -791,6 +1028,108 @@ export function Settings() {
                     </div>
                 </div>
             </div>
+
+            {/* User Modal */}
+            {showUserModal && (
+                <div className="modal-overlay" onClick={handleCloseUserModal}>
+                    <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '500px' }}>
+                        <div className="modal-header">
+                            <h2 className="modal-title">
+                                {editingUser ? 'Edit User' : 'Add New User'}
+                            </h2>
+                            <button className="btn btn-ghost btn-sm" onClick={handleCloseUserModal}>
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <div className="modal-body">
+                            {userFormError && (
+                                <div className="alert alert-danger mb-4">
+                                    <AlertCircle size={18} />
+                                    {userFormError}
+                                </div>
+                            )}
+                            
+                            <div className="form-group">
+                                <label className="form-label">Full Name *</label>
+                                <input
+                                    type="text"
+                                    className="form-input"
+                                    value={userForm.full_name}
+                                    onChange={(e) => setUserForm({ ...userForm, full_name: e.target.value })}
+                                    placeholder="Enter full name"
+                                />
+                            </div>
+                            
+                            <div className="form-group">
+                                <label className="form-label">Username *</label>
+                                <input
+                                    type="text"
+                                    className="form-input"
+                                    value={userForm.username}
+                                    onChange={(e) => setUserForm({ ...userForm, username: e.target.value.toLowerCase().replace(/\s/g, '') })}
+                                    placeholder="Enter username"
+                                    disabled={!!editingUser}
+                                />
+                                {editingUser && (
+                                    <span className="form-hint">Username cannot be changed</span>
+                                )}
+                            </div>
+                            
+                            <div className="form-group">
+                                <label className="form-label">
+                                    {editingUser ? 'New Password (leave blank to keep current)' : 'Password *'}
+                                </label>
+                                <input
+                                    type="password"
+                                    className="form-input"
+                                    value={userForm.password}
+                                    onChange={(e) => setUserForm({ ...userForm, password: e.target.value })}
+                                    placeholder={editingUser ? 'Enter new password' : 'Enter password'}
+                                />
+                            </div>
+                            
+                            <div className="form-group">
+                                <label className="form-label">Confirm Password</label>
+                                <input
+                                    type="password"
+                                    className="form-input"
+                                    value={userForm.confirmPassword}
+                                    onChange={(e) => setUserForm({ ...userForm, confirmPassword: e.target.value })}
+                                    placeholder="Confirm password"
+                                />
+                            </div>
+                            
+                            <div className="form-group">
+                                <label className="form-label">Role *</label>
+                                <select
+                                    className="form-select"
+                                    value={userForm.role}
+                                    onChange={(e) => setUserForm({ ...userForm, role: e.target.value as UserRole })}
+                                >
+                                    <option value="staff">Staff</option>
+                                    <option value="admin">Administrator</option>
+                                </select>
+                                <span className="form-hint">
+                                    Administrators have full access. Staff have limited permissions.
+                                </span>
+                            </div>
+                        </div>
+                        <div className="modal-footer">
+                            <button className="btn btn-secondary" onClick={handleCloseUserModal}>
+                                Cancel
+                            </button>
+                            <button 
+                                className="btn btn-primary" 
+                                onClick={handleSaveUser}
+                                disabled={isSaving}
+                            >
+                                <Save size={18} />
+                                {isSaving ? 'Saving...' : (editingUser ? 'Update User' : 'Create User')}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </>
     );
 }

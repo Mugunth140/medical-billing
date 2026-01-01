@@ -253,7 +253,10 @@ const TABLE_STATEMENTS = [
         patient_phone TEXT,
         patient_address TEXT,
         doctor_name TEXT,
+        doctor_registration_number TEXT,
+        clinic_hospital_name TEXT,
         prescription_number TEXT,
+        prescription_date TEXT,
         quantity INTEGER NOT NULL,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`
@@ -501,6 +504,125 @@ export async function closeDatabase(): Promise<void> {
     }
 }
 
+/**
+ * Export entire database to JSON for backup
+ */
+export async function exportDatabase(): Promise<Record<string, unknown[]>> {
+    const tables = [
+        'users',
+        'medicines',
+        'batches',
+        'suppliers',
+        'customers',
+        'purchases',
+        'purchase_items',
+        'bills',
+        'bill_items',
+        'credit_transactions',
+        'scheduled_medicine_records',
+        'settings'
+    ];
+    
+    const backup: Record<string, unknown[]> = {
+        _meta: [{
+            version: '1.0.0',
+            created_at: new Date().toISOString(),
+            tables: tables
+        }]
+    };
+    
+    for (const table of tables) {
+        try {
+            const data = await query<unknown>(`SELECT * FROM ${table}`, []);
+            backup[table] = data;
+        } catch (error) {
+            console.warn(`Failed to export table ${table}:`, error);
+            backup[table] = [];
+        }
+    }
+    
+    return backup;
+}
+
+/**
+ * Import database from JSON backup
+ */
+export async function importDatabase(backup: Record<string, unknown[]>): Promise<void> {
+    // Validate backup format
+    if (!backup._meta || !Array.isArray(backup._meta)) {
+        throw new Error('Invalid backup format: missing metadata');
+    }
+    
+    const tables = [
+        'scheduled_medicine_records',
+        'credit_transactions',
+        'bill_items',
+        'bills',
+        'purchase_items',
+        'purchases',
+        'batches',
+        'medicines',
+        'customers',
+        'suppliers',
+        'settings'
+        // Note: users table is handled separately to preserve current user
+    ];
+    
+    // Clear existing data (except current user)
+    for (const table of tables) {
+        try {
+            await execute(`DELETE FROM ${table}`, []);
+        } catch (error) {
+            console.warn(`Failed to clear table ${table}:`, error);
+        }
+    }
+    
+    // Import data for each table
+    for (const table of tables) {
+        const data = backup[table];
+        if (!data || !Array.isArray(data) || data.length === 0) continue;
+        
+        for (const row of data) {
+            if (typeof row !== 'object' || row === null) continue;
+            
+            const columns = Object.keys(row);
+            const values = Object.values(row);
+            const placeholders = columns.map(() => '?').join(', ');
+            
+            try {
+                await execute(
+                    `INSERT OR REPLACE INTO ${table} (${columns.join(', ')}) VALUES (${placeholders})`,
+                    values
+                );
+            } catch (error) {
+                console.warn(`Failed to import row into ${table}:`, error);
+            }
+        }
+    }
+    
+    // Handle users separately - import but don't replace current user
+    if (backup.users && Array.isArray(backup.users)) {
+        for (const row of backup.users) {
+            if (typeof row !== 'object' || row === null) continue;
+            const userRow = row as Record<string, unknown>;
+            
+            const columns = Object.keys(userRow);
+            const values = Object.values(userRow);
+            const placeholders = columns.map(() => '?').join(', ');
+            
+            try {
+                // Use INSERT OR IGNORE to not overwrite existing users
+                await execute(
+                    `INSERT OR IGNORE INTO users (${columns.join(', ')}) VALUES (${placeholders})`,
+                    values
+                );
+            } catch (error) {
+                console.warn(`Failed to import user:`, error);
+            }
+        }
+    }
+}
+
 export default {
     initDatabase,
     getDatabase,
@@ -508,5 +630,7 @@ export default {
     execute,
     transaction,
     queryOne,
-    closeDatabase
+    closeDatabase,
+    exportDatabase,
+    importDatabase
 };

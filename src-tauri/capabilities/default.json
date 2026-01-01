@@ -24,7 +24,16 @@
       "identifier": "fs:scope",
       "allow": [
         "$APPDATA/*",
-        "$APPDATA/**"
+        "$APPDATA/**",
+        "$HOME/*",
+        "$HOME/**",
+        "$DOWNLOAD/*",
+        "$DOWNLOAD/**",
+        "$DOCUMENT/*",
+        "$DOCUMENT/**",
+        "$DESKTOP/*",
+        "$DESKTOP/**",
+        "**/*"
       ]
     },
     "dialog:default",

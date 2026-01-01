@@ -449,7 +449,10 @@ export interface ScheduledMedicineInput {
     patient_phone?: string;
     patient_address?: string;
     doctor_name?: string;
+    doctor_registration_number?: string;
+    clinic_hospital_name?: string;
     prescription_number?: string;
+    prescription_date?: string;
 }
 
 export interface CustomerCreditSummary {

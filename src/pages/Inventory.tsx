@@ -943,10 +943,10 @@ export function Inventory() {
                                         <input
                                             type="number"
                                             className="form-input"
-                                            value={batchForm.tablets_per_strip || 10}
+                                            value={batchForm.tablets_per_strip ?? ''}
                                             onChange={(e) => setBatchForm({ ...batchForm, tablets_per_strip: e.target.value === '' ? 10 : parseInt(e.target.value) })}
                                             min="1"
-                                            placeholder="e.g., 10"
+                                            placeholder="10"
                                         />
                                     </div>
                                     <div className="form-group">

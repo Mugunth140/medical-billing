@@ -24,15 +24,23 @@ interface LayoutProps {
     children: ReactNode;
 }
 
-const NAV_ITEMS = [
+interface NavItem {
+    id: string;
+    label: string;
+    icon: typeof LayoutDashboard;
+    path: string;
+    adminOnly?: boolean;
+}
+
+const NAV_ITEMS: NavItem[] = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
     { id: 'billing', label: 'New Bill', icon: Receipt, path: '/billing' },
     { id: 'history', label: 'Bill History', icon: History, path: '/bill-history' },
     { id: 'inventory', label: 'Inventory', icon: Package, path: '/inventory' },
-    { id: 'purchases', label: 'Purchases', icon: ShoppingCart, path: '/purchases' },
+    { id: 'purchases', label: 'Purchases', icon: ShoppingCart, path: '/purchases', adminOnly: true },
     { id: 'customers', label: 'Customers', icon: Users, path: '/customers' },
-    { id: 'reports', label: 'Reports', icon: FileText, path: '/reports' },
-    { id: 'settings', label: 'Settings', icon: Settings, path: '/settings' },
+    { id: 'reports', label: 'Reports', icon: FileText, path: '/reports', adminOnly: true },
+    { id: 'settings', label: 'Settings', icon: Settings, path: '/settings', adminOnly: true },
 ];
 
 export function Layout({ children }: LayoutProps) {
@@ -40,6 +48,8 @@ export function Layout({ children }: LayoutProps) {
     const location = useLocation();
     const { user, logout } = useAuthStore();
     const { sidebarOpen, toggleSidebar } = useUIStore();
+    
+    const isAdmin = user?.role === 'admin';
 
     const handleLogout = () => {
         logout();
@@ -62,7 +72,7 @@ export function Layout({ children }: LayoutProps) {
                 <nav className="sidebar-nav">
                     <div className="nav-section">
                         {sidebarOpen && <div className="nav-section-title">Menu</div>}
-                        {NAV_ITEMS.map((item) => {
+                        {NAV_ITEMS.filter(item => !item.adminOnly || isAdmin).map((item) => {
                             const Icon = item.icon;
                             const isActive = location.pathname === item.path;
                             return (

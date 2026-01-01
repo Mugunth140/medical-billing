@@ -30,7 +30,7 @@ import {
 import { getMonthlySalesSummary, getPaymentModeBreakdown, getSalesTrend, getTodaysSalesSummary } from '../services/billing.service';
 import { query } from '../services/database';
 import { getExpiringItems, getLowStockItems, getNonMovingItems } from '../services/inventory.service';
-import { useDashboardStore } from '../stores';
+import { useAuthStore, useDashboardStore } from '../stores';
 import type { StockItem } from '../types';
 import { formatCurrency, formatDate } from '../utils';
 
@@ -38,6 +38,8 @@ const CHART_COLORS = ['#1e8eb4', '#f58700', '#10b981', '#ef4444'];
 
 export function Dashboard() {
     const navigate = useNavigate();
+    const { user } = useAuthStore();
+    const isAdmin = user?.role === 'admin';
     const { stats, isLoading, setStats, setLoading } = useDashboardStore();
     const [salesTrend, setSalesTrend] = useState<Array<{ date: string; amount: number; bills: number }>>([]);
     const [paymentBreakdown, setPaymentBreakdown] = useState<Array<{ name: string; value: number }>>([]);
@@ -303,35 +305,39 @@ export function Dashboard() {
 
                 {/* Stats Grid */}
                 <div className="dashboard-grid">
-                    <div className="stat-card">
-                        <div className="stat-card-header">
-                            <div className="stat-icon blue">
-                                <IndianRupee size={22} />
+                    {isAdmin && (
+                        <>
+                            <div className="stat-card">
+                                <div className="stat-card-header">
+                                    <div className="stat-icon blue">
+                                        <IndianRupee size={22} />
+                                    </div>
+                                </div>
+                                <div className="stat-value">{formatCurrency(stats?.todaySales?.total_amount ?? 0)}</div>
+                                <div className="stat-label">Today's Sales ({stats?.todaySales?.total_bills ?? 0} bills)</div>
                             </div>
-                        </div>
-                        <div className="stat-value">{formatCurrency(stats?.todaySales?.total_amount ?? 0)}</div>
-                        <div className="stat-label">Today's Sales ({stats?.todaySales?.total_bills ?? 0} bills)</div>
-                    </div>
 
-                    <div className="stat-card">
-                        <div className="stat-card-header">
-                            <div className="stat-icon green">
-                                <TrendingUp size={22} />
+                            <div className="stat-card">
+                                <div className="stat-card-header">
+                                    <div className="stat-icon green">
+                                        <TrendingUp size={22} />
+                                    </div>
+                                </div>
+                                <div className="stat-value">{formatCurrency(stats?.monthlySales ?? 0)}</div>
+                                <div className="stat-label">This Month's Sales</div>
                             </div>
-                        </div>
-                        <div className="stat-value">{formatCurrency(stats?.monthlySales ?? 0)}</div>
-                        <div className="stat-label">This Month's Sales</div>
-                    </div>
 
-                    <div className="stat-card">
-                        <div className="stat-card-header">
-                            <div className="stat-icon orange">
-                                <CreditCard size={22} />
+                            <div className="stat-card">
+                                <div className="stat-card-header">
+                                    <div className="stat-icon orange">
+                                        <CreditCard size={22} />
+                                    </div>
+                                </div>
+                                <div className="stat-value">{formatCurrency(stats?.pendingCredits ?? 0)}</div>
+                                <div className="stat-label">Pending Credits (Udhar)</div>
                             </div>
-                        </div>
-                        <div className="stat-value">{formatCurrency(stats?.pendingCredits ?? 0)}</div>
-                        <div className="stat-label">Pending Credits (Udhar)</div>
-                    </div>
+                        </>
+                    )}
 
                     <div className="stat-card">
                         <div className="stat-card-header">
@@ -364,90 +370,92 @@ export function Dashboard() {
                     </div>
                 </div>
 
-                {/* Charts */}
-                <div className="charts-grid">
-                    <div className="chart-card">
-                        <h3 className="chart-title">Sales Trend (Last 14 Days)</h3>
-                        {salesTrend.length > 0 ? (
-                            <ResponsiveContainer width="100%" height={250}>
-                                <AreaChart data={salesTrend}>
-                                    <defs>
-                                        <linearGradient id="colorAmount" x1="0" y1="0" x2="0" y2="1">
-                                            <stop offset="5%" stopColor="#1e8eb4" stopOpacity={0.3} />
-                                            <stop offset="95%" stopColor="#1e8eb4" stopOpacity={0} />
-                                        </linearGradient>
-                                    </defs>
-                                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                                    <XAxis
-                                        dataKey="date"
-                                        tickFormatter={(val) => formatDate(val, 'dd/MM')}
-                                        stroke="#94a3b8"
-                                        fontSize={12}
-                                    />
-                                    <YAxis
-                                        tickFormatter={(val) => `₹${(val / 1000).toFixed(0)}K`}
-                                        stroke="#94a3b8"
-                                        fontSize={12}
-                                    />
-                                    <Tooltip
-                                        formatter={(value: number) => [formatCurrency(value), 'Sales']}
-                                        labelFormatter={(label) => formatDate(label, 'dd MMM yyyy')}
-                                    />
-                                    <Area
-                                        type="monotone"
-                                        dataKey="amount"
-                                        stroke="#1e8eb4"
-                                        strokeWidth={2}
-                                        fill="url(#colorAmount)"
-                                    />
-                                </AreaChart>
-                            </ResponsiveContainer>
-                        ) : (
-                            <div className="empty-chart">No sales data available</div>
-                        )}
-                    </div>
+                {/* Charts - Admin Only */}
+                {isAdmin && (
+                    <div className="charts-grid">
+                        <div className="chart-card">
+                            <h3 className="chart-title">Sales Trend (Last 14 Days)</h3>
+                            {salesTrend.length > 0 ? (
+                                <ResponsiveContainer width="100%" height={250}>
+                                    <AreaChart data={salesTrend}>
+                                        <defs>
+                                            <linearGradient id="colorAmount" x1="0" y1="0" x2="0" y2="1">
+                                                <stop offset="5%" stopColor="#1e8eb4" stopOpacity={0.3} />
+                                                <stop offset="95%" stopColor="#1e8eb4" stopOpacity={0} />
+                                            </linearGradient>
+                                        </defs>
+                                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                                        <XAxis
+                                            dataKey="date"
+                                            tickFormatter={(val) => formatDate(val, 'dd/MM')}
+                                            stroke="#94a3b8"
+                                            fontSize={12}
+                                        />
+                                        <YAxis
+                                            tickFormatter={(val) => `₹${(val / 1000).toFixed(0)}K`}
+                                            stroke="#94a3b8"
+                                            fontSize={12}
+                                        />
+                                        <Tooltip
+                                            formatter={(value: number) => [formatCurrency(value), 'Sales']}
+                                            labelFormatter={(label) => formatDate(label, 'dd MMM yyyy')}
+                                        />
+                                        <Area
+                                            type="monotone"
+                                            dataKey="amount"
+                                            stroke="#1e8eb4"
+                                            strokeWidth={2}
+                                            fill="url(#colorAmount)"
+                                        />
+                                    </AreaChart>
+                                </ResponsiveContainer>
+                            ) : (
+                                <div className="empty-chart">No sales data available</div>
+                            )}
+                        </div>
 
-                    <div className="chart-card">
-                        <h3 className="chart-title">Payment Mode Split</h3>
-                        {paymentBreakdown.length > 0 ? (
-                            <ResponsiveContainer width="100%" height={250}>
-                                <PieChart>
-                                    <Pie
-                                        data={paymentBreakdown}
-                                        cx="50%"
-                                        cy="50%"
-                                        innerRadius={60}
-                                        outerRadius={80}
-                                        paddingAngle={5}
-                                        dataKey="value"
-                                    >
-                                        {paymentBreakdown.map((_, index) => (
-                                            <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
-                                        ))}
-                                    </Pie>
-                                    <Tooltip formatter={(value: number) => formatCurrency(value)} />
-                                </PieChart>
-                            </ResponsiveContainer>
-                        ) : (
-                            <div className="empty-chart">No payment data available</div>
-                        )}
-                        <div className="flex justify-center gap-4 mt-2">
-                            {paymentBreakdown.map((item, index) => (
-                                <div key={item.name} className="flex items-center gap-2 text-sm">
-                                    <div
-                                        style={{
-                                            width: 12,
-                                            height: 12,
-                                            borderRadius: '50%',
-                                            background: CHART_COLORS[index % CHART_COLORS.length]
-                                        }}
-                                    />
-                                    <span>{item.name}</span>
-                                </div>
-                            ))}
+                        <div className="chart-card">
+                            <h3 className="chart-title">Payment Mode Split</h3>
+                            {paymentBreakdown.length > 0 ? (
+                                <ResponsiveContainer width="100%" height={250}>
+                                    <PieChart>
+                                        <Pie
+                                            data={paymentBreakdown}
+                                            cx="50%"
+                                            cy="50%"
+                                            innerRadius={60}
+                                            outerRadius={80}
+                                            paddingAngle={5}
+                                            dataKey="value"
+                                        >
+                                            {paymentBreakdown.map((_, index) => (
+                                                <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                                            ))}
+                                        </Pie>
+                                        <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                                    </PieChart>
+                                </ResponsiveContainer>
+                            ) : (
+                                <div className="empty-chart">No payment data available</div>
+                            )}
+                            <div className="flex justify-center gap-4 mt-2">
+                                {paymentBreakdown.map((item, index) => (
+                                    <div key={item.name} className="flex items-center gap-2 text-sm">
+                                        <div
+                                            style={{
+                                                width: 12,
+                                                height: 12,
+                                                borderRadius: '50%',
+                                                background: CHART_COLORS[index % CHART_COLORS.length]
+                                            }}
+                                        />
+                                        <span>{item.name}</span>
+                                    </div>
+                                ))}
+                            </div>
                         </div>
                     </div>
-                </div>
+                )}
 
                 {/* Alerts */}
                 <div className="alerts-grid">

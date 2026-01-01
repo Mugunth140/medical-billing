@@ -61,6 +61,7 @@ export function Billing() {
     const [showSuccessModal, setShowSuccessModal] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [showPatientModal, setShowPatientModal] = useState(false);
+    const [doctorName, setDoctorName] = useState(''); // Optional doctor name for all bills
     const [tempPatientInfo, setTempPatientInfo] = useState<ScheduledMedicineInput>({
         patient_name: '',
         patient_age: undefined,
@@ -68,7 +69,10 @@ export function Billing() {
         patient_phone: '',
         patient_address: '',
         doctor_name: '',
-        prescription_number: ''
+        doctor_registration_number: '',
+        clinic_hospital_name: '',
+        prescription_number: '',
+        prescription_date: ''
     });
 
     // Check if cart has scheduled medicines
@@ -164,10 +168,10 @@ export function Billing() {
             return;
         }
 
-        // Check if scheduled medicines require patient info
-        if (hasScheduled && (!patientInfo || !patientInfo.patient_name)) {
-            setError('Patient details required for scheduled medicines');
-            showToast('warning', 'Please enter patient details for scheduled medicines');
+        // Check if scheduled medicines require patient info and doctor details
+        if (hasScheduled && (!patientInfo || !patientInfo.patient_name || !patientInfo.doctor_name)) {
+            setError('Patient and doctor details required for scheduled medicines');
+            showToast('warning', 'Please enter patient and prescription details for scheduled medicines');
             setShowPatientModal(true);
             return;
         }
@@ -203,6 +207,7 @@ export function Billing() {
             setShowSuccessModal(true);
             showToast('success', `Bill ${bill.bill_number} created!`);
             clearBill();
+            setDoctorName(''); // Reset doctor name
             // Reset patient info form
             setTempPatientInfo({
                 patient_name: '',
@@ -211,7 +216,10 @@ export function Billing() {
                 patient_phone: '',
                 patient_address: '',
                 doctor_name: '',
-                prescription_number: ''
+                doctor_registration_number: '',
+                clinic_hospital_name: '',
+                prescription_number: '',
+                prescription_date: ''
             });
         } catch (err) {
             console.error('Bill creation error:', err);
@@ -236,7 +244,7 @@ export function Billing() {
             display: grid;
             grid-template-columns: 1fr 320px;
             gap: 16px;
-            height: calc(100vh - 120px);
+            height: calc(100vh - 80px);
             padding: 16px;
             overflow: hidden;
         }
@@ -678,19 +686,43 @@ export function Billing() {
                         </select>
                     </div>
 
+                    {/* Optional Doctor Name for all bills */}
+                    {!hasScheduled && (
+                        <div className="pos-card">
+                            <div className="pos-card-title">
+                                <User size={14} /> Doctor (Optional)
+                            </div>
+                            <input
+                                type="text"
+                                className="form-input"
+                                style={{ fontSize: 13 }}
+                                placeholder="Prescribing doctor name"
+                                value={doctorName}
+                                onChange={(e) => setDoctorName(e.target.value)}
+                            />
+                        </div>
+                    )}
+
                     {/* Patient Details for Scheduled Medicines */}
                     {hasScheduled && (
-                        <div className="pos-card" style={{ borderColor: patientInfo?.patient_name ? 'var(--color-success-500)' : 'var(--color-warning-500)', borderWidth: 2 }}>
-                            <div className="pos-card-title" style={{ color: patientInfo?.patient_name ? 'var(--color-success-600)' : 'var(--color-warning-600)' }}>
-                                <AlertCircle size={14} /> Patient Details (Required)
+                        <div className="pos-card" style={{ borderColor: (patientInfo?.patient_name && patientInfo?.doctor_name) ? 'var(--color-success-500)' : 'var(--color-warning-500)', borderWidth: 2 }}>
+                            <div className="pos-card-title" style={{ color: (patientInfo?.patient_name && patientInfo?.doctor_name) ? 'var(--color-success-600)' : 'var(--color-warning-600)' }}>
+                                <AlertCircle size={14} /> Patient & Rx Details (Required)
                             </div>
-                            {patientInfo?.patient_name ? (
+                            {patientInfo?.patient_name && patientInfo?.doctor_name ? (
                                 <div style={{ fontSize: 12 }}>
-                                    <div style={{ fontWeight: 600 }}>{patientInfo.patient_name}</div>
-                                    {patientInfo.patient_age && <span>Age: {patientInfo.patient_age} </span>}
-                                    {patientInfo.patient_gender && <span>({patientInfo.patient_gender}) </span>}
+                                    <div style={{ fontWeight: 600, marginBottom: 4 }}>{patientInfo.patient_name}</div>
+                                    <div style={{ color: 'var(--text-secondary)' }}>
+                                        {patientInfo.patient_age && <span>Age: {patientInfo.patient_age} </span>}
+                                        {patientInfo.patient_gender && <span>({patientInfo.patient_gender})</span>}
+                                    </div>
                                     {patientInfo.patient_phone && <div>📞 {patientInfo.patient_phone}</div>}
-                                    {patientInfo.doctor_name && <div>Dr. {patientInfo.doctor_name}</div>}
+                                    <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid var(--border-light)' }}>
+                                        <div style={{ fontWeight: 600 }}>Dr. {patientInfo.doctor_name}</div>
+                                        {patientInfo.doctor_registration_number && <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>Reg: {patientInfo.doctor_registration_number}</div>}
+                                        {patientInfo.clinic_hospital_name && <div style={{ fontSize: 11 }}>🏥 {patientInfo.clinic_hospital_name}</div>}
+                                        {patientInfo.prescription_number && <div style={{ fontSize: 11 }}>Rx#: {patientInfo.prescription_number}</div>}
+                                    </div>
                                     <button
                                         className="btn btn-sm btn-secondary"
                                         style={{ marginTop: 8, width: '100%' }}
@@ -708,7 +740,7 @@ export function Billing() {
                                     style={{ width: '100%' }}
                                     onClick={() => setShowPatientModal(true)}
                                 >
-                                    Enter Patient Details
+                                    Enter Patient & Rx Details
                                 </button>
                             )}
                         </div>
@@ -865,25 +897,28 @@ export function Billing() {
             {/* Patient Details Modal for Scheduled Medicines */}
             {showPatientModal && (
                 <div className="modal-overlay" onClick={() => setShowPatientModal(false)}>
-                    <div className="modal modal-md" onClick={(e) => e.stopPropagation()}>
+                    <div className="modal modal-lg" style={{ maxHeight: '90vh', display: 'flex', flexDirection: 'column' }} onClick={(e) => e.stopPropagation()}>
                         <div className="modal-header">
-                            <h3 className="modal-title">Patient Details (Schedule H/H1 Drug)</h3>
+                            <h3 className="modal-title">Patient & Prescription Details (Schedule H/H1 Drug)</h3>
                             <button className="btn btn-ghost btn-icon" onClick={() => setShowPatientModal(false)}>
                                 <X size={20} />
                             </button>
                         </div>
                         <form onSubmit={(e) => {
                             e.preventDefault();
-                            if (tempPatientInfo.patient_name) {
+                            if (tempPatientInfo.patient_name && tempPatientInfo.doctor_name) {
                                 setPatientInfo(tempPatientInfo);
                                 setShowPatientModal(false);
                             }
-                        }}>
-                            <div className="modal-body">
+                        }} style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
+                            <div className="modal-body" style={{ overflowY: 'auto', flex: 1 }}>
                                 <p style={{ marginBottom: 16, color: 'var(--text-secondary)', fontSize: 13 }}>
-                                    As per drug regulations, patient details are required for scheduled medicines.
+                                    As per drug regulations, patient and prescription details are mandatory for scheduled medicines.
                                 </p>
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)' }}>
+                                
+                                {/* Patient Details Section */}
+                                <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, color: 'var(--color-primary-600)' }}>Patient Information</h4>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)', marginBottom: 20 }}>
                                     <div className="form-group" style={{ gridColumn: '1 / -1' }}>
                                         <label className="form-label">Patient Name *</label>
                                         <input
@@ -929,15 +964,6 @@ export function Billing() {
                                         />
                                     </div>
                                     <div className="form-group">
-                                        <label className="form-label">Doctor Name</label>
-                                        <input
-                                            type="text"
-                                            className="form-input"
-                                            value={tempPatientInfo.doctor_name ?? ''}
-                                            onChange={(e) => setTempPatientInfo({ ...tempPatientInfo, doctor_name: e.target.value })}
-                                        />
-                                    </div>
-                                    <div className="form-group" style={{ gridColumn: '1 / -1' }}>
                                         <label className="form-label">Address</label>
                                         <input
                                             type="text"
@@ -946,14 +972,56 @@ export function Billing() {
                                             onChange={(e) => setTempPatientInfo({ ...tempPatientInfo, patient_address: e.target.value })}
                                         />
                                     </div>
+                                </div>
+                                
+                                {/* Prescription Details Section */}
+                                <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, color: 'var(--color-primary-600)' }}>Prescription Details</h4>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)' }}>
+                                    <div className="form-group">
+                                        <label className="form-label">Doctor Name *</label>
+                                        <input
+                                            type="text"
+                                            className="form-input"
+                                            value={tempPatientInfo.doctor_name ?? ''}
+                                            onChange={(e) => setTempPatientInfo({ ...tempPatientInfo, doctor_name: e.target.value })}
+                                            required
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Doctor Reg. No.</label>
+                                        <input
+                                            type="text"
+                                            className="form-input"
+                                            value={tempPatientInfo.doctor_registration_number ?? ''}
+                                            onChange={(e) => setTempPatientInfo({ ...tempPatientInfo, doctor_registration_number: e.target.value })}
+                                            placeholder="Medical Council Reg. No."
+                                        />
+                                    </div>
                                     <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                                        <label className="form-label">Clinic / Hospital Name</label>
+                                        <input
+                                            type="text"
+                                            className="form-input"
+                                            value={tempPatientInfo.clinic_hospital_name ?? ''}
+                                            onChange={(e) => setTempPatientInfo({ ...tempPatientInfo, clinic_hospital_name: e.target.value })}
+                                        />
+                                    </div>
+                                    <div className="form-group">
                                         <label className="form-label">Prescription Number</label>
                                         <input
                                             type="text"
                                             className="form-input"
                                             value={tempPatientInfo.prescription_number ?? ''}
                                             onChange={(e) => setTempPatientInfo({ ...tempPatientInfo, prescription_number: e.target.value })}
-                                            placeholder="Optional"
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Prescription Date</label>
+                                        <input
+                                            type="date"
+                                            className="form-input"
+                                            value={tempPatientInfo.prescription_date ?? ''}
+                                            onChange={(e) => setTempPatientInfo({ ...tempPatientInfo, prescription_date: e.target.value })}
                                         />
                                     </div>
                                 </div>
@@ -962,8 +1030,8 @@ export function Billing() {
                                 <button type="button" className="btn btn-secondary" onClick={() => setShowPatientModal(false)}>
                                     Cancel
                                 </button>
-                                <button type="submit" className="btn btn-primary" disabled={!tempPatientInfo.patient_name}>
-                                    Save Patient Details
+                                <button type="submit" className="btn btn-primary" disabled={!tempPatientInfo.patient_name || !tempPatientInfo.doctor_name}>
+                                    Save Details
                                 </button>
                             </div>
                         </form>
