@@ -7,6 +7,7 @@ import {
     ChevronLeft,
     ChevronRight,
     FileText,
+    History,
     LayoutDashboard,
     LogOut,
     Package,
@@ -25,7 +26,8 @@ interface LayoutProps {
 
 const NAV_ITEMS = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
-    { id: 'billing', label: 'Billing', icon: Receipt, path: '/billing' },
+    { id: 'billing', label: 'New Bill', icon: Receipt, path: '/billing' },
+    { id: 'history', label: 'Bill History', icon: History, path: '/bill-history' },
     { id: 'inventory', label: 'Inventory', icon: Package, path: '/inventory' },
     { id: 'purchases', label: 'Purchases', icon: ShoppingCart, path: '/purchases' },
     { id: 'customers', label: 'Customers', icon: Users, path: '/customers' },
@@ -90,27 +92,28 @@ export function Layout({ children }: LayoutProps) {
                         </div>
                     )}
 
-                    <div className="flex gap-2">
+                    <div className="flex gap-2" style={{ justifyContent: sidebarOpen ? 'flex-start' : 'center' }}>
                         <button
-                            className="btn btn-ghost"
+                            className="btn btn-ghost btn-sm"
                             onClick={toggleSidebar}
                             style={{
                                 color: 'var(--color-gray-400)',
-                                flex: sidebarOpen ? 1 : 'none'
+                                padding: 'var(--space-2)',
+                                minWidth: 'auto'
                             }}
                             title={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
                         >
-                            {sidebarOpen ? <ChevronLeft size={20} /> : <ChevronRight size={20} />}
+                            {sidebarOpen ? <ChevronLeft size={18} /> : <ChevronRight size={18} />}
                         </button>
 
                         {sidebarOpen && (
                             <button
-                                className="btn btn-ghost"
+                                className="btn btn-ghost btn-sm"
                                 onClick={handleLogout}
-                                style={{ color: 'var(--color-gray-400)' }}
+                                style={{ color: 'var(--color-gray-400)', padding: 'var(--space-2)' }}
                                 title="Logout"
                             >
-                                <LogOut size={20} />
+                                <LogOut size={18} />
                             </button>
                         )}
                     </div>

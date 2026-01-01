@@ -78,6 +78,7 @@ export interface Batch {
     selling_price: number;
     price_type: PriceType;
     quantity: number;
+    tablets_per_strip: number;
     rack?: string;
     box?: string;
     last_sold_date?: string;
@@ -138,8 +139,11 @@ export interface Bill {
     total_cgst: number;
     total_sgst: number;
     total_gst: number;
+    cgst_amount: number; // Alias for total_cgst
+    sgst_amount: number; // Alias for total_sgst
     grand_total: number;
     round_off: number;
+    total_items: number;
 
     payment_mode: PaymentMode;
     payment_status: PaymentStatus;
@@ -168,11 +172,14 @@ export interface BillItem {
     medicine_name: string;
     hsn_code: string;
     batch_number: string;
-    expiry_date: string;
+    expiry_date?: string;
     rack?: string;
     box?: string;
 
     quantity: number;
+    quantity_strips: number;
+    quantity_pieces: number;
+    tablets_per_strip: number;
     unit_price: number;
     price_type: PriceType;
 
@@ -181,12 +188,16 @@ export interface BillItem {
     discount_amount: number;
 
     taxable_value: number;
+    taxable_amount: number; // Alias
     gst_rate: GstRate;
     cgst: number;
+    cgst_amount: number; // Alias
     sgst: number;
+    sgst_amount: number; // Alias
     total_gst: number;
 
     total: number;
+    total_amount: number; // Alias
 
     created_at: string;
 }
@@ -386,6 +397,7 @@ export interface StockItem {
     selling_price: number;
     price_type: PriceType;
     quantity: number;
+    tablets_per_strip: number;
     rack?: string;
     box?: string;
     last_sold_date?: string;
@@ -451,6 +463,7 @@ export interface CreateBatchInput {
     selling_price: number;
     price_type: PriceType;
     quantity: number;
+    tablets_per_strip?: number;
     rack?: string;
     box?: string;
 }
@@ -480,6 +493,8 @@ export interface CreateCustomerInput {
 export interface BillItemInput {
     batch_id: number;
     quantity: number;
+    quantity_strips?: number;
+    quantity_pieces?: number;
     discount_type?: DiscountType;
     discount_value?: number;
 }

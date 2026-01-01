@@ -32,6 +32,12 @@ export async function clearDatabase(): Promise<void> {
 
         // Reset bill sequence
         await execute('UPDATE bill_sequence SET current_number = 0', []);
+
+        // Mark that we've already done the tablet migration (since we're seeding fresh data in tablets)
+        await execute(
+            `INSERT OR REPLACE INTO settings (key, value, category, description) VALUES ('tablets_migration_done', 'true', 'system', 'Quantity stored in tablets')`,
+            []
+        );
     });
 
     console.log('Database cleared successfully!');
@@ -116,28 +122,28 @@ export async function seedDatabase(): Promise<void> {
             const expiry3Months = formatDate(addDays(90));
 
             await execute(`
-                INSERT INTO batches (medicine_id, batch_number, expiry_date, purchase_price, mrp, selling_price, price_type, quantity, rack, box) VALUES
-                (1, 'DL24001', '${expiry1Year}', 25.00, 35.00, 35.00, 'INCLUSIVE', 200, 'A1', '1'),
-                (1, 'DL24002', '${expiry20Days}', 24.00, 35.00, 35.00, 'INCLUSIVE', 30, 'A1', '2'),
-                (2, 'AZ24001', '${expiry6Months}', 85.00, 120.00, 118.00, 'INCLUSIVE', 100, 'A2', '1'),
-                (3, 'PN24001', '${expiry1Year}', 45.00, 65.00, 65.00, 'INCLUSIVE', 150, 'A3', '1'),
-                (4, 'CR24001', '${expiry6Months}', 20.00, 30.00, 30.00, 'INCLUSIVE', 180, 'A1', '3'),
-                (5, 'AM24001', '${expiry3Months}', 95.00, 135.00, 132.00, 'INCLUSIVE', 80, 'A4', '1'),
-                (6, 'CT24001', '${expiry1Year}', 8.00, 15.00, 15.00, 'INCLUSIVE', 300, 'B1', '1'),
-                (7, 'ML24001', '${expiry6Months}', 70.00, 98.00, 95.00, 'INCLUSIVE', 120, 'B2', '1'),
-                (8, 'SC24001', '${expiry1Year}', 120.00, 180.00, 175.00, 'INCLUSIVE', 60, 'C1', '1'),
-                (9, 'BC24001', '${expiry1Year}', 35.00, 55.00, 55.00, 'INCLUSIVE', 8, 'C2', '1'),
-                (10, 'OR24001', '${expiry6Months}', 5.00, 12.00, 12.00, 'INCLUSIVE', 500, 'D1', '1'),
-                (11, 'CP24001', '${expiry3Months}', 40.00, 65.00, 65.00, 'INCLUSIVE', 45, 'D2', '1'),
-                (12, 'AL24001', '${expiry1Year}', 55.00, 85.00, 85.00, 'INCLUSIVE', 90, 'B3', '1'),
-                (13, 'OM24001', '${expiry6Months}', 22.00, 38.00, 38.00, 'INCLUSIVE', 200, 'A5', '1'),
-                (14, 'AU24001', '${expiry20Days}', 110.00, 165.00, 160.00, 'INCLUSIVE', 25, 'A4', '2'),
-                (15, 'CF24001', '${expiry1Year}', 18.00, 32.00, 32.00, 'INCLUSIVE', 250, 'A1', '4'),
-                (16, 'ZC24001', '${expiry1Year}', 90.00, 140.00, 140.00, 'INCLUSIVE', 40, 'C3', '1'),
-                (17, 'DG24001', '${expiry6Months}', 45.00, 75.00, 75.00, 'INCLUSIVE', 55, 'D3', '1'),
-                (18, 'VV24001', '${expiry1Year}', 60.00, 99.00, 99.00, 'INCLUSIVE', 100, 'E1', '1'),
-                (19, 'BD24001', '${expiry3Months}', 55.00, 85.00, 85.00, 'INCLUSIVE', 35, 'D4', '1'),
-                (20, 'LV24001', '${expiry1Year}', 28.00, 45.00, 45.00, 'INCLUSIVE', 5, 'C4', '1')
+                INSERT INTO batches (medicine_id, batch_number, expiry_date, purchase_price, mrp, selling_price, price_type, quantity, tablets_per_strip, rack, box) VALUES
+                (1, 'DL24001', '${expiry1Year}', 25.00, 35.00, 35.00, 'INCLUSIVE', 2000, 10, 'A1', '1'),
+                (1, 'DL24002', '${expiry20Days}', 24.00, 35.00, 35.00, 'INCLUSIVE', 300, 10, 'A1', '2'),
+                (2, 'AZ24001', '${expiry6Months}', 85.00, 120.00, 118.00, 'INCLUSIVE', 600, 6, 'A2', '1'),
+                (3, 'PN24001', '${expiry1Year}', 45.00, 65.00, 65.00, 'INCLUSIVE', 1500, 10, 'A3', '1'),
+                (4, 'CR24001', '${expiry6Months}', 20.00, 30.00, 30.00, 'INCLUSIVE', 1800, 10, 'A1', '3'),
+                (5, 'AM24001', '${expiry3Months}', 95.00, 135.00, 132.00, 'INCLUSIVE', 480, 6, 'A4', '1'),
+                (6, 'CT24001', '${expiry1Year}', 8.00, 15.00, 15.00, 'INCLUSIVE', 3000, 10, 'B1', '1'),
+                (7, 'ML24001', '${expiry6Months}', 70.00, 98.00, 95.00, 'INCLUSIVE', 1200, 10, 'B2', '1'),
+                (8, 'SC24001', '${expiry1Year}', 120.00, 180.00, 175.00, 'INCLUSIVE', 600, 15, 'C1', '1'),
+                (9, 'BC24001', '${expiry1Year}', 35.00, 55.00, 55.00, 'INCLUSIVE', 80, 10, 'C2', '1'),
+                (10, 'OR24001', '${expiry6Months}', 5.00, 12.00, 12.00, 'INCLUSIVE', 500, 1, 'D1', '1'),
+                (11, 'CP24001', '${expiry3Months}', 40.00, 65.00, 65.00, 'INCLUSIVE', 45, 1, 'D2', '1'),
+                (12, 'AL24001', '${expiry1Year}', 55.00, 85.00, 85.00, 'INCLUSIVE', 900, 10, 'B3', '1'),
+                (13, 'OM24001', '${expiry6Months}', 22.00, 38.00, 38.00, 'INCLUSIVE', 2000, 10, 'A5', '1'),
+                (14, 'AU24001', '${expiry20Days}', 110.00, 165.00, 160.00, 'INCLUSIVE', 150, 6, 'A4', '2'),
+                (15, 'CF24001', '${expiry1Year}', 18.00, 32.00, 32.00, 'INCLUSIVE', 2500, 10, 'A1', '4'),
+                (16, 'ZC24001', '${expiry1Year}', 90.00, 140.00, 140.00, 'INCLUSIVE', 400, 15, 'C3', '1'),
+                (17, 'DG24001', '${expiry6Months}', 45.00, 75.00, 75.00, 'INCLUSIVE', 55, 1, 'D3', '1'),
+                (18, 'VV24001', '${expiry1Year}', 60.00, 99.00, 99.00, 'INCLUSIVE', 100, 1, 'E1', '1'),
+                (19, 'BD24001', '${expiry3Months}', 55.00, 85.00, 85.00, 'INCLUSIVE', 35, 1, 'D4', '1'),
+                (20, 'LV24001', '${expiry1Year}', 28.00, 45.00, 45.00, 'INCLUSIVE', 50, 10, 'C4', '1')
             `, []);
 
             // =========================================
@@ -185,16 +191,16 @@ export async function seedDatabase(): Promise<void> {
 
             await execute(`
                 INSERT INTO bills (bill_number, bill_date, customer_id, customer_name, user_id, subtotal, taxable_total, total_cgst, total_sgst, total_gst, grand_total, payment_mode, cash_amount, status) VALUES
-                ('INV-2024-0001', '${billDate1}', 1, 'Ramesh Kumar', 1, 350.00, 312.50, 18.75, 18.75, 37.50, 350.00, 'CASH', 350.00, 'COMPLETED'),
-                ('INV-2024-0002', '${billDate1}', 2, 'Lakshmi Devi', 1, 520.00, 464.29, 27.86, 27.86, 55.71, 520.00, 'ONLINE', 0.00, 'COMPLETED'),
-                ('INV-2024-0003', '${billDate2}', NULL, 'Walk-in', 1, 180.00, 160.71, 9.64, 9.64, 19.29, 180.00, 'CASH', 180.00, 'COMPLETED'),
-                ('INV-2024-0004', '${billDate2}', 3, 'Suresh Babu', 1, 1250.00, 1116.07, 66.96, 66.96, 133.93, 1250.00, 'CREDIT', 0.00, 'COMPLETED'),
-                ('INV-2024-0005', '${billDate3}', 4, 'Kavitha Rajan', 1, 450.00, 401.79, 24.11, 24.11, 48.21, 450.00, 'CASH', 450.00, 'COMPLETED'),
-                ('INV-2024-0006', '${billDate3}', 5, 'Mohan Raj', 1, 680.00, 607.14, 36.43, 36.43, 72.86, 680.00, 'SPLIT', 400.00, 'COMPLETED'),
-                ('INV-2024-0007', '${billDateToday}', NULL, 'Walk-in', 1, 95.00, 84.82, 5.09, 5.09, 10.18, 95.00, 'CASH', 95.00, 'COMPLETED'),
-                ('INV-2024-0008', '${billDateToday}', 6, 'Priya S', 1, 320.00, 285.71, 17.14, 17.14, 34.29, 320.00, 'ONLINE', 0.00, 'COMPLETED'),
-                ('INV-2024-0009', '${billDateToday}', 7, 'Ganesh V', 1, 850.00, 758.93, 45.54, 45.54, 91.07, 850.00, 'CREDIT', 0.00, 'COMPLETED'),
-                ('INV-2024-0010', '${billDateToday}', NULL, 'Walk-in', 1, 210.00, 187.50, 11.25, 11.25, 22.50, 210.00, 'CASH', 210.00, 'COMPLETED')
+                ('INV-242500001', '${billDate1}', 1, 'Ramesh Kumar', 1, 350.00, 312.50, 18.75, 18.75, 37.50, 350.00, 'CASH', 350.00, 'COMPLETED'),
+                ('INV-242500002', '${billDate1}', 2, 'Lakshmi Devi', 1, 520.00, 464.29, 27.86, 27.86, 55.71, 520.00, 'ONLINE', 0.00, 'COMPLETED'),
+                ('INV-242500003', '${billDate2}', NULL, 'Walk-in', 1, 180.00, 160.71, 9.64, 9.64, 19.29, 180.00, 'CASH', 180.00, 'COMPLETED'),
+                ('INV-242500004', '${billDate2}', 3, 'Suresh Babu', 1, 1250.00, 1116.07, 66.96, 66.96, 133.93, 1250.00, 'CREDIT', 0.00, 'COMPLETED'),
+                ('INV-242500005', '${billDate3}', 4, 'Kavitha Rajan', 1, 450.00, 401.79, 24.11, 24.11, 48.21, 450.00, 'CASH', 450.00, 'COMPLETED'),
+                ('INV-242500006', '${billDate3}', 5, 'Mohan Raj', 1, 680.00, 607.14, 36.43, 36.43, 72.86, 680.00, 'SPLIT', 400.00, 'COMPLETED'),
+                ('INV-242500007', '${billDateToday}', NULL, 'Walk-in', 1, 95.00, 84.82, 5.09, 5.09, 10.18, 95.00, 'CASH', 95.00, 'COMPLETED'),
+                ('INV-242500008', '${billDateToday}', 6, 'Priya S', 1, 320.00, 285.71, 17.14, 17.14, 34.29, 320.00, 'ONLINE', 0.00, 'COMPLETED'),
+                ('INV-242500009', '${billDateToday}', 7, 'Ganesh V', 1, 850.00, 758.93, 45.54, 45.54, 91.07, 850.00, 'CREDIT', 0.00, 'COMPLETED'),
+                ('INV-242500010', '${billDateToday}', NULL, 'Walk-in', 1, 210.00, 187.50, 11.25, 11.25, 22.50, 210.00, 'CASH', 210.00, 'COMPLETED')
             `, []);
 
             // =========================================
@@ -240,8 +246,8 @@ export async function seedDatabase(): Promise<void> {
             await execute(`
                 INSERT INTO audit_log (user_id, action, entity_type, entity_id, description) VALUES
                 (1, 'LOGIN', 'USER', 1, 'User logged in'),
-                (1, 'CREATE', 'BILL', 1, 'Created bill INV-2024-0001'),
-                (1, 'CREATE', 'BILL', 2, 'Created bill INV-2024-0002'),
+                (1, 'CREATE', 'BILL', 1, 'Created bill INV-242500001'),
+                (1, 'CREATE', 'BILL', 2, 'Created bill INV-242500002'),
                 (1, 'CREATE', 'PURCHASE', 1, 'Recorded purchase ABC/2024/001'),
                 (1, 'UPDATE', 'SETTINGS', NULL, 'Updated shop settings')
             `, []);

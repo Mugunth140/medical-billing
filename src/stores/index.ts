@@ -65,7 +65,9 @@ export const useAuthStore = create<AuthState>()(
 
 interface BillingItem {
     batch: StockItem;
-    quantity: number;
+    quantity: number;           // Total quantity in base unit (tablets/pieces)
+    quantityStrips: number;     // Number of full strips
+    quantityPieces: number;     // Additional loose tablets/pieces
     discountType?: 'PERCENTAGE' | 'FLAT';
     discountValue: number;
 }
@@ -84,6 +86,7 @@ interface BillingState {
     // Actions
     addItem: (batch: StockItem, quantity?: number) => void;
     updateItemQuantity: (batchId: number, quantity: number) => void;
+    updateItemStripsPieces: (batchId: number, strips: number, pieces: number) => void;
     updateItemDiscount: (batchId: number, type: 'PERCENTAGE' | 'FLAT' | null, value: number) => void;
     removeItem: (batchId: number) => void;
     setCustomer: (id: number | null, name: string) => void;
@@ -112,21 +115,35 @@ export const useBillingStore = create<BillingState>()((set, get) => ({
     addItem: (batch, quantity = 1) => {
         const { items } = get();
         const existingIndex = items.findIndex(i => i.batch.batch_id === batch.batch_id);
+        const tabletsPerStrip = batch.tablets_per_strip || 10;
+        // Note: batch.quantity is now stored in tablets, not strips
+        const maxQty = batch.quantity;
 
         if (existingIndex >= 0) {
-            // Update quantity if item exists
+            // Update quantity if item exists - add 1 strip worth
             const updated = [...items];
-            const newQty = updated[existingIndex].quantity + quantity;
-            if (newQty <= batch.quantity) {
-                updated[existingIndex].quantity = newQty;
+            const addTablets = tabletsPerStrip * quantity;
+            const newQty = updated[existingIndex].quantity + addTablets;
+            if (newQty <= maxQty) {
+                const strips = Math.floor(newQty / tabletsPerStrip);
+                const pieces = newQty % tabletsPerStrip;
+                updated[existingIndex] = {
+                    ...updated[existingIndex],
+                    quantity: newQty,
+                    quantityStrips: strips,
+                    quantityPieces: pieces
+                };
                 set({ items: updated });
             }
         } else {
-            // Add new item
+            // Add new item - default to 1 strip
+            const totalTablets = tabletsPerStrip * quantity;
             set({
                 items: [...items, {
                     batch,
-                    quantity: Math.min(quantity, batch.quantity),
+                    quantity: Math.min(totalTablets, maxQty),
+                    quantityStrips: quantity,
+                    quantityPieces: 0,
                     discountValue: 0
                 }]
             });
@@ -135,11 +152,41 @@ export const useBillingStore = create<BillingState>()((set, get) => ({
 
     updateItemQuantity: (batchId, quantity) => {
         const { items } = get();
-        const updated = items.map(item =>
-            item.batch.batch_id === batchId
-                ? { ...item, quantity: Math.min(quantity, item.batch.quantity) }
-                : item
-        );
+        const updated = items.map(item => {
+            if (item.batch.batch_id === batchId) {
+                const tabletsPerStrip = item.batch.tablets_per_strip || 10;
+                const maxQty = item.batch.quantity; // Already in tablets
+                const clampedQty = Math.min(quantity, maxQty);
+                return {
+                    ...item,
+                    quantity: clampedQty,
+                    quantityStrips: Math.floor(clampedQty / tabletsPerStrip),
+                    quantityPieces: clampedQty % tabletsPerStrip
+                };
+            }
+            return item;
+        });
+        set({ items: updated });
+    },
+
+    updateItemStripsPieces: (batchId, strips, pieces) => {
+        const { items } = get();
+        const updated = items.map(item => {
+            if (item.batch.batch_id === batchId) {
+                const tabletsPerStrip = item.batch.tablets_per_strip || 10;
+                const totalQty = strips * tabletsPerStrip + pieces;
+                const maxQty = item.batch.quantity; // Already in tablets
+                if (totalQty <= maxQty && totalQty >= 0) {
+                    return {
+                        ...item,
+                        quantity: totalQty,
+                        quantityStrips: strips,
+                        quantityPieces: pieces
+                    };
+                }
+            }
+            return item;
+        });
         set({ items: updated });
     },
 

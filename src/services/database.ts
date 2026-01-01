@@ -51,6 +51,7 @@ const TABLE_STATEMENTS = [
         selling_price DECIMAL(10,2) NOT NULL,
         price_type TEXT NOT NULL DEFAULT 'INCLUSIVE' CHECK (price_type IN ('INCLUSIVE', 'EXCLUSIVE')),
         quantity INTEGER NOT NULL DEFAULT 0,
+        tablets_per_strip INTEGER DEFAULT 10,
         rack TEXT,
         box TEXT,
         last_sold_date DATE,
@@ -132,6 +133,9 @@ const TABLE_STATEMENTS = [
         batch_number TEXT NOT NULL,
         hsn_code TEXT NOT NULL,
         quantity INTEGER NOT NULL,
+        quantity_strips INTEGER DEFAULT 0,
+        quantity_pieces INTEGER DEFAULT 0,
+        tablets_per_strip INTEGER DEFAULT 10,
         unit TEXT NOT NULL DEFAULT 'PCS',
         mrp DECIMAL(10,2) NOT NULL,
         selling_price DECIMAL(10,2) NOT NULL,
@@ -295,7 +299,7 @@ export async function initDatabase(): Promise<Database> {
         // Enable WAL mode for better concurrent access and prevent "database is locked" errors
         await db.execute('PRAGMA journal_mode = WAL');
         console.log('WAL mode enabled');
-        
+
         // Set busy timeout to wait for locks (5 seconds)
         await db.execute('PRAGMA busy_timeout = 5000');
         console.log('Busy timeout set');
@@ -340,6 +344,46 @@ export async function initDatabase(): Promise<Database> {
         }
         console.log('Default data inserted');
 
+        // Run migrations for existing databases
+        console.log('Running migrations...');
+        const migrations = [
+            // Add tablets_per_strip to batches if not exists
+            `ALTER TABLE batches ADD COLUMN tablets_per_strip INTEGER DEFAULT 10`,
+            // Add new columns to bill_items if not exists
+            `ALTER TABLE bill_items ADD COLUMN quantity_strips INTEGER DEFAULT 0`,
+            `ALTER TABLE bill_items ADD COLUMN quantity_pieces INTEGER DEFAULT 0`,
+            `ALTER TABLE bill_items ADD COLUMN tablets_per_strip INTEGER DEFAULT 10`,
+            // Add total_items to bills if not exists
+            `ALTER TABLE bills ADD COLUMN total_items INTEGER DEFAULT 0`
+        ];
+        for (const migration of migrations) {
+            try {
+                await db.execute(migration);
+            } catch {
+                // Column probably already exists, ignore
+            }
+        }
+
+        // Migrate existing batch quantities from strips to tablets (one-time)
+        try {
+            const migrationFlag = await db.select<{ value: string }[]>(
+                `SELECT value FROM settings WHERE key = 'tablets_migration_done'`
+            );
+            if (migrationFlag.length === 0) {
+                console.log('Running one-time quantity migration...');
+                await db.execute(
+                    `UPDATE batches SET quantity = quantity * COALESCE(tablets_per_strip, 10) WHERE quantity > 0`
+                );
+                await db.execute(
+                    `INSERT INTO settings (key, value, category, description) VALUES ('tablets_migration_done', 'true', 'system', 'Quantity converted from strips to tablets')`
+                );
+                console.log('Migrated batch quantities from strips to tablets');
+            }
+        } catch (migrationErr) {
+            console.warn('Batch quantity migration skipped:', migrationErr);
+        }
+
+        console.log('Migrations complete');
         console.log('Database initialized successfully');
         return db;
     } catch (error) {
@@ -384,29 +428,32 @@ export async function execute(sql: string, params: unknown[] = []): Promise<{ ro
  */
 export async function transaction<T>(callback: () => Promise<T>): Promise<T> {
     const database = getDatabase();
-    
+    let transactionStarted = false;
+
     // Use BEGIN (DEFERRED by default) - WAL mode handles concurrency
     try {
         await database.execute('BEGIN');
+        transactionStarted = true;
     } catch (beginError) {
-        console.error('Failed to begin transaction:', beginError);
-        // If we can't start a transaction, there might already be one active
-        // Try to execute without explicit transaction (auto-commit mode)
-        console.warn('Falling back to auto-commit mode');
+        console.warn('Could not start transaction, using auto-commit mode:', beginError);
+        // Execute in auto-commit mode (each statement commits individually)
         return await callback();
     }
-    
+
     try {
         const result = await callback();
-        await database.execute('COMMIT');
+        if (transactionStarted) {
+            await database.execute('COMMIT');
+        }
         return result;
     } catch (error) {
-        // Try to rollback
-        try {
-            await database.execute('ROLLBACK');
-        } catch (rollbackError) {
-            // If rollback fails, log it but don't mask the original error
-            console.warn('Rollback warning:', rollbackError);
+        // Try to rollback only if we started a transaction
+        if (transactionStarted) {
+            try {
+                await database.execute('ROLLBACK');
+            } catch (rollbackError) {
+                console.warn('Rollback warning:', rollbackError);
+            }
         }
         throw error;
     }

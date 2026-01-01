@@ -1,6 +1,6 @@
 // =====================================================
 // Billing Page
-// POS-style multi-item billing with GST calculations
+// Modern POS-style billing with tablet/piece tracking
 // =====================================================
 
 import {
@@ -8,9 +8,7 @@ import {
     Banknote,
     Check,
     CreditCard,
-    Minus,
     Percent,
-    Plus,
     Printer,
     Search,
     Smartphone,
@@ -41,7 +39,7 @@ export function Billing() {
         onlineAmount,
         notes,
         addItem,
-        updateItemQuantity,
+        updateItemStripsPieces,
         removeItem,
         setCustomer,
         setBillDiscount,
@@ -62,24 +60,27 @@ export function Billing() {
 
     const searchInputRef = useRef<HTMLInputElement>(null);
 
-    // Calculate bill totals
+    // Calculate bill totals (per-piece pricing)
     const billCalc = calculateBill(
-        items.map(item => ({
-            batch: {
-                id: item.batch.batch_id,
-                selling_price: item.batch.selling_price,
-                price_type: item.batch.price_type,
-                gst_rate: item.batch.gst_rate
-            },
-            quantity: item.quantity,
-            discountType: item.discountType,
-            discountValue: item.discountValue
-        })),
+        items.map(item => {
+            const tabletsPerStrip = item.batch.tablets_per_strip || 10;
+            const pricePerPiece = item.batch.selling_price / tabletsPerStrip;
+            return {
+                batch: {
+                    id: item.batch.batch_id,
+                    selling_price: pricePerPiece,
+                    price_type: item.batch.price_type,
+                    gst_rate: item.batch.gst_rate
+                },
+                quantity: item.quantity,
+                discountType: item.discountType,
+                discountValue: item.discountValue
+            };
+        }),
         discountType ?? undefined,
         discountValue
     );
 
-    // Load customers
     useEffect(() => {
         async function loadCustomers() {
             const result = await query<Customer>(
@@ -91,7 +92,6 @@ export function Billing() {
         loadCustomers();
     }, []);
 
-    // Search medicines
     const performSearch = useCallback(
         debounce(async (term: string) => {
             if (term.length < 2) {
@@ -99,7 +99,6 @@ export function Billing() {
                 setShowSearchDropdown(false);
                 return;
             }
-
             try {
                 const results = await searchMedicinesForBilling(term);
                 setSearchResults(results);
@@ -115,32 +114,22 @@ export function Billing() {
         performSearch(searchQuery);
     }, [searchQuery, performSearch]);
 
-    // Keyboard shortcuts
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            // Focus search: Ctrl+F or F2
             if ((e.ctrlKey && e.key === 'f') || e.key === 'F2') {
                 e.preventDefault();
                 searchInputRef.current?.focus();
             }
-            // Save bill: Ctrl+S
             if (e.ctrlKey && e.key === 's') {
                 e.preventDefault();
-                if (items.length > 0 && !isSubmitting) {
-                    handleSubmitBill();
-                }
+                if (items.length > 0 && !isSubmitting) handleSubmitBill();
             }
-            // Clear bill: Ctrl+Delete
             if (e.ctrlKey && e.key === 'Delete') {
                 e.preventDefault();
                 clearBill();
             }
-            // Escape: Close dropdowns
-            if (e.key === 'Escape') {
-                setShowSearchDropdown(false);
-            }
+            if (e.key === 'Escape') setShowSearchDropdown(false);
         };
-
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [items, isSubmitting, clearBill]);
@@ -154,8 +143,6 @@ export function Billing() {
 
     const handleSubmitBill = async () => {
         if (items.length === 0) return;
-
-        // Validate credit sale requires customer
         if (paymentMode === 'CREDIT' && !customerId) {
             setError('Please select a customer for credit sale');
             showToast('warning', 'Please select a customer for credit sale');
@@ -173,6 +160,8 @@ export function Billing() {
                     items: items.map(item => ({
                         batch_id: item.batch.batch_id,
                         quantity: item.quantity,
+                        quantity_strips: item.quantityStrips,
+                        quantity_pieces: item.quantityPieces,
                         discount_type: item.discountType,
                         discount_value: item.discountValue
                     })),
@@ -188,667 +177,591 @@ export function Billing() {
 
             setLastBill(bill);
             setShowSuccessModal(true);
-            showToast('success', `Bill ${bill.bill_number} created successfully!`);
+            showToast('success', `Bill ${bill.bill_number} created!`);
             clearBill();
         } catch (err) {
             console.error('Bill creation error:', err);
-            let errorMessage = 'Failed to create bill';
-            if (err instanceof Error) {
-                errorMessage = err.message;
-            } else if (typeof err === 'string') {
-                errorMessage = err;
-            } else {
-                errorMessage = JSON.stringify(err);
-            }
-
+            const errorMessage = err instanceof Error ? err.message : 'Failed to create bill';
             setError(errorMessage);
             showToast('error', errorMessage);
         }
-
         setIsSubmitting(false);
     };
 
     const handlePrint = () => {
-        // Note: Thermal printing requires proper printer setup
-        // For now, use browser print which works without a connected printer
         try {
             window.print();
-            showToast('info', 'Print dialog opened. Bill saved to history.');
+            showToast('info', 'Print dialog opened');
         } catch {
-            showToast('warning', 'Printer not connected. Bill has been saved to history.');
+            showToast('warning', 'Printer not available');
         }
     };
 
-    return (
-        <>
-            <header className="page-header">
-                <h1 className="page-title">New Bill</h1>
-                <div className="page-actions">
-                    <span className="text-sm text-secondary">
-                        <kbd className="kbd">F2</kbd> Search &nbsp;
-                        <kbd className="kbd">Ctrl+S</kbd> Save
-                    </span>
-                </div>
-            </header>
-
-            <div className="page-body">
-                <style>{`
-          .billing-container {
+    const styles = `
+        .pos-layout {
             display: grid;
-            grid-template-columns: 1fr 380px;
-            gap: var(--space-6);
-            height: calc(100vh - 180px);
-          }
-          
-          .billing-main {
+            grid-template-columns: 1fr 320px;
+            gap: 16px;
+            height: calc(100vh - 120px);
+            padding: 16px;
+            overflow: hidden;
+        }
+        
+        .pos-main {
             display: flex;
             flex-direction: column;
             background: var(--bg-secondary);
-            border-radius: var(--radius-lg);
+            border-radius: 12px;
             border: 1px solid var(--border-light);
             overflow: hidden;
-          }
-          
-          .billing-search-wrapper {
+        }
+        
+        .pos-search {
             position: relative;
-            padding: var(--space-4);
-            border-bottom: 1px solid var(--border-light);
-          }
-          
-          .billing-search-input {
+            padding: 12px;
+            background: linear-gradient(135deg, var(--color-primary-600), var(--color-primary-700));
+        }
+        
+        .pos-search input {
             width: 100%;
-            padding: var(--space-3) var(--space-4);
-            padding-left: var(--space-10);
-            font-size: var(--text-lg);
-            border: 2px solid var(--border-light);
-            border-radius: var(--radius-lg);
-            transition: all var(--transition-fast);
-          }
-          
-          .billing-search-input:focus {
+            padding: 10px 12px 10px 40px;
+            font-size: 15px;
+            border: none;
+            border-radius: 8px;
+            background: rgba(255,255,255,0.95);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        }
+        
+        .pos-search input:focus {
             outline: none;
-            border-color: var(--color-primary-500);
-          }
-          
-          .billing-search-icon {
+            box-shadow: 0 2px 12px rgba(0,0,0,0.2);
+        }
+        
+        .pos-search-icon {
             position: absolute;
-            left: calc(var(--space-4) + var(--space-3));
+            left: 24px;
             top: 50%;
             transform: translateY(-50%);
             color: var(--text-tertiary);
-          }
-          
-          .search-dropdown {
+        }
+        
+        .pos-dropdown {
             position: absolute;
             top: 100%;
-            left: var(--space-4);
-            right: var(--space-4);
-            background: var(--bg-secondary);
-            border: 1px solid var(--border-medium);
-            border-radius: var(--radius-lg);
-            box-shadow: var(--shadow-lg);
-            max-height: 400px;
+            left: 12px;
+            right: 12px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+            max-height: 300px;
             overflow-y: auto;
-            z-index: var(--z-dropdown);
-          }
-          
-          .search-item {
-            display: grid;
-            grid-template-columns: 1fr auto auto auto;
-            gap: var(--space-3);
-            align-items: center;
-            padding: var(--space-3) var(--space-4);
-            cursor: pointer;
-            border-bottom: 1px solid var(--border-light);
-          }
-          
-          .search-item:hover {
-            background: var(--bg-tertiary);
-          }
-          
-          .search-item:last-child {
-            border-bottom: none;
-          }
-          
-          .search-item-name {
-            font-weight: var(--font-medium);
-          }
-          
-          .search-item-meta {
-            font-size: var(--text-xs);
-            color: var(--text-tertiary);
-          }
-          
-          .billing-items-table {
-            flex: 1;
-            overflow-y: auto;
-          }
-          
-          .items-header {
-            display: grid;
-            grid-template-columns: 2.5fr 80px 100px 80px 100px 50px;
-            gap: var(--space-2);
-            padding: var(--space-3) var(--space-4);
-            background: var(--bg-tertiary);
-            font-size: var(--text-sm);
-            font-weight: var(--font-semibold);
-            color: var(--text-secondary);
-            position: sticky;
-            top: 0;
-          }
-          
-          .item-row {
-            display: grid;
-            grid-template-columns: 2.5fr 80px 100px 80px 100px 50px;
-            gap: var(--space-2);
-            padding: var(--space-3) var(--space-4);
-            border-bottom: 1px solid var(--border-light);
-            align-items: center;
-          }
-          
-          .item-row:hover {
-            background: var(--bg-tertiary);
-          }
-          
-          .item-name {
-            font-weight: var(--font-medium);
-          }
-          
-          .item-meta {
-            font-size: var(--text-xs);
-            color: var(--text-tertiary);
-          }
-          
-          .qty-controls {
-            display: flex;
-            align-items: center;
-            gap: var(--space-1);
-          }
-          
-          .qty-btn {
-            width: 24px;
-            height: 24px;
-            border: 1px solid var(--border-medium);
-            border-radius: var(--radius-sm);
-            background: var(--bg-secondary);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            transition: all var(--transition-fast);
-          }
-          
-          .qty-btn:hover {
-            background: var(--bg-tertiary);
-          }
-          
-          .qty-input {
-            width: 40px;
-            text-align: center;
-            border: 1px solid var(--border-light);
-            border-radius: var(--radius-sm);
-            padding: var(--space-1);
-            font-family: var(--font-mono);
-          }
-          
-          .delete-btn {
-            color: var(--color-danger-500);
-            cursor: pointer;
-            opacity: 0.6;
-            transition: all var(--transition-fast);
-          }
-          
-          .delete-btn:hover {
-            opacity: 1;
-          }
-          
-          .billing-sidebar {
-            display: flex;
-            flex-direction: column;
-            gap: var(--space-4);
-          }
-          
-          .sidebar-card {
-            background: var(--bg-secondary);
-            border-radius: var(--radius-lg);
-            border: 1px solid var(--border-light);
-            padding: var(--space-4);
-          }
-          
-          .sidebar-title {
-            font-weight: var(--font-semibold);
-            margin-bottom: var(--space-3);
-            display: flex;
-            align-items: center;
-            gap: var(--space-2);
-          }
-          
-          .customer-select {
-            display: flex;
-            align-items: center;
-            gap: var(--space-2);
-            padding: var(--space-2) var(--space-3);
-            border: 1px solid var(--border-medium);
-            border-radius: var(--radius-md);
-            cursor: pointer;
-          }
-          
-          .customer-select:hover {
-            border-color: var(--color-primary-500);
-          }
-          
-          .payment-modes {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: var(--space-2);
-          }
-          
-          .payment-btn {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: var(--space-1);
-            padding: var(--space-3);
-            border: 2px solid var(--border-light);
-            border-radius: var(--radius-md);
-            cursor: pointer;
-            transition: all var(--transition-fast);
-            background: var(--bg-secondary);
-          }
-          
-          .payment-btn:hover {
-            border-color: var(--color-primary-300);
-          }
-          
-          .payment-btn.active {
-            border-color: var(--color-primary-500);
-            background: var(--color-primary-50);
-          }
-          
-          .payment-btn-label {
-            font-size: var(--text-xs);
-            font-weight: var(--font-medium);
-          }
-          
-          .totals-card {
-            background: var(--color-gray-900);
-            color: var(--text-inverse);
-          }
-          
-          .total-row {
+            z-index: 100;
+        }
+        
+        .pos-dropdown-item {
             display: flex;
             justify-content: space-between;
-            padding: var(--space-2) 0;
-            font-size: var(--text-sm);
-          }
-          
-          .total-row.grand {
-            font-size: var(--text-xl);
-            font-weight: var(--font-bold);
-            border-top: 1px solid rgba(255,255,255,0.2);
-            padding-top: var(--space-3);
-            margin-top: var(--space-2);
-          }
-          
-          .submit-btn {
+            align-items: center;
+            padding: 10px 14px;
+            cursor: pointer;
+            border-bottom: 1px solid var(--border-light);
+            gap: 12px;
+        }
+        
+        .pos-dropdown-item:hover {
+            background: var(--color-primary-50);
+        }
+        
+        .pos-dropdown-item:last-child {
+            border-bottom: none;
+        }
+        
+        .pos-items {
+            flex: 1;
+            overflow-y: auto;
+        }
+        
+        .pos-items-header {
+            display: grid;
+            grid-template-columns: 2fr 70px 50px 80px 80px 32px;
+            gap: 8px;
+            padding: 8px 12px;
+            background: var(--bg-tertiary);
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            position: sticky;
+            top: 0;
+        }
+        
+        .pos-item-row {
+            display: grid;
+            grid-template-columns: 2fr 70px 50px 80px 80px 32px;
+            gap: 8px;
+            padding: 10px 12px;
+            border-bottom: 1px solid var(--border-light);
+            align-items: center;
+            font-size: 13px;
+        }
+        
+        .pos-item-row:hover {
+            background: var(--bg-tertiary);
+        }
+        
+        .pos-item-name {
+            font-weight: 500;
+            color: var(--text-primary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        .pos-item-batch {
+            font-size: 10px;
+            color: var(--text-tertiary);
+        }
+        
+        .pos-qty-input {
             width: 100%;
-            padding: var(--space-4);
-            font-size: var(--text-lg);
-            font-weight: var(--font-semibold);
-            margin-top: var(--space-3);
-          }
-          
-          .empty-items {
+            padding: 4px 6px;
+            text-align: center;
+            border: 1px solid var(--border-light);
+            border-radius: 4px;
+            font-size: 13px;
+            font-family: var(--font-mono);
+        }
+        
+        .pos-qty-input:focus {
+            outline: none;
+            border-color: var(--color-primary-500);
+        }
+        
+        .pos-delete {
+            color: var(--color-danger-500);
+            cursor: pointer;
+            opacity: 0.5;
+            transition: opacity 0.15s;
+        }
+        
+        .pos-delete:hover {
+            opacity: 1;
+        }
+        
+        .pos-empty {
             flex: 1;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
             color: var(--text-tertiary);
-            padding: var(--space-8);
-          }
-          
-          .gst-info {
-            font-size: var(--text-xs);
-            color: rgba(255,255,255,0.7);
-            margin-top: var(--space-3);
-            padding-top: var(--space-3);
-            border-top: 1px solid rgba(255,255,255,0.1);
-          }
-          
-          .success-modal {
+            gap: 8px;
+        }
+        
+        .pos-sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            overflow-y: auto;
+        }
+        
+        .pos-card {
+            background: var(--bg-secondary);
+            border-radius: 10px;
+            border: 1px solid var(--border-light);
+            padding: 12px;
+        }
+        
+        .pos-card-title {
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        
+        .pos-payment-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 6px;
+        }
+        
+        .pos-pay-btn {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2px;
+            padding: 8px 4px;
+            border: 2px solid var(--border-light);
+            border-radius: 6px;
+            background: var(--bg-secondary);
+            cursor: pointer;
+            font-size: 9px;
+            font-weight: 500;
+            transition: all 0.15s;
+        }
+        
+        .pos-pay-btn:hover {
+            border-color: var(--color-primary-300);
+        }
+        
+        .pos-pay-btn.active {
+            border-color: var(--color-primary-500);
+            background: var(--color-primary-50);
+            color: var(--color-primary-700);
+        }
+        
+        .pos-totals {
+            background: linear-gradient(135deg, #1a1f2e, #0f1219);
+            color: white;
+            border: none;
+        }
+        
+        .pos-total-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 4px 0;
+            font-size: 12px;
+        }
+        
+        .pos-total-row.grand {
+            font-size: 18px;
+            font-weight: 700;
+            border-top: 1px solid rgba(255,255,255,0.2);
+            padding-top: 10px;
+            margin-top: 6px;
+        }
+        
+        .pos-submit {
+            width: 100%;
+            padding: 12px;
+            font-size: 14px;
+            font-weight: 600;
+            background: linear-gradient(135deg, var(--color-primary-500), var(--color-primary-600));
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.15s;
+            margin-top: 8px;
+        }
+        
+        .pos-submit:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(30, 142, 180, 0.3);
+        }
+        
+        .pos-submit:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        
+        .pos-success {
             text-align: center;
-          }
-          
-          .success-icon {
-            width: 80px;
-            height: 80px;
+            padding: 20px;
+        }
+        
+        .pos-success-icon {
+            width: 64px;
+            height: 64px;
             background: var(--color-success-100);
             color: var(--color-success-600);
             border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
-            margin: 0 auto var(--space-4);
-          }
-          
-          .bill-number {
-            font-size: var(--text-2xl);
-            font-weight: var(--font-bold);
+            margin: 0 auto 16px;
+        }
+        
+        .pos-bill-number {
+            font-size: 20px;
+            font-weight: 700;
             font-family: var(--font-mono);
             color: var(--color-primary-600);
-            margin-bottom: var(--space-2);
-          }
-        `}</style>
+        }
+    `;
 
-                {error && (
-                    <div className="alert alert-danger mb-4">
-                        <AlertCircle size={18} />
-                        <span>{error}</span>
-                        <button
-                            className="btn btn-ghost btn-sm"
-                            onClick={() => setError(null)}
-                            style={{ marginLeft: 'auto' }}
-                        >
-                            <X size={16} />
-                        </button>
-                    </div>
-                )}
+    return (
+        <>
+            <style>{styles}</style>
 
-                <div className="billing-container">
-                    {/* Main Billing Area */}
-                    <div className="billing-main">
-                        {/* Search */}
-                        <div className="billing-search-wrapper">
-                            <Search className="billing-search-icon" size={20} />
-                            <input
-                                ref={searchInputRef}
-                                type="text"
-                                className="billing-search-input"
-                                placeholder="Search medicine by name or batch number..."
-                                value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                                onFocus={() => searchQuery.length >= 2 && setShowSearchDropdown(true)}
-                            />
+            {error && (
+                <div className="alert alert-danger" style={{ margin: '8px 16px 0' }}>
+                    <AlertCircle size={16} />
+                    <span style={{ flex: 1 }}>{error}</span>
+                    <button className="btn btn-ghost btn-sm" onClick={() => setError(null)}>
+                        <X size={14} />
+                    </button>
+                </div>
+            )}
 
-                            {showSearchDropdown && searchResults.length > 0 && (
-                                <div className="search-dropdown">
-                                    {searchResults.map((item) => (
+            <div className="pos-layout">
+                {/* Main Area */}
+                <div className="pos-main">
+                    {/* Search */}
+                    <div className="pos-search">
+                        <Search className="pos-search-icon" size={18} />
+                        <input
+                            ref={searchInputRef}
+                            type="text"
+                            placeholder="Search medicine... (F2)"
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            onFocus={() => searchQuery.length >= 2 && setShowSearchDropdown(true)}
+                        />
+
+                        {showSearchDropdown && searchResults.length > 0 && (
+                            <div className="pos-dropdown">
+                                {searchResults.map((item) => {
+                                    const tps = item.tablets_per_strip || 10;
+                                    const s = Math.floor(item.quantity / tps);
+                                    const p = item.quantity % tps;
+                                    return (
                                         <div
                                             key={item.batch_id}
-                                            className="search-item"
+                                            className="pos-dropdown-item"
                                             onClick={() => handleAddItem(item)}
                                         >
-                                            <div>
-                                                <div className="search-item-name">{item.medicine_name}</div>
-                                                <div className="search-item-meta">
-                                                    Batch: {item.batch_number} | Exp: {formatDate(item.expiry_date)} |
-                                                    Loc: {item.rack || '-'}/{item.box || '-'}
+                                            <div style={{ minWidth: 0 }}>
+                                                <div style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                    {item.medicine_name}
+                                                </div>
+                                                <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
+                                                    {item.batch_number} • Exp: {formatDate(item.expiry_date)}
                                                 </div>
                                             </div>
-                                            <span className="gst-badge">{item.gst_rate}%</span>
-                                            <span className="font-mono">{formatCurrency(item.selling_price)}</span>
-                                            <span className="badge badge-success">{item.quantity} qty</span>
+                                            <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                                                <div style={{ fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
+                                                    {formatCurrency(item.selling_price)}
+                                                </div>
+                                                <div style={{ fontSize: 10 }}>
+                                                    <span className="badge badge-success">
+                                                        {s > 0 ? `${s}S${p > 0 ? `+${p}` : ''}` : `${p}pcs`}
+                                                    </span>
+                                                </div>
+                                            </div>
                                         </div>
-                                    ))}
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Items */}
+                    <div className="pos-items">
+                        {items.length > 0 ? (
+                            <>
+                                <div className="pos-items-header">
+                                    <span>Medicine</span>
+                                    <span style={{ textAlign: 'center' }}>Strips</span>
+                                    <span style={{ textAlign: 'center' }}>Pcs</span>
+                                    <span style={{ textAlign: 'right' }}>Rate</span>
+                                    <span style={{ textAlign: 'right' }}>Amount</span>
+                                    <span></span>
                                 </div>
-                            )}
+                                {items.map((item, index) => {
+                                    const itemCalc = billCalc.items[index];
+                                    const tps = item.batch.tablets_per_strip || 10;
+                                    return (
+                                        <div key={item.batch.batch_id} className="pos-item-row">
+                                            <div>
+                                                <div className="pos-item-name">{item.batch.medicine_name}</div>
+                                                <div className="pos-item-batch">
+                                                    {item.batch.batch_number} • {tps}/strip • {item.quantity}pcs
+                                                </div>
+                                            </div>
+                                            <input
+                                                type="number"
+                                                className="pos-qty-input"
+                                                value={item.quantityStrips}
+                                                onChange={(e) => {
+                                                    const val = e.target.value === '' ? 0 : parseInt(e.target.value);
+                                                    updateItemStripsPieces(item.batch.batch_id, Math.max(0, val), item.quantityPieces);
+                                                }}
+                                                min={0}
+                                            />
+                                            <input
+                                                type="number"
+                                                className="pos-qty-input"
+                                                value={item.quantityPieces}
+                                                onChange={(e) => {
+                                                    const val = e.target.value === '' ? 0 : parseInt(e.target.value);
+                                                    updateItemStripsPieces(item.batch.batch_id, item.quantityStrips, Math.max(0, val));
+                                                }}
+                                                min={0}
+                                                max={tps - 1}
+                                            />
+                                            <div style={{ textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
+                                                {formatCurrency(item.batch.selling_price / tps)}/pc
+                                            </div>
+                                            <div style={{ textAlign: 'right', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
+                                                {formatCurrency(itemCalc?.total ?? 0)}
+                                            </div>
+                                            <Trash2
+                                                size={16}
+                                                className="pos-delete"
+                                                onClick={() => removeItem(item.batch.batch_id)}
+                                            />
+                                        </div>
+                                    );
+                                })}
+                            </>
+                        ) : (
+                            <div className="pos-empty">
+                                <Search size={40} strokeWidth={1} />
+                                <span>Search medicine to add</span>
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                {/* Sidebar */}
+                <div className="pos-sidebar">
+                    {/* Customer */}
+                    <div className="pos-card">
+                        <div className="pos-card-title">
+                            <User size={14} /> Customer
+                        </div>
+                        <select
+                            className="form-select"
+                            style={{ fontSize: 13 }}
+                            value={customerId ?? ''}
+                            onChange={(e) => {
+                                const id = e.target.value ? parseInt(e.target.value) : null;
+                                const c = customers.find(c => c.id === id);
+                                setCustomer(id, c?.name ?? '');
+                            }}
+                        >
+                            <option value="">Walk-in Customer</option>
+                            {customers.map(c => (
+                                <option key={c.id} value={c.id}>{c.name}</option>
+                            ))}
+                        </select>
+                    </div>
+
+                    {/* Payment */}
+                    <div className="pos-card">
+                        <div className="pos-card-title">
+                            <CreditCard size={14} /> Payment
+                        </div>
+                        <div className="pos-payment-grid">
+                            <button
+                                className={`pos-pay-btn ${paymentMode === 'CASH' ? 'active' : ''}`}
+                                onClick={() => setPaymentMode('CASH')}
+                            >
+                                <Banknote size={16} />
+                                CASH
+                            </button>
+                            <button
+                                className={`pos-pay-btn ${paymentMode === 'ONLINE' ? 'active' : ''}`}
+                                onClick={() => setPaymentMode('ONLINE')}
+                            >
+                                <Smartphone size={16} />
+                                UPI
+                            </button>
+                            <button
+                                className={`pos-pay-btn ${paymentMode === 'CREDIT' ? 'active' : ''}`}
+                                onClick={() => setPaymentMode('CREDIT')}
+                            >
+                                <CreditCard size={16} />
+                                CREDIT
+                            </button>
+                            <button
+                                className={`pos-pay-btn ${paymentMode === 'SPLIT' ? 'active' : ''}`}
+                                onClick={() => setPaymentMode('SPLIT')}
+                            >
+                                <Percent size={16} />
+                                SPLIT
+                            </button>
                         </div>
 
-                        {/* Items Table */}
-                        <div className="billing-items-table">
-                            {items.length > 0 ? (
-                                <>
-                                    <div className="items-header">
-                                        <span>Medicine</span>
-                                        <span className="text-center">Qty</span>
-                                        <span className="text-right">Rate</span>
-                                        <span className="text-center">GST%</span>
-                                        <span className="text-right">Amount</span>
-                                        <span></span>
-                                    </div>
-                                    {items.map((item, index) => {
-                                        const itemCalc = billCalc.items[index];
-                                        return (
-                                            <div key={item.batch.batch_id} className="item-row">
-                                                <div>
-                                                    <div className="item-name">{item.batch.medicine_name}</div>
-                                                    <div className="item-meta">
-                                                        {item.batch.batch_number} | Exp: {formatDate(item.batch.expiry_date)}
-                                                    </div>
-                                                </div>
-                                                <div className="qty-controls">
-                                                    <button
-                                                        className="qty-btn"
-                                                        onClick={() => updateItemQuantity(item.batch.batch_id, Math.max(1, item.quantity - 1))}
-                                                    >
-                                                        <Minus size={14} />
-                                                    </button>
-                                                    <input
-                                                        type="number"
-                                                        className="qty-input"
-                                                        value={item.quantity}
-                                                        onChange={(e) => {
-                                                            const val = e.target.value === '' ? 1 : parseInt(e.target.value);
-                                                            updateItemQuantity(item.batch.batch_id, Math.max(1, val));
-                                                        }}
-                                                        min={1}
-                                                        max={item.batch.quantity}
-                                                    />
-                                                    <button
-                                                        className="qty-btn"
-                                                        onClick={() => updateItemQuantity(item.batch.batch_id, Math.min(item.batch.quantity, item.quantity + 1))}
-                                                    >
-                                                        <Plus size={14} />
-                                                    </button>
-                                                </div>
-                                                <div className="text-right font-mono">
-                                                    {formatCurrency(item.batch.selling_price)}
-                                                </div>
-                                                <div className="text-center">
-                                                    <span className="gst-badge">{item.batch.gst_rate}%</span>
-                                                </div>
-                                                <div className="text-right font-mono font-semibold">
-                                                    {formatCurrency(itemCalc?.total ?? 0)}
-                                                </div>
-                                                <div>
-                                                    <Trash2
-                                                        size={18}
-                                                        className="delete-btn"
-                                                        onClick={() => removeItem(item.batch.batch_id)}
-                                                    />
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-                                </>
-                            ) : (
-                                <div className="empty-items">
-                                    <Search size={48} strokeWidth={1} />
-                                    <p className="mt-4">Search and add medicines to start billing</p>
-                                    <p className="text-sm">Press F2 to focus search</p>
+                        {paymentMode === 'SPLIT' && (
+                            <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                                <div>
+                                    <label style={{ fontSize: 10, color: 'var(--text-secondary)' }}>Cash</label>
+                                    <input
+                                        type="number"
+                                        className="form-input"
+                                        style={{ fontSize: 13 }}
+                                        value={cashAmount || ''}
+                                        onChange={(e) => setSplitAmounts(parseFloat(e.target.value) || 0, onlineAmount)}
+                                    />
                                 </div>
-                            )}
+                                <div>
+                                    <label style={{ fontSize: 10, color: 'var(--text-secondary)' }}>Online</label>
+                                    <input
+                                        type="number"
+                                        className="form-input"
+                                        style={{ fontSize: 13 }}
+                                        value={onlineAmount || ''}
+                                        onChange={(e) => setSplitAmounts(cashAmount, parseFloat(e.target.value) || 0)}
+                                    />
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Discount */}
+                    <div className="pos-card">
+                        <div className="pos-card-title">
+                            <Percent size={14} /> Discount
+                        </div>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                            <select
+                                className="form-select"
+                                style={{ width: 80, fontSize: 13 }}
+                                value={discountType ?? ''}
+                                onChange={(e) => setBillDiscount((e.target.value as 'PERCENTAGE' | 'FLAT') || null, discountValue)}
+                            >
+                                <option value="">None</option>
+                                <option value="PERCENTAGE">%</option>
+                                <option value="FLAT">₹</option>
+                            </select>
+                            <input
+                                type="number"
+                                className="form-input"
+                                style={{ fontSize: 13 }}
+                                placeholder="0"
+                                value={discountValue || ''}
+                                onChange={(e) => setBillDiscount(discountType, parseFloat(e.target.value) || 0)}
+                                disabled={!discountType}
+                            />
                         </div>
                     </div>
 
-                    {/* Sidebar */}
-                    <div className="billing-sidebar">
-                        {/* Customer */}
-                        <div className="sidebar-card">
-                            <div className="sidebar-title">
-                                <User size={18} />
-                                Customer
+                    {/* Totals */}
+                    <div className="pos-card pos-totals">
+                        <div className="pos-total-row">
+                            <span>Subtotal</span>
+                            <span>{formatCurrency(billCalc.subtotal)}</span>
+                        </div>
+                        {billCalc.billDiscount > 0 && (
+                            <div className="pos-total-row" style={{ color: 'var(--color-success-400)' }}>
+                                <span>Discount</span>
+                                <span>-{formatCurrency(billCalc.billDiscount)}</span>
                             </div>
-                            <select
-                                className="form-select"
-                                value={customerId ?? ''}
-                                onChange={(e) => {
-                                    const id = e.target.value ? parseInt(e.target.value) : null;
-                                    const customer = customers.find(c => c.id === id);
-                                    setCustomer(id, customer?.name ?? '');
-                                }}
-                            >
-                                <option value="">Walk-in Customer</option>
-                                {customers.map(c => (
-                                    <option key={c.id} value={c.id}>{c.name}</option>
-                                ))}
-                            </select>
-                            {customerId && (
-                                <div className="text-xs mt-2 text-secondary">
-                                    Credit Balance: {formatCurrency(customers.find(c => c.id === customerId)?.current_balance ?? 0)}
-                                </div>
-                            )}
+                        )}
+                        <div className="pos-total-row">
+                            <span>GST</span>
+                            <span>{formatCurrency(billCalc.totalGst)}</span>
+                        </div>
+                        <div className="pos-total-row grand">
+                            <span>Total</span>
+                            <span>{formatCurrency(billCalc.finalAmount)}</span>
                         </div>
 
-                        {/* Payment Mode */}
-                        <div className="sidebar-card">
-                            <div className="sidebar-title">
-                                <CreditCard size={18} />
-                                Payment Mode
-                            </div>
-                            <div className="payment-modes">
-                                <button
-                                    className={`payment-btn ${paymentMode === 'CASH' ? 'active' : ''}`}
-                                    onClick={() => setPaymentMode('CASH')}
-                                >
-                                    <Banknote size={20} />
-                                    <span className="payment-btn-label">CASH</span>
-                                </button>
-                                <button
-                                    className={`payment-btn ${paymentMode === 'ONLINE' ? 'active' : ''}`}
-                                    onClick={() => setPaymentMode('ONLINE')}
-                                >
-                                    <Smartphone size={20} />
-                                    <span className="payment-btn-label">ONLINE</span>
-                                </button>
-                                <button
-                                    className={`payment-btn ${paymentMode === 'CREDIT' ? 'active' : ''}`}
-                                    onClick={() => setPaymentMode('CREDIT')}
-                                >
-                                    <CreditCard size={20} />
-                                    <span className="payment-btn-label">CREDIT</span>
-                                </button>
-                                <button
-                                    className={`payment-btn ${paymentMode === 'SPLIT' ? 'active' : ''}`}
-                                    onClick={() => setPaymentMode('SPLIT')}
-                                >
-                                    <Percent size={20} />
-                                    <span className="payment-btn-label">SPLIT</span>
-                                </button>
-                            </div>
-
-                            {paymentMode === 'SPLIT' && (
-                                <div className="mt-3">
-                                    <div className="form-group">
-                                        <label className="form-label">Cash Amount</label>
-                                        <input
-                                            type="number"
-                                            className="form-input"
-                                            value={cashAmount || ''}
-                                            onChange={(e) => setSplitAmounts(e.target.value === '' ? 0 : parseFloat(e.target.value), onlineAmount)}
-                                        />
-                                    </div>
-                                    <div className="form-group mb-0">
-                                        <label className="form-label">Online Amount</label>
-                                        <input
-                                            type="number"
-                                            className="form-input"
-                                            value={onlineAmount || ''}
-                                            onChange={(e) => setSplitAmounts(cashAmount, e.target.value === '' ? 0 : parseFloat(e.target.value))}
-                                        />
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Discount */}
-                        <div className="sidebar-card">
-                            <div className="sidebar-title">
-                                <Percent size={18} />
-                                Bill Discount
-                            </div>
-                            <div className="flex gap-2">
-                                <select
-                                    className="form-select"
-                                    style={{ width: '100px' }}
-                                    value={discountType ?? ''}
-                                    onChange={(e) => setBillDiscount(
-                                        (e.target.value as 'PERCENTAGE' | 'FLAT') || null,
-                                        discountValue
-                                    )}
-                                >
-                                    <option value="">None</option>
-                                    <option value="PERCENTAGE">%</option>
-                                    <option value="FLAT">₹</option>
-                                </select>
-                                <input
-                                    type="number"
-                                    className="form-input"
-                                    placeholder="Value"
-                                    value={discountValue || ''}
-                                    onChange={(e) => setBillDiscount(
-                                        discountType,
-                                        e.target.value === '' ? 0 : parseFloat(e.target.value)
-                                    )}
-                                    disabled={!discountType}
-                                />
-                            </div>
-                        </div>
-
-                        {/* Totals */}
-                        <div className="sidebar-card totals-card">
-                            <div className="total-row">
-                                <span>Subtotal</span>
-                                <span className="font-mono">{formatCurrency(billCalc.subtotal)}</span>
-                            </div>
-                            {billCalc.itemDiscountTotal > 0 && (
-                                <div className="total-row">
-                                    <span>Item Discounts</span>
-                                    <span className="font-mono">-{formatCurrency(billCalc.itemDiscountTotal)}</span>
-                                </div>
-                            )}
-                            <div className="total-row">
-                                <span>Taxable Amount</span>
-                                <span className="font-mono">{formatCurrency(billCalc.taxableTotal)}</span>
-                            </div>
-                            <div className="total-row">
-                                <span>CGST</span>
-                                <span className="font-mono">{formatCurrency(billCalc.totalCgst)}</span>
-                            </div>
-                            <div className="total-row">
-                                <span>SGST</span>
-                                <span className="font-mono">{formatCurrency(billCalc.totalSgst)}</span>
-                            </div>
-                            {billCalc.billDiscount > 0 && (
-                                <div className="total-row">
-                                    <span>Bill Discount</span>
-                                    <span className="font-mono">-{formatCurrency(billCalc.billDiscount)}</span>
-                                </div>
-                            )}
-                            {billCalc.roundOff !== 0 && (
-                                <div className="total-row">
-                                    <span>Round Off</span>
-                                    <span className="font-mono">{billCalc.roundOff > 0 ? '+' : ''}{formatCurrency(billCalc.roundOff)}</span>
-                                </div>
-                            )}
-                            <div className="total-row grand">
-                                <span>Grand Total</span>
-                                <span className="font-mono">{formatCurrency(billCalc.finalAmount)}</span>
-                            </div>
-
-                            <div className="gst-info">
-                                Total GST: {formatCurrency(billCalc.totalGst)} (CGST: {formatCurrency(billCalc.totalCgst)} + SGST: {formatCurrency(billCalc.totalSgst)})
-                            </div>
-
-                            <button
-                                className="btn btn-success submit-btn"
-                                onClick={handleSubmitBill}
-                                disabled={items.length === 0 || isSubmitting}
-                            >
-                                {isSubmitting ? 'Processing...' : `Save Bill (${formatCurrency(billCalc.finalAmount)})`}
-                            </button>
-                        </div>
+                        <button
+                            className="pos-submit"
+                            onClick={handleSubmitBill}
+                            disabled={items.length === 0 || isSubmitting}
+                        >
+                            {isSubmitting ? 'Saving...' : `Save Bill • ${formatCurrency(billCalc.finalAmount)}`}
+                        </button>
                     </div>
                 </div>
             </div>
@@ -856,25 +769,24 @@ export function Billing() {
             {/* Success Modal */}
             {showSuccessModal && lastBill && (
                 <div className="modal-overlay" onClick={() => setShowSuccessModal(false)}>
-                    <div className="modal" onClick={(e) => e.stopPropagation()}>
-                        <div className="modal-body success-modal">
-                            <div className="success-icon">
-                                <Check size={40} />
+                    <div className="modal modal-sm" onClick={(e) => e.stopPropagation()}>
+                        <div className="modal-body pos-success">
+                            <div className="pos-success-icon">
+                                <Check size={32} />
                             </div>
-                            <h2>Bill Created Successfully!</h2>
-                            <div className="bill-number">{lastBill.bill_number}</div>
-                            <p className="text-secondary">
-                                Amount: {formatCurrency(lastBill.grand_total)} | Mode: {lastBill.payment_mode}
+                            <div className="pos-bill-number">{lastBill.bill_number}</div>
+                            <p style={{ color: 'var(--text-secondary)', marginBottom: 16 }}>
+                                Bill saved successfully!<br />
+                                Amount: {formatCurrency(lastBill.grand_total)}
                             </p>
-                        </div>
-                        <div className="modal-footer">
-                            <button className="btn btn-secondary" onClick={() => setShowSuccessModal(false)}>
-                                Close
-                            </button>
-                            <button className="btn btn-primary" onClick={handlePrint}>
-                                <Printer size={18} />
-                                Print Bill
-                            </button>
+                            <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+                                <button className="btn btn-secondary" onClick={handlePrint}>
+                                    <Printer size={16} /> Print
+                                </button>
+                                <button className="btn btn-primary" onClick={() => setShowSuccessModal(false)}>
+                                    New Bill
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>

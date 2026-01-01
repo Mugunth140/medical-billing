@@ -75,6 +75,7 @@ export function Inventory() {
         selling_price: 0,
         price_type: 'INCLUSIVE',
         quantity: 0,
+        tablets_per_strip: 10,
         rack: '',
         box: ''
     });
@@ -239,6 +240,7 @@ export function Inventory() {
                 selling_price: 0,
                 price_type: 'INCLUSIVE',
                 quantity: 0,
+                tablets_per_strip: 10,
                 rack: '',
                 box: ''
             });
@@ -494,7 +496,18 @@ export function Inventory() {
                                         {formatDate(item.expiry_date)}
                                     </span>
                                     <span className={`font-mono font-semibold ${item.stock_status !== 'IN_STOCK' ? 'text-warning' : ''}`}>
-                                        {item.quantity} {item.unit}
+                                        {(() => {
+                                            const tabletsPerStrip = item.tablets_per_strip || 10;
+                                            const strips = Math.floor(item.quantity / tabletsPerStrip);
+                                            const pcs = item.quantity % tabletsPerStrip;
+                                            if (strips > 0 && pcs > 0) {
+                                                return `${strips}S + ${pcs}pcs`;
+                                            } else if (strips > 0) {
+                                                return `${strips} strips`;
+                                            } else {
+                                                return `${pcs} pcs`;
+                                            }
+                                        })()}
                                     </span>
                                     <span className="font-mono">{formatCurrency(item.mrp)}</span>
                                     <span className="location-badge">
@@ -884,7 +897,7 @@ export function Inventory() {
                                         </select>
                                     </div>
                                     <div className="form-group">
-                                        <label className="form-label">Quantity *</label>
+                                        <label className="form-label">Quantity (Strips) *</label>
                                         <input
                                             type="number"
                                             className="form-input"
@@ -892,6 +905,17 @@ export function Inventory() {
                                             onChange={(e) => setBatchForm({ ...batchForm, quantity: e.target.value === '' ? 0 : parseInt(e.target.value) })}
                                             required
                                             min="0"
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Tablets Per Strip</label>
+                                        <input
+                                            type="number"
+                                            className="form-input"
+                                            value={batchForm.tablets_per_strip || 10}
+                                            onChange={(e) => setBatchForm({ ...batchForm, tablets_per_strip: e.target.value === '' ? 10 : parseInt(e.target.value) })}
+                                            min="1"
+                                            placeholder="e.g., 10"
                                         />
                                     </div>
                                     <div className="form-group">

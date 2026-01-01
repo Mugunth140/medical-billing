@@ -20,6 +20,7 @@ import { getBatchWithMedicine, updateBatchQuantity } from './inventory.service';
 
 /**
  * Generate next bill number
+ * Format: INV-242500001 (prefix + 2-digit year start + 2-digit year end + 5-digit sequence)
  */
 export async function generateBillNumber(): Promise<string> {
     // Get current sequence
@@ -40,9 +41,14 @@ export async function generateBillNumber(): Promise<string> {
         [nextNumber]
     );
 
-    // Format: INV/2024-25/00001
+    // Format: INV-242500001 (prefix + 4-digit year code + 5-digit sequence)
+    // Extract year codes from financial_year (e.g., "2024-25" -> "2425")
+    const yearParts = seq.financial_year.split('-');
+    const yearCode = yearParts.length === 2
+        ? yearParts[0].slice(-2) + yearParts[1].slice(-2)
+        : new Date().getFullYear().toString().slice(-2) + (new Date().getFullYear() + 1).toString().slice(-2);
     const paddedNumber = nextNumber.toString().padStart(5, '0');
-    return `${seq.prefix}/${seq.financial_year}/${paddedNumber}`;
+    return `${seq.prefix}-${yearCode}${paddedNumber}`;
 }
 
 // =====================================================
@@ -68,8 +74,12 @@ export async function createBill(
             if (!batch) {
                 throw new Error(`Batch not found: ${item.batch_id}`);
             }
+            // Stock is now stored in tablets/pieces
             if (batch.quantity < item.quantity) {
-                throw new Error(`Insufficient stock for ${batch.medicine_name}. Available: ${batch.quantity}`);
+                const tabletsPerStrip = batch.tablets_per_strip || 10;
+                const strips = Math.floor(batch.quantity / tabletsPerStrip);
+                const pcs = batch.quantity % tabletsPerStrip;
+                throw new Error(`Insufficient stock for ${batch.medicine_name}. Available: ${strips} strips + ${pcs} pcs (${batch.quantity} total)`);
             }
             if (batch.expiry_status === 'EXPIRED') {
                 throw new Error(`Cannot sell expired medicine: ${batch.medicine_name}`);
@@ -77,19 +87,23 @@ export async function createBill(
             batchDetails.push({ input: item, batch });
         }
 
-        // 2. Calculate bill totals
+        // 2. Calculate bill totals (using per-piece pricing)
         const billCalc = calculateBill(
-            batchDetails.map(d => ({
-                batch: {
-                    id: d.batch.batch_id,
-                    selling_price: d.batch.selling_price,
-                    price_type: d.batch.price_type,
-                    gst_rate: d.batch.gst_rate
-                },
-                quantity: d.input.quantity,
-                discountType: d.input.discount_type,
-                discountValue: d.input.discount_value
-            })),
+            batchDetails.map(d => {
+                const tabletsPerStrip = d.batch.tablets_per_strip || 10;
+                const pricePerPiece = d.batch.selling_price / tabletsPerStrip;
+                return {
+                    batch: {
+                        id: d.batch.batch_id,
+                        selling_price: pricePerPiece,
+                        price_type: d.batch.price_type,
+                        gst_rate: d.batch.gst_rate
+                    },
+                    quantity: d.input.quantity, // In tablets/pieces
+                    discountType: d.input.discount_type,
+                    discountValue: d.input.discount_value
+                };
+            }),
             input.discount_type,
             input.discount_value
         );
@@ -127,8 +141,8 @@ export async function createBill(
         subtotal, discount_amount, discount_percent,
         taxable_amount, cgst_amount, sgst_amount, total_gst,
         grand_total, round_off, payment_mode,
-        cash_amount, online_amount, credit_amount, notes
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        cash_amount, online_amount, credit_amount, notes, total_items
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 billNumber,
                 input.customer_id ?? null,
@@ -147,7 +161,8 @@ export async function createBill(
                 cashAmount,
                 onlineAmount,
                 creditAmount,
-                input.notes ?? null
+                input.notes ?? null,
+                input.items.length
             ]
         );
 
@@ -163,10 +178,11 @@ export async function createBill(
             await execute(
                 `INSERT INTO bill_items (
           bill_id, batch_id, medicine_id, medicine_name, hsn_code,
-          batch_number, quantity, unit, mrp, selling_price,
+          batch_number, quantity, quantity_strips, quantity_pieces, tablets_per_strip,
+          unit, mrp, selling_price,
           discount_percent, discount_amount, taxable_amount,
           gst_rate, cgst_amount, sgst_amount, total_amount
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     billId,
                     batch.batch_id,
@@ -175,6 +191,9 @@ export async function createBill(
                     batch.hsn_code,
                     batch.batch_number,
                     itemInput.quantity,
+                    itemInput.quantity_strips ?? 0,
+                    itemInput.quantity_pieces ?? 0,
+                    batch.tablets_per_strip || 10,
                     batch.unit ?? 'PCS',
                     batch.mrp,
                     batch.selling_price,
@@ -188,7 +207,7 @@ export async function createBill(
                 ]
             );
 
-            // Update batch quantity and last sold date
+            // Update batch quantity (stored in tablets) and last sold date
             await updateBatchQuantity(batch.batch_id, -itemInput.quantity, true);
         }
 

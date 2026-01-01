@@ -51,13 +51,15 @@ export function Settings() {
         expiry_warning_days: string;
         enable_discounts: boolean;
         require_customer: boolean;
+        staff_discount_limit: string;
     }>({
         bill_prefix: settings.bill_prefix || 'INV',
         default_gst_rate: settings.default_gst_rate || '12',
         low_stock_threshold: settings.low_stock_threshold || '10',
         expiry_warning_days: settings.expiry_warning_days || '30',
         enable_discounts: settings.enable_discounts !== 'false',
-        require_customer: settings.require_customer === 'true'
+        require_customer: settings.require_customer === 'true',
+        staff_discount_limit: settings.staff_discount_limit || '10'
     });
 
     useEffect(() => {
@@ -515,7 +517,7 @@ export function Settings() {
                                                 onChange={(e) => setBillingForm({ ...billingForm, bill_prefix: e.target.value.toUpperCase() })}
                                                 maxLength={5}
                                             />
-                                            <span className="form-hint">Example: INV-2024-0001</span>
+                                            <span className="form-hint">Example: INV-242500001</span>
                                         </div>
                                         <div className="form-group">
                                             <label className="form-label">Default GST Rate (%)</label>
@@ -582,6 +584,24 @@ export function Settings() {
                                             className={`toggle-switch ${billingForm.require_customer ? 'active' : ''}`}
                                             onClick={() => setBillingForm({ ...billingForm, require_customer: !billingForm.require_customer })}
                                         />
+                                    </div>
+                                </div>
+
+                                <div className="settings-section">
+                                    <h2 className="settings-section-title">Staff Permissions</h2>
+                                    <div className="settings-grid">
+                                        <div className="form-group">
+                                            <label className="form-label">Staff Discount Limit (%)</label>
+                                            <input
+                                                type="number"
+                                                className="form-input"
+                                                value={billingForm.staff_discount_limit}
+                                                onChange={(e) => setBillingForm({ ...billingForm, staff_discount_limit: e.target.value })}
+                                                min={0}
+                                                max={100}
+                                            />
+                                            <span className="form-hint">Maximum discount % staff can apply (Admin can apply unlimited)</span>
+                                        </div>
                                     </div>
                                 </div>
 

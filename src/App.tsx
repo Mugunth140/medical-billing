@@ -7,6 +7,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { Layout } from './components/common/Layout';
 import { ToastProvider } from './components/common/Toast';
 import './index.css';
+import { BillHistory } from './pages/BillHistory';
 import { Billing } from './pages/Billing';
 import { Customers } from './pages/Customers';
 import { Dashboard } from './pages/Dashboard';
@@ -101,6 +102,7 @@ function App() {
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/billing" element={<Billing />} />
+            <Route path="/bill-history" element={<BillHistory />} />
             <Route path="/inventory" element={<Inventory />} />
             <Route path="/purchases" element={<Purchases />} />
             <Route path="/customers" element={<Customers />} />
