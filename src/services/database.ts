@@ -406,7 +406,11 @@ export async function initDatabase(): Promise<Database> {
             // Add total_items to bills if not exists
             `ALTER TABLE bills ADD COLUMN total_items INTEGER DEFAULT 0`,
             // Add is_schedule column to medicines for scheduled drug tracking
-            `ALTER TABLE medicines ADD COLUMN is_schedule INTEGER DEFAULT 0`
+            `ALTER TABLE medicines ADD COLUMN is_schedule INTEGER DEFAULT 0`,
+            // Add missing columns to scheduled_medicine_records for older databases
+            `ALTER TABLE scheduled_medicine_records ADD COLUMN doctor_registration_number TEXT`,
+            `ALTER TABLE scheduled_medicine_records ADD COLUMN clinic_hospital_name TEXT`,
+            `ALTER TABLE scheduled_medicine_records ADD COLUMN prescription_date TEXT`
         ];
         for (const migration of migrations) {
             try {
@@ -549,7 +553,7 @@ export async function exportDatabase(): Promise<Record<string, unknown[]>> {
         'settings',
         'bill_sequence'
     ];
-    
+
     const backup: Record<string, unknown[]> = {
         _meta: [{
             version: '1.0.0',
@@ -557,7 +561,7 @@ export async function exportDatabase(): Promise<Record<string, unknown[]>> {
             tables: tables
         }]
     };
-    
+
     for (const table of tables) {
         try {
             const data = await query<unknown>(`SELECT * FROM ${table}`, []);
@@ -567,7 +571,7 @@ export async function exportDatabase(): Promise<Record<string, unknown[]>> {
             backup[table] = [];
         }
     }
-    
+
     return backup;
 }
 
@@ -579,7 +583,7 @@ export async function importDatabase(backup: Record<string, unknown[]>): Promise
     if (!backup._meta || !Array.isArray(backup._meta)) {
         throw new Error('Invalid backup format: missing metadata');
     }
-    
+
     const tables = [
         'scheduled_medicine_records',
         'running_bills',
@@ -596,7 +600,7 @@ export async function importDatabase(backup: Record<string, unknown[]>): Promise
         'bill_sequence'
         // Note: users table is handled separately to preserve current user
     ];
-    
+
     // Clear existing data (except current user)
     for (const table of tables) {
         try {
@@ -605,19 +609,19 @@ export async function importDatabase(backup: Record<string, unknown[]>): Promise
             console.warn(`Failed to clear table ${table}:`, error);
         }
     }
-    
+
     // Import data for each table
     for (const table of tables) {
         const data = backup[table];
         if (!data || !Array.isArray(data) || data.length === 0) continue;
-        
+
         for (const row of data) {
             if (typeof row !== 'object' || row === null) continue;
-            
+
             const columns = Object.keys(row);
             const values = Object.values(row);
             const placeholders = columns.map(() => '?').join(', ');
-            
+
             try {
                 await execute(
                     `INSERT OR REPLACE INTO ${table} (${columns.join(', ')}) VALUES (${placeholders})`,
@@ -628,17 +632,17 @@ export async function importDatabase(backup: Record<string, unknown[]>): Promise
             }
         }
     }
-    
+
     // Handle users separately - import but don't replace current user
     if (backup.users && Array.isArray(backup.users)) {
         for (const row of backup.users) {
             if (typeof row !== 'object' || row === null) continue;
             const userRow = row as Record<string, unknown>;
-            
+
             const columns = Object.keys(userRow);
             const values = Object.values(userRow);
             const placeholders = columns.map(() => '?').join(', ');
-            
+
             try {
                 // Use INSERT OR IGNORE to not overwrite existing users
                 await execute(

@@ -1,6 +1,7 @@
 // =====================================================
 // Billing Page
 // Modern POS-style billing with tablet/piece tracking
+// Redesigned for Accessibility and Premium UX
 // =====================================================
 
 import {
@@ -55,6 +56,7 @@ export function Billing() {
     const [searchQuery, setSearchQuery] = useState('');
     const [searchResults, setSearchResults] = useState<StockItem[]>([]);
     const [showSearchDropdown, setShowSearchDropdown] = useState(false);
+    const [activeIndex, setActiveIndex] = useState(-1); // For keyboard navigation
     const [customers, setCustomers] = useState<Customer[]>([]);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [lastBill, setLastBill] = useState<Bill | null>(null);
@@ -78,6 +80,7 @@ export function Billing() {
     // Check if cart has scheduled medicines
     const hasScheduled = hasScheduledMedicines();
     const searchInputRef = useRef<HTMLInputElement>(null);
+    const resultsRef = useRef<HTMLDivElement>(null);
 
     // Calculate bill totals (per-piece pricing)
     const billCalc = calculateBill(
@@ -122,6 +125,7 @@ export function Billing() {
                 const results = await searchMedicinesForBilling(term);
                 setSearchResults(results);
                 setShowSearchDropdown(true);
+                setActiveIndex(-1); // Reset selection
             } catch (err) {
                 console.error('Search failed:', err);
             }
@@ -133,8 +137,10 @@ export function Billing() {
         performSearch(searchQuery);
     }, [searchQuery, performSearch]);
 
+    // Keyboard Navigation
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
+            // Global shortcuts
             if ((e.ctrlKey && e.key === 'f') || e.key === 'F2') {
                 e.preventDefault();
                 searchInputRef.current?.focus();
@@ -145,18 +151,46 @@ export function Billing() {
             }
             if (e.ctrlKey && e.key === 'Delete') {
                 e.preventDefault();
-                clearBill();
+                if (window.confirm('Clear current bill?')) clearBill();
             }
-            if (e.key === 'Escape') setShowSearchDropdown(false);
+            if (e.key === 'Escape') {
+                setShowSearchDropdown(false);
+                setActiveIndex(-1);
+            }
+
+            // Dropdown navigation
+            if (showSearchDropdown && searchResults.length > 0) {
+                if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    setActiveIndex(prev => (prev < searchResults.length - 1 ? prev + 1 : prev));
+                } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    setActiveIndex(prev => (prev > 0 ? prev - 1 : prev));
+                } else if (e.key === 'Enter' && activeIndex >= 0) {
+                    e.preventDefault();
+                    handleAddItem(searchResults[activeIndex]);
+                }
+            }
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [items, isSubmitting, clearBill]);
+    }, [items, isSubmitting, clearBill, showSearchDropdown, searchResults, activeIndex]);
+
+    // Scroll active item into view
+    useEffect(() => {
+        if (activeIndex >= 0 && resultsRef.current) {
+            const activeElement = resultsRef.current.children[activeIndex] as HTMLElement;
+            if (activeElement) {
+                activeElement.scrollIntoView({ block: 'nearest' });
+            }
+        }
+    }, [activeIndex]);
 
     const handleAddItem = (item: StockItem) => {
         addItem(item, 1);
         setSearchQuery('');
         setShowSearchDropdown(false);
+        setActiveIndex(-1);
         searchInputRef.current?.focus();
     };
 
@@ -240,291 +274,312 @@ export function Billing() {
     };
 
     const styles = `
-        .pos-layout {
-            display: grid;
-            grid-template-columns: 1fr 320px;
-            gap: 16px;
-            height: calc(100vh - 80px);
-            padding: 16px;
+        .billing-container {
+            display: flex;
+            gap: 20px;
+            height: 100vh;
+            padding: 20px;
             overflow: hidden;
+            font-family: var(--font-sans);
+            box-sizing: border-box;
         }
-        
-        .pos-main {
+
+        .main-section {
+            flex: 1;
             display: flex;
             flex-direction: column;
-            background: var(--bg-secondary);
-            border-radius: 12px;
-            border: 1px solid var(--border-light);
-            overflow: hidden;
+            gap: 16px;
+            height: 100%;
+            min-width: 0; /* Prevent flex child overflow */
         }
-        
-        .pos-search {
+
+        /* Search Bar */
+        .search-container {
             position: relative;
-            padding: 12px;
-            background: linear-gradient(135deg, var(--color-primary-600), var(--color-primary-700));
+            z-index: 50;
         }
-        
-        .pos-search input {
-            width: 100%;
-            padding: 10px 12px 10px 40px;
-            font-size: 15px;
-            border: none;
-            border-radius: 8px;
-            background: rgba(255,255,255,0.95);
-            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+
+        .search-input-wrapper {
+            position: relative;
+            display: flex;
+            align-items: center;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+            border: 1px solid var(--border-light);
+            transition: all 0.2s ease;
         }
-        
-        .pos-search input:focus {
-            outline: none;
-            box-shadow: 0 2px 12px rgba(0,0,0,0.2);
+
+        .search-input-wrapper:focus-within {
+            box-shadow: 0 8px 24px rgba(30, 142, 180, 0.15);
+            border-color: var(--color-primary-300);
+            transform: translateY(-1px);
         }
-        
-        .pos-search-icon {
+
+        .search-icon {
             position: absolute;
-            left: 24px;
-            top: 50%;
-            transform: translateY(-50%);
+            left: 16px;
             color: var(--text-tertiary);
         }
-        
-        .pos-dropdown {
+
+        .search-input {
+            width: 100%;
+            padding: 16px 16px 16px 48px;
+            font-size: 16px;
+            border: none;
+            background: transparent;
+            border-radius: 12px;
+            color: var(--text-primary);
+        }
+
+        .search-input:focus {
+            outline: none;
+        }
+
+        .search-shortcut {
             position: absolute;
-            top: 100%;
-            left: 12px;
-            right: 12px;
+            right: 16px;
+            padding: 4px 8px;
+            background: var(--bg-tertiary);
+            border-radius: 6px;
+            font-size: 11px;
+            color: var(--text-secondary);
+            font-weight: 600;
+            border: 1px solid var(--border-light);
+        }
+
+        /* Dropdown */
+        .search-dropdown {
+            position: absolute;
+            top: calc(100% + 8px);
+            left: 0;
+            right: 0;
             background: white;
-            border-radius: 8px;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.15);
-            max-height: 300px;
+            border-radius: 12px;
+            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.15);
+            border: 1px solid var(--border-light);
+            max-height: 400px;
             overflow-y: auto;
             z-index: 100;
+            padding: 8px;
         }
-        
-        .pos-dropdown-item {
+
+        .dropdown-item {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 10px 14px;
+            padding: 12px 16px;
+            border-radius: 8px;
             cursor: pointer;
-            border-bottom: 1px solid var(--border-light);
-            gap: 12px;
+            transition: all 0.15s ease;
+            border-bottom: 1px solid transparent;
         }
-        
-        .pos-dropdown-item:hover {
+
+        .dropdown-item:hover, .dropdown-item.active {
             background: var(--color-primary-50);
         }
-        
-        .pos-dropdown-item:last-child {
-            border-bottom: none;
+
+        .dropdown-item.active {
+            border-left: 3px solid var(--color-primary-500);
         }
-        
-        .pos-items {
+
+        /* Item List */
+        .items-container {
             flex: 1;
             overflow-y: auto;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+            border: 1px solid var(--border-light);
         }
-        
-        .pos-items-header {
+
+        .items-header {
             display: grid;
-            grid-template-columns: 2fr 70px 50px 80px 80px 32px;
-            gap: 8px;
-            padding: 8px 12px;
+            grid-template-columns: 2fr 80px 60px 100px 100px 40px;
+            gap: 12px;
+            padding: 16px 20px;
             background: var(--bg-tertiary);
-            font-size: 11px;
+            font-size: 12px;
             font-weight: 600;
             color: var(--text-secondary);
             text-transform: uppercase;
-            letter-spacing: 0.5px;
+            letter-spacing: 0.05em;
             position: sticky;
             top: 0;
+            z-index: 10;
+            border-bottom: 1px solid var(--border-light);
         }
-        
-        .pos-item-row {
+
+        .item-row {
             display: grid;
-            grid-template-columns: 2fr 70px 50px 80px 80px 32px;
-            gap: 8px;
-            padding: 10px 12px;
+            grid-template-columns: 2fr 80px 60px 100px 100px 40px;
+            gap: 12px;
+            padding: 16px 20px;
             border-bottom: 1px solid var(--border-light);
             align-items: center;
-            font-size: 13px;
+            transition: background 0.15s ease;
         }
-        
-        .pos-item-row:hover {
-            background: var(--bg-tertiary);
+
+        .item-row:hover {
+            background: var(--bg-primary);
         }
-        
-        .pos-item-name {
-            font-weight: 500;
-            color: var(--text-primary);
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        
-        .pos-item-batch {
-            font-size: 10px;
-            color: var(--text-tertiary);
-        }
-        
-        .pos-qty-input {
+
+        .qty-input {
             width: 100%;
-            padding: 4px 6px;
+            padding: 8px;
             text-align: center;
             border: 1px solid var(--border-light);
-            border-radius: 4px;
-            font-size: 13px;
+            border-radius: 6px;
             font-family: var(--font-mono);
+            font-size: 14px;
+            transition: all 0.2s;
         }
-        
-        .pos-qty-input:focus {
+
+        .qty-input:focus {
             outline: none;
             border-color: var(--color-primary-500);
+            box-shadow: 0 0 0 3px rgba(30, 142, 180, 0.1);
         }
-        
-        .pos-delete {
-            color: var(--color-danger-500);
-            cursor: pointer;
-            opacity: 0.5;
-            transition: opacity 0.15s;
+
+        /* Sidebar - Fixed Width & Scrollable Content */
+        .sidebar-section {
+            width: 340px;
+            flex-shrink: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            height: 100%;
+            overflow-y: auto;
+            padding-right: 4px;
         }
-        
-        .pos-delete:hover {
-            opacity: 1;
+
+        .sidebar-card {
+            background: white;
+            border-radius: 12px;
+            padding: 16px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+            border: 1px solid var(--border-light);
         }
-        
-        .pos-empty {
-            flex: 1;
+
+        .sidebar-title {
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            color: var(--text-tertiary);
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* Payment Grid */
+        .payment-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+
+        .payment-btn {
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            color: var(--text-tertiary);
-            gap: 8px;
-        }
-        
-        .pos-sidebar {
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-            overflow-y: auto;
-        }
-        
-        .pos-card {
-            background: var(--bg-secondary);
-            border-radius: 10px;
-            border: 1px solid var(--border-light);
+            gap: 6px;
             padding: 12px;
-        }
-        
-        .pos-card-title {
-            font-size: 11px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            color: var(--text-secondary);
-            margin-bottom: 8px;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-        
-        .pos-payment-grid {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 6px;
-        }
-        
-        .pos-pay-btn {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 2px;
-            padding: 8px 4px;
             border: 2px solid var(--border-light);
-            border-radius: 6px;
-            background: var(--bg-secondary);
+            border-radius: 10px;
+            background: white;
             cursor: pointer;
-            font-size: 9px;
-            font-weight: 500;
-            transition: all 0.15s;
+            transition: all 0.2s ease;
+            color: var(--text-secondary);
         }
-        
-        .pos-pay-btn:hover {
-            border-color: var(--color-primary-300);
+
+        .payment-btn:hover {
+            border-color: var(--color-primary-200);
+            background: var(--color-primary-50);
         }
-        
-        .pos-pay-btn.active {
+
+        .payment-btn.active {
             border-color: var(--color-primary-500);
             background: var(--color-primary-50);
             color: var(--color-primary-700);
+            font-weight: 600;
         }
-        
-        .pos-totals {
-            background: linear-gradient(135deg, #1a1f2e, #0f1219);
+
+        /* Totals Section */
+        .totals-card {
+            background: linear-gradient(145deg, #1e293b, #0f172a);
             color: white;
             border: none;
         }
-        
-        .pos-total-row {
+
+        .total-row {
             display: flex;
             justify-content: space-between;
-            padding: 4px 0;
-            font-size: 12px;
+            padding: 6px 0;
+            font-size: 13px;
+            opacity: 0.9;
         }
-        
-        .pos-total-row.grand {
-            font-size: 18px;
+
+        .grand-total {
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid rgba(255, 255, 255, 0.15);
+            font-size: 24px;
             font-weight: 700;
-            border-top: 1px solid rgba(255,255,255,0.2);
-            padding-top: 10px;
-            margin-top: 6px;
+            color: var(--color-primary-200);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
-        
-        .pos-submit {
+
+        .save-btn {
             width: 100%;
-            padding: 12px;
-            font-size: 14px;
-            font-weight: 600;
+            margin-top: 16px;
+            padding: 14px;
             background: linear-gradient(135deg, var(--color-primary-500), var(--color-primary-600));
             color: white;
             border: none;
-            border-radius: 8px;
+            border-radius: 10px;
+            font-weight: 600;
+            font-size: 15px;
             cursor: pointer;
-            transition: all 0.15s;
-            margin-top: 8px;
-        }
-        
-        .pos-submit:hover:not(:disabled) {
-            transform: translateY(-1px);
+            transition: all 0.2s;
             box-shadow: 0 4px 12px rgba(30, 142, 180, 0.3);
         }
-        
-        .pos-submit:disabled {
+
+        .save-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(30, 142, 180, 0.4);
+        }
+
+        .save-btn:disabled {
             opacity: 0.6;
             cursor: not-allowed;
+            background: var(--color-gray-600);
+            box-shadow: none;
         }
-        
-        .pos-success {
-            text-align: center;
-            padding: 20px;
+
+        /* Empty State */
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: var(--text-tertiary);
+            gap: 16px;
         }
-        
-        .pos-success-icon {
+
+        .empty-icon {
             width: 64px;
             height: 64px;
-            background: var(--color-success-100);
-            color: var(--color-success-600);
+            background: var(--bg-tertiary);
             border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
-            margin: 0 auto 16px;
-        }
-        
-        .pos-bill-number {
-            font-size: 20px;
-            font-weight: 700;
-            font-family: var(--font-mono);
-            color: var(--color-primary-600);
+            color: var(--text-secondary);
         }
     `;
 
@@ -533,59 +588,68 @@ export function Billing() {
             <style>{styles}</style>
 
             {error && (
-                <div className="alert alert-danger" style={{ margin: '8px 16px 0' }}>
-                    <AlertCircle size={16} />
+                <div className="alert alert-danger" style={{ position: 'fixed', top: 80, right: 20, zIndex: 1000, maxWidth: 400, boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
+                    <AlertCircle size={18} />
                     <span style={{ flex: 1 }}>{error}</span>
                     <button className="btn btn-ghost btn-sm" onClick={() => setError(null)}>
-                        <X size={14} />
+                        <X size={16} />
                     </button>
                 </div>
             )}
 
-            <div className="pos-layout">
-                {/* Main Area */}
-                <div className="pos-main">
-                    {/* Search */}
-                    <div className="pos-search">
-                        <Search className="pos-search-icon" size={18} />
-                        <input
-                            ref={searchInputRef}
-                            type="text"
-                            placeholder="Search medicine... (F2)"
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            onFocus={() => searchQuery.length >= 2 && setShowSearchDropdown(true)}
-                        />
+            <div className="billing-container">
+                {/* LEFT COLUMN: Search & Items */}
+                <div className="main-section">
+                    {/* Search Bar */}
+                    <div className="search-container">
+                        <div className="search-input-wrapper">
+                            <Search className="search-icon" size={20} />
+                            <input
+                                ref={searchInputRef}
+                                type="text"
+                                className="search-input"
+                                placeholder="Search medicine by name..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                onFocus={() => searchQuery.length >= 2 && setShowSearchDropdown(true)}
+                                aria-label="Search medicines"
+                            />
+                            <div className="search-shortcut">F2</div>
+                        </div>
 
+                        {/* Search Dropdown */}
                         {showSearchDropdown && searchResults.length > 0 && (
-                            <div className="pos-dropdown">
-                                {searchResults.map((item) => {
+                            <div className="search-dropdown" ref={resultsRef}>
+                                {searchResults.map((item, index) => {
                                     const tps = item.tablets_per_strip || 10;
                                     const s = Math.floor(item.quantity / tps);
                                     const p = item.quantity % tps;
-                                    const pricePerPc = item.selling_price / tps;
                                     return (
                                         <div
                                             key={item.batch_id}
-                                            className="pos-dropdown-item"
+                                            className={`dropdown-item ${index === activeIndex ? 'active' : ''}`}
                                             onClick={() => handleAddItem(item)}
+                                            role="button"
+                                            tabIndex={0}
                                         >
-                                            <div style={{ minWidth: 0 }}>
-                                                <div style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                            <div style={{ minWidth: 0, flex: 1 }}>
+                                                <div style={{ fontWeight: 600, fontSize: 15, color: 'var(--text-primary)' }}>
                                                     {item.medicine_name}
                                                 </div>
-                                                <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
-                                                    {item.batch_number} • Exp: {formatDate(item.expiry_date)} • {tps}/strip
+                                                <div style={{ display: 'flex', gap: 8, fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>
+                                                    <span style={{ background: 'var(--bg-tertiary)', padding: '2px 6px', borderRadius: 4 }}>
+                                                        {item.batch_number}
+                                                    </span>
+                                                    <span>Exp: {formatDate(item.expiry_date)}</span>
+                                                    <span>{tps}/strip</span>
                                                 </div>
                                             </div>
-                                            <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                                                <div style={{ fontWeight: 600, fontFamily: 'var(--font-mono)', fontSize: 13 }}>
-                                                    {formatCurrency(item.selling_price)}/strip
+                                            <div style={{ textAlign: 'right' }}>
+                                                <div style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', fontSize: 15, color: 'var(--color-primary-600)' }}>
+                                                    {formatCurrency(item.selling_price)}
                                                 </div>
-                                                <div style={{ fontSize: 10, color: 'var(--text-secondary)' }}>
-                                                    {formatCurrency(pricePerPc)}/pc • <span className="badge badge-success">
-                                                        {s > 0 ? `${s}S${p > 0 ? `+${p}` : ''}` : `${p}pcs`}
-                                                    </span>
+                                                <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                                                    {s > 0 ? `${s} strips ` : ''}{p > 0 ? `${p} pcs` : ''} left
                                                 </div>
                                             </div>
                                         </div>
@@ -595,138 +659,133 @@ export function Billing() {
                         )}
                     </div>
 
-                    {/* Items */}
-                    <div className="pos-items">
+                    {/* Items List */}
+                    <div className="items-container">
                         {items.length > 0 ? (
                             <>
-                                <div className="pos-items-header">
+                                <div className="items-header">
                                     <span>Medicine</span>
                                     <span style={{ textAlign: 'center' }}>Strips</span>
                                     <span style={{ textAlign: 'center' }}>Pcs</span>
                                     <span style={{ textAlign: 'right' }}>Rate</span>
-                                    <span style={{ textAlign: 'right' }}>Amount</span>
+                                    <span style={{ textAlign: 'right' }}>Total</span>
                                     <span></span>
                                 </div>
-                                {items.map((item, index) => {
-                                    const itemCalc = billCalc.items[index];
-                                    const tps = item.batch.tablets_per_strip || 10;
-                                    return (
-                                        <div key={item.batch.batch_id} className="pos-item-row">
-                                            <div>
-                                                <div className="pos-item-name">{item.batch.medicine_name}</div>
-                                                <div className="pos-item-batch">
-                                                    {item.batch.batch_number} • {tps}/strip • {item.quantity}pcs
+                                <div>
+                                    {items.map((item, index) => {
+                                        const itemCalc = billCalc.items[index];
+                                        const tps = item.batch.tablets_per_strip || 10;
+                                        return (
+                                            <div key={item.batch.batch_id} className="item-row">
+                                                <div>
+                                                    <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{item.batch.medicine_name}</div>
+                                                    <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>
+                                                        {item.batch.batch_number} • {tps} tabs/strip
+                                                    </div>
                                                 </div>
-                                            </div>
-                                            <input
-                                                type="number"
-                                                className="pos-qty-input"
-                                                value={item.quantityStrips}
-                                                onChange={(e) => {
-                                                    const val = e.target.value === '' ? 0 : parseInt(e.target.value);
-                                                    updateItemStripsPieces(item.batch.batch_id, Math.max(0, val), item.quantityPieces);
-                                                }}
-                                                min={0}
-                                            />
-                                            <input
-                                                type="number"
-                                                className="pos-qty-input"
-                                                value={item.quantityPieces}
-                                                onChange={(e) => {
-                                                    const val = e.target.value === '' ? 0 : parseInt(e.target.value);
-                                                    updateItemStripsPieces(item.batch.batch_id, item.quantityStrips, Math.max(0, val));
-                                                }}
-                                                min={0}
-                                                max={tps - 1}
-                                            />
-                                            <div style={{ textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
-                                                <div>{formatCurrency(item.batch.selling_price / tps)}/pc</div>
-                                                <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>
-                                                    ({formatCurrency(item.batch.selling_price)}/strip)
+                                                <input
+                                                    type="number"
+                                                    className="qty-input"
+                                                    value={item.quantityStrips}
+                                                    onChange={(e) => {
+                                                        const val = e.target.value === '' ? 0 : parseInt(e.target.value);
+                                                        updateItemStripsPieces(item.batch.batch_id, Math.max(0, val), item.quantityPieces);
+                                                    }}
+                                                    min={0}
+                                                    aria-label="Quantity Strips"
+                                                />
+                                                <input
+                                                    type="number"
+                                                    className="qty-input"
+                                                    value={item.quantityPieces}
+                                                    onChange={(e) => {
+                                                        const val = e.target.value === '' ? 0 : parseInt(e.target.value);
+                                                        updateItemStripsPieces(item.batch.batch_id, item.quantityStrips, Math.max(0, val));
+                                                    }}
+                                                    min={0}
+                                                    max={tps - 1}
+                                                    aria-label="Quantity Pieces"
+                                                />
+                                                <div style={{ textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 13 }}>
+                                                    {formatCurrency(item.batch.selling_price)}
                                                 </div>
+                                                <div style={{ textAlign: 'right', fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--color-primary-600)' }}>
+                                                    {formatCurrency(itemCalc?.total ?? 0)}
+                                                </div>
+                                                <button
+                                                    className="btn btn-ghost btn-icon"
+                                                    style={{ color: 'var(--color-danger-500)' }}
+                                                    onClick={() => removeItem(item.batch.batch_id)}
+                                                    aria-label="Remove Item"
+                                                >
+                                                    <Trash2 size={16} />
+                                                </button>
                                             </div>
-                                            <div style={{ textAlign: 'right', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
-                                                {formatCurrency(itemCalc?.total ?? 0)}
-                                            </div>
-                                            <Trash2
-                                                size={16}
-                                                className="pos-delete"
-                                                onClick={() => removeItem(item.batch.batch_id)}
-                                            />
-                                        </div>
-                                    );
-                                })}
+                                        );
+                                    })}
+                                </div>
                             </>
                         ) : (
-                            <div className="pos-empty">
-                                <Search size={40} strokeWidth={1} />
-                                <span>Search medicine to add</span>
+                            <div className="empty-state">
+                                <div className="empty-icon">
+                                    <Banknote size={32} />
+                                </div>
+                                <div style={{ textAlign: 'center' }}>
+                                    <h3 style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-primary)' }}>No items added</h3>
+                                    <p style={{ fontSize: 14, color: 'var(--text-tertiary)' }}>Search for medicines to start billing</p>
+                                </div>
                             </div>
                         )}
                     </div>
                 </div>
 
-                {/* Sidebar */}
-                <div className="pos-sidebar">
-                    {/* Customer */}
-                    <div className="pos-card">
-                        <div className="pos-card-title">
-                            <User size={14} /> Customer
+                {/* RIGHT COLUMN: Sidebar */}
+                <div className="sidebar-section">
+                    {/* Customer Card */}
+                    <div className="sidebar-card">
+                        <div className="sidebar-title">
+                            <User size={14} /> Customer Details
                         </div>
                         <select
                             className="form-select"
-                            style={{ fontSize: 13 }}
                             value={customerId ?? ''}
                             onChange={(e) => {
                                 const id = e.target.value ? parseInt(e.target.value) : null;
                                 const c = customers.find(c => c.id === id);
                                 setCustomer(id, c?.name ?? '');
                             }}
+                            aria-label="Select Customer"
                         >
                             <option value="">Walk-in Customer</option>
                             {customers.map(c => (
                                 <option key={c.id} value={c.id}>{c.name}</option>
                             ))}
                         </select>
+
+                        {!hasScheduled && (
+                            <div style={{ marginTop: 12 }}>
+                                <input
+                                    type="text"
+                                    className="form-input"
+                                    placeholder="Doctor Name (Optional)"
+                                    value={doctorName}
+                                    onChange={(e) => setDoctorName(e.target.value)}
+                                    aria-label="Doctor Name"
+                                />
+                            </div>
+                        )}
                     </div>
 
-                    {/* Optional Doctor Name for all bills */}
-                    {!hasScheduled && (
-                        <div className="pos-card">
-                            <div className="pos-card-title">
-                                <User size={14} /> Doctor (Optional)
-                            </div>
-                            <input
-                                type="text"
-                                className="form-input"
-                                style={{ fontSize: 13 }}
-                                placeholder="Prescribing doctor name"
-                                value={doctorName}
-                                onChange={(e) => setDoctorName(e.target.value)}
-                            />
-                        </div>
-                    )}
-
-                    {/* Patient Details for Scheduled Medicines */}
+                    {/* Patient Details (Conditional) */}
                     {hasScheduled && (
-                        <div className="pos-card" style={{ borderColor: (patientInfo?.patient_name && patientInfo?.doctor_name) ? 'var(--color-success-500)' : 'var(--color-warning-500)', borderWidth: 2 }}>
-                            <div className="pos-card-title" style={{ color: (patientInfo?.patient_name && patientInfo?.doctor_name) ? 'var(--color-success-600)' : 'var(--color-warning-600)' }}>
-                                <AlertCircle size={14} /> Patient & Rx Details (Required)
+                        <div className="sidebar-card" style={{ borderLeft: '4px solid var(--color-warning-500)' }}>
+                            <div className="sidebar-title" style={{ color: 'var(--color-warning-600)' }}>
+                                <AlertCircle size={14} /> Schedule H/H1 Drug
                             </div>
                             {patientInfo?.patient_name && patientInfo?.doctor_name ? (
-                                <div style={{ fontSize: 12 }}>
-                                    <div style={{ fontWeight: 600, marginBottom: 4 }}>{patientInfo.patient_name}</div>
-                                    <div style={{ color: 'var(--text-secondary)' }}>
-                                        {patientInfo.patient_age && <span>Age: {patientInfo.patient_age} </span>}
-                                        {patientInfo.patient_gender && <span>({patientInfo.patient_gender})</span>}
-                                    </div>
-                                    {patientInfo.patient_phone && <div>📞 {patientInfo.patient_phone}</div>}
-                                    <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid var(--border-light)' }}>
-                                        <div style={{ fontWeight: 600 }}>Dr. {patientInfo.doctor_name}</div>
-                                        {patientInfo.doctor_registration_number && <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>Reg: {patientInfo.doctor_registration_number}</div>}
-                                        {patientInfo.clinic_hospital_name && <div style={{ fontSize: 11 }}>🏥 {patientInfo.clinic_hospital_name}</div>}
-                                        {patientInfo.prescription_number && <div style={{ fontSize: 11 }}>Rx#: {patientInfo.prescription_number}</div>}
-                                    </div>
+                                <div style={{ fontSize: 13 }}>
+                                    <div style={{ fontWeight: 600 }}>{patientInfo.patient_name}</div>
+                                    <div style={{ color: 'var(--text-secondary)', fontSize: 12 }}>Dr. {patientInfo.doctor_name}</div>
                                     <button
                                         className="btn btn-sm btn-secondary"
                                         style={{ marginTop: 8, width: '100%' }}
@@ -740,70 +799,68 @@ export function Billing() {
                                 </div>
                             ) : (
                                 <button
-                                    className="btn btn-warning"
+                                    className="btn btn-warning btn-sm"
                                     style={{ width: '100%' }}
                                     onClick={() => setShowPatientModal(true)}
                                 >
-                                    Enter Patient & Rx Details
+                                    Add Patient Details
                                 </button>
                             )}
                         </div>
                     )}
 
-                    {/* Payment */}
-                    <div className="pos-card">
-                        <div className="pos-card-title">
-                            <CreditCard size={14} /> Payment
+                    {/* Payment Mode */}
+                    <div className="sidebar-card">
+                        <div className="sidebar-title">
+                            <CreditCard size={14} /> Payment Mode
                         </div>
-                        <div className="pos-payment-grid">
+                        <div className="payment-grid">
                             <button
-                                className={`pos-pay-btn ${paymentMode === 'CASH' ? 'active' : ''}`}
+                                className={`payment-btn ${paymentMode === 'CASH' ? 'active' : ''}`}
                                 onClick={() => setPaymentMode('CASH')}
                             >
-                                <Banknote size={16} />
-                                CASH
+                                <Banknote size={20} />
+                                <span>Cash</span>
                             </button>
                             <button
-                                className={`pos-pay-btn ${paymentMode === 'ONLINE' ? 'active' : ''}`}
+                                className={`payment-btn ${paymentMode === 'ONLINE' ? 'active' : ''}`}
                                 onClick={() => setPaymentMode('ONLINE')}
                             >
-                                <Smartphone size={16} />
-                                UPI
+                                <Smartphone size={20} />
+                                <span>UPI/Online</span>
                             </button>
                             <button
-                                className={`pos-pay-btn ${paymentMode === 'CREDIT' ? 'active' : ''}`}
+                                className={`payment-btn ${paymentMode === 'CREDIT' ? 'active' : ''}`}
                                 onClick={() => setPaymentMode('CREDIT')}
                             >
-                                <CreditCard size={16} />
-                                CREDIT
+                                <CreditCard size={20} />
+                                <span>Credit</span>
                             </button>
                             <button
-                                className={`pos-pay-btn ${paymentMode === 'SPLIT' ? 'active' : ''}`}
+                                className={`payment-btn ${paymentMode === 'SPLIT' ? 'active' : ''}`}
                                 onClick={() => setPaymentMode('SPLIT')}
                             >
-                                <Percent size={16} />
-                                SPLIT
+                                <Percent size={20} />
+                                <span>Split</span>
                             </button>
                         </div>
 
                         {paymentMode === 'SPLIT' && (
-                            <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                            <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                                 <div>
-                                    <label style={{ fontSize: 10, color: 'var(--text-secondary)' }}>Cash</label>
+                                    <label className="form-label" style={{ fontSize: 11 }}>Cash</label>
                                     <input
                                         type="number"
                                         className="form-input"
-                                        style={{ fontSize: 13 }}
                                         value={cashAmount || ''}
                                         onChange={(e) => setSplitAmounts(parseFloat(e.target.value) || 0, onlineAmount)}
                                     />
                                 </div>
                                 <div>
-                                    <label style={{ fontSize: 10, color: 'var(--text-secondary)' }}>Online</label>
+                                    <label className="form-label" style={{ fontSize: 11 }}>Online</label>
                                     <input
                                         type="number"
                                         className="form-input"
-                                        style={{ fontSize: 13 }}
                                         value={onlineAmount || ''}
                                         onChange={(e) => setSplitAmounts(cashAmount, parseFloat(e.target.value) || 0)}
                                     />
@@ -813,14 +870,14 @@ export function Billing() {
                     </div>
 
                     {/* Discount */}
-                    <div className="pos-card">
-                        <div className="pos-card-title">
+                    <div className="sidebar-card">
+                        <div className="sidebar-title">
                             <Percent size={14} /> Discount
                         </div>
                         <div style={{ display: 'flex', gap: 8 }}>
                             <select
                                 className="form-select"
-                                style={{ width: 80, fontSize: 13 }}
+                                style={{ width: 90 }}
                                 value={discountType ?? ''}
                                 onChange={(e) => setBillDiscount((e.target.value as 'PERCENTAGE' | 'FLAT') || null, discountValue)}
                             >
@@ -831,8 +888,7 @@ export function Billing() {
                             <input
                                 type="number"
                                 className="form-input"
-                                style={{ fontSize: 13 }}
-                                placeholder="0"
+                                placeholder="Value"
                                 value={discountValue || ''}
                                 onChange={(e) => setBillDiscount(discountType, parseFloat(e.target.value) || 0)}
                                 disabled={!discountType}
@@ -840,33 +896,33 @@ export function Billing() {
                         </div>
                     </div>
 
-                    {/* Totals */}
-                    <div className="pos-card pos-totals">
-                        <div className="pos-total-row">
+                    {/* Totals & Action */}
+                    <div className="sidebar-card totals-card">
+                        <div className="total-row">
                             <span>Subtotal</span>
                             <span>{formatCurrency(billCalc.subtotal)}</span>
                         </div>
                         {billCalc.billDiscount > 0 && (
-                            <div className="pos-total-row" style={{ color: 'var(--color-success-400)' }}>
+                            <div className="total-row" style={{ color: '#4ade80' }}>
                                 <span>Discount</span>
                                 <span>-{formatCurrency(billCalc.billDiscount)}</span>
                             </div>
                         )}
-                        <div className="pos-total-row">
+                        <div className="total-row">
                             <span>GST</span>
                             <span>{formatCurrency(billCalc.totalGst)}</span>
                         </div>
-                        <div className="pos-total-row grand">
-                            <span>Total</span>
+                        <div className="grand-total">
+                            <span style={{ fontSize: 14, fontWeight: 500, color: 'rgba(255,255,255,0.7)' }}>Total</span>
                             <span>{formatCurrency(billCalc.finalAmount)}</span>
                         </div>
 
                         <button
-                            className="pos-submit"
+                            className="save-btn"
                             onClick={handleSubmitBill}
                             disabled={items.length === 0 || isSubmitting}
                         >
-                            {isSubmitting ? 'Saving...' : `Save Bill • ${formatCurrency(billCalc.finalAmount)}`}
+                            {isSubmitting ? 'Processing...' : 'Complete Sale (Ctrl+S)'}
                         </button>
                     </div>
                 </div>
@@ -876,21 +932,23 @@ export function Billing() {
             {showSuccessModal && lastBill && (
                 <div className="modal-overlay" onClick={() => setShowSuccessModal(false)}>
                     <div className="modal modal-sm" onClick={(e) => e.stopPropagation()}>
-                        <div className="modal-body pos-success">
-                            <div className="pos-success-icon">
-                                <Check size={32} />
+                        <div className="modal-body" style={{ textAlign: 'center', padding: 32 }}>
+                            <div style={{
+                                width: 72, height: 72, background: 'var(--color-success-100)', color: 'var(--color-success-600)',
+                                borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px'
+                            }}>
+                                <Check size={40} />
                             </div>
-                            <div className="pos-bill-number">{lastBill.bill_number}</div>
-                            <p style={{ color: 'var(--text-secondary)', marginBottom: 16 }}>
-                                Bill saved successfully!<br />
-                                Amount: {formatCurrency(lastBill.grand_total)}
-                            </p>
-                            <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
-                                <button className="btn btn-secondary" onClick={handlePrint}>
-                                    <Printer size={16} /> Print
+                            <h3 style={{ fontSize: 24, fontWeight: 700, marginBottom: 8 }}>Sale Completed!</h3>
+                            <div style={{ fontSize: 18, fontFamily: 'var(--font-mono)', color: 'var(--color-primary-600)', marginBottom: 24 }}>
+                                {lastBill.bill_number}
+                            </div>
+                            <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
+                                <button className="btn btn-secondary btn-lg" onClick={handlePrint}>
+                                    <Printer size={18} /> Print Bill
                                 </button>
-                                <button className="btn btn-primary" onClick={() => setShowSuccessModal(false)}>
-                                    New Bill
+                                <button className="btn btn-primary btn-lg" onClick={() => setShowSuccessModal(false)}>
+                                    New Sale
                                 </button>
                             </div>
                         </div>
@@ -898,12 +956,12 @@ export function Billing() {
                 </div>
             )}
 
-            {/* Patient Details Modal for Scheduled Medicines */}
+            {/* Patient Details Modal */}
             {showPatientModal && (
                 <div className="modal-overlay" onClick={() => setShowPatientModal(false)}>
-                    <div className="modal modal-lg" style={{ maxHeight: '90vh', display: 'flex', flexDirection: 'column' }} onClick={(e) => e.stopPropagation()}>
+                    <div className="modal modal-lg" onClick={(e) => e.stopPropagation()}>
                         <div className="modal-header">
-                            <h3 className="modal-title">Patient & Prescription Details (Schedule H/H1 Drug)</h3>
+                            <h3 className="modal-title">Patient & Prescription Details</h3>
                             <button className="btn btn-ghost btn-icon" onClick={() => setShowPatientModal(false)}>
                                 <X size={20} />
                             </button>
@@ -914,15 +972,14 @@ export function Billing() {
                                 setPatientInfo(tempPatientInfo);
                                 setShowPatientModal(false);
                             }
-                        }} style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
-                            <div className="modal-body" style={{ overflowY: 'auto', flex: 1 }}>
-                                <p style={{ marginBottom: 16, color: 'var(--text-secondary)', fontSize: 13 }}>
-                                    As per drug regulations, patient and prescription details are mandatory for scheduled medicines.
-                                </p>
-                                
-                                {/* Patient Details Section */}
-                                <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, color: 'var(--color-primary-600)' }}>Patient Information</h4>
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)', marginBottom: 20 }}>
+                        }}>
+                            <div className="modal-body">
+                                <div className="alert alert-info" style={{ marginBottom: 20 }}>
+                                    <AlertCircle size={16} />
+                                    <span>Required for Schedule H/H1 drugs compliance.</span>
+                                </div>
+
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
                                     <div className="form-group" style={{ gridColumn: '1 / -1' }}>
                                         <label className="form-label">Patient Name *</label>
                                         <input
@@ -941,8 +998,6 @@ export function Billing() {
                                             className="form-input"
                                             value={tempPatientInfo.patient_age ?? ''}
                                             onChange={(e) => setTempPatientInfo({ ...tempPatientInfo, patient_age: e.target.value ? parseInt(e.target.value) : undefined })}
-                                            min="0"
-                                            max="150"
                                         />
                                     </div>
                                     <div className="form-group">
@@ -958,29 +1013,6 @@ export function Billing() {
                                             <option value="O">Other</option>
                                         </select>
                                     </div>
-                                    <div className="form-group">
-                                        <label className="form-label">Phone</label>
-                                        <input
-                                            type="tel"
-                                            className="form-input"
-                                            value={tempPatientInfo.patient_phone ?? ''}
-                                            onChange={(e) => setTempPatientInfo({ ...tempPatientInfo, patient_phone: e.target.value })}
-                                        />
-                                    </div>
-                                    <div className="form-group">
-                                        <label className="form-label">Address</label>
-                                        <input
-                                            type="text"
-                                            className="form-input"
-                                            value={tempPatientInfo.patient_address ?? ''}
-                                            onChange={(e) => setTempPatientInfo({ ...tempPatientInfo, patient_address: e.target.value })}
-                                        />
-                                    </div>
-                                </div>
-                                
-                                {/* Prescription Details Section */}
-                                <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, color: 'var(--color-primary-600)' }}>Prescription Details</h4>
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)' }}>
                                     <div className="form-group">
                                         <label className="form-label">Doctor Name *</label>
                                         <input
@@ -998,34 +1030,6 @@ export function Billing() {
                                             className="form-input"
                                             value={tempPatientInfo.doctor_registration_number ?? ''}
                                             onChange={(e) => setTempPatientInfo({ ...tempPatientInfo, doctor_registration_number: e.target.value })}
-                                            placeholder="Medical Council Reg. No."
-                                        />
-                                    </div>
-                                    <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-                                        <label className="form-label">Clinic / Hospital Name</label>
-                                        <input
-                                            type="text"
-                                            className="form-input"
-                                            value={tempPatientInfo.clinic_hospital_name ?? ''}
-                                            onChange={(e) => setTempPatientInfo({ ...tempPatientInfo, clinic_hospital_name: e.target.value })}
-                                        />
-                                    </div>
-                                    <div className="form-group">
-                                        <label className="form-label">Prescription Number</label>
-                                        <input
-                                            type="text"
-                                            className="form-input"
-                                            value={tempPatientInfo.prescription_number ?? ''}
-                                            onChange={(e) => setTempPatientInfo({ ...tempPatientInfo, prescription_number: e.target.value })}
-                                        />
-                                    </div>
-                                    <div className="form-group">
-                                        <label className="form-label">Prescription Date</label>
-                                        <input
-                                            type="date"
-                                            className="form-input"
-                                            value={tempPatientInfo.prescription_date ?? ''}
-                                            onChange={(e) => setTempPatientInfo({ ...tempPatientInfo, prescription_date: e.target.value })}
                                         />
                                     </div>
                                 </div>
@@ -1034,7 +1038,7 @@ export function Billing() {
                                 <button type="button" className="btn btn-secondary" onClick={() => setShowPatientModal(false)}>
                                     Cancel
                                 </button>
-                                <button type="submit" className="btn btn-primary" disabled={!tempPatientInfo.patient_name || !tempPatientInfo.doctor_name}>
+                                <button type="submit" className="btn btn-primary">
                                     Save Details
                                 </button>
                             </div>

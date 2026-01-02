@@ -3,7 +3,7 @@
 // Comprehensive seed data for all screens
 // =====================================================
 
-import { execute, initDatabase, query, transaction } from './database';
+import { execute, initDatabase, query } from './database';
 
 /**
  * Safely delete from a table if it exists
@@ -51,6 +51,14 @@ export async function clearDatabase(): Promise<void> {
         console.log('Bill sequence reset skipped');
     }
 
+    // Reset SQLite auto-increment counters so IDs start from 1
+    try {
+        await execute('DELETE FROM sqlite_sequence', []);
+        console.log('Auto-increment counters reset');
+    } catch (error) {
+        console.log('Sequence reset skipped (table may not exist)');
+    }
+
     // Mark that we've already done the tablet migration (since we're seeding fresh data in tablets)
     try {
         await execute(
@@ -90,7 +98,9 @@ export async function seedDatabase(): Promise<void> {
         const addDays = (days: number) => new Date(today.getTime() + days * 24 * 60 * 60 * 1000);
         const subDays = (days: number) => new Date(today.getTime() - days * 24 * 60 * 60 * 1000);
 
-        await transaction(async () => {
+        // Execute inserts without transaction wrapper to avoid database lock
+        // Each section commits independently
+        {
             // =========================================
             // SUPPLIERS (40+)
             // =========================================
@@ -228,14 +238,14 @@ export async function seedDatabase(): Promise<void> {
             const batchData = [];
             for (let i = 1; i <= 61; i++) {
                 const expiry = i % 5 === 0 ? expiry20Days : (i % 3 === 0 ? expiry3Months : (i % 2 === 0 ? expiry6Months : expiry1Year));
-                const rack = `${String.fromCharCode(65 + Math.floor((i-1) / 12))}${((i-1) % 12) + 1}`;
-                const box = String(Math.floor((i-1) / 5) + 1);
+                const rack = `${String.fromCharCode(65 + Math.floor((i - 1) / 12))}${((i - 1) % 12) + 1}`;
+                const box = String(Math.floor((i - 1) / 5) + 1);
                 const purchasePrice = (15 + i * 5).toFixed(2);
                 const mrp = (25 + i * 6).toFixed(2);
                 const sellingPrice = (parseFloat(mrp) - 2).toFixed(2);
                 const quantity = Math.floor(100 + (i * 30)) * 10; // In tablets
-                const tps = [1, 6, 10, 15][(i-1) % 4];
-                
+                const tps = [1, 6, 10, 15][(i - 1) % 4];
+
                 batchData.push(`(${i}, 'BT2024${String(i).padStart(3, '0')}', '${expiry}', ${purchasePrice}, ${mrp}, ${sellingPrice}, 'INCLUSIVE', ${quantity}, ${tps}, '${rack}', '${box}')`);
             }
             await execute(`INSERT INTO batches (medicine_id, batch_number, expiry_date, purchase_price, mrp, selling_price, price_type, quantity, tablets_per_strip, rack, box) VALUES ${batchData.join(', ')}`, []);
@@ -296,17 +306,18 @@ export async function seedDatabase(): Promise<void> {
                 ['Harish R', '9876543268', 'harish@email.com', '135 Tidel Park, Chennai', 4500, 900],
                 ['Lakshmi V', '9876543269', 'lakshmi2@email.com', '136 Thoraipakkam, Chennai', 6000, 0]
             ];
-            
-            const customerInserts = customerNames.map(c => 
+
+            const customerInserts = customerNames.map(c =>
                 `('${c[0]}', '${c[1]}', '${c[2]}', '${c[3]}', ${c[4]}, ${c[5]})`
             ).join(', ');
-            
+
             await execute(`INSERT INTO customers (name, phone, email, address, credit_limit, current_balance) VALUES ${customerInserts}`, []);
 
             // =========================================
             // PURCHASES (50+)
             // =========================================
             console.log('Seeding purchases...');
+            const chunkSize = 20; // For batching INSERT statements
             const purchaseDate1 = formatDate(subDays(90));
             const purchaseDate2 = formatDate(subDays(75));
             const purchaseDate3 = formatDate(subDays(60));
@@ -327,10 +338,44 @@ export async function seedDatabase(): Promise<void> {
                 const grandTotal = (parseFloat(subtotal) + parseFloat(totalGst)).toFixed(2);
                 const paymentStatus = i % 3 === 0 ? 'PAID' : (i % 5 === 0 ? 'PARTIAL' : 'PENDING');
                 const paidAmount = paymentStatus === 'PAID' ? grandTotal : (paymentStatus === 'PARTIAL' ? (parseFloat(grandTotal) * 0.6).toFixed(2) : '0.00');
-                
+
                 purchaseInserts.push(`('P2024/${String(i).padStart(4, '0')}', '${date}', ${supplierId}, 1, ${subtotal}, ${taxableAmount}, ${cgstAmount}, ${sgstAmount}, ${totalGst}, ${grandTotal}, '${paymentStatus}', ${paidAmount})`);
             }
             await execute(`INSERT INTO purchases (invoice_number, invoice_date, supplier_id, user_id, subtotal, taxable_amount, cgst_amount, sgst_amount, total_gst, grand_total, payment_status, paid_amount) VALUES ${purchaseInserts.join(', ')}`, []);
+
+            // =========================================
+            // PURCHASE ITEMS (2-4 items per purchase)
+            // =========================================
+            console.log('Seeding purchase items...');
+            const purchaseItemInserts = [];
+            for (let i = 1; i <= 50; i++) {
+                // Each purchase has 2-4 items
+                const itemCount = 2 + (i % 3);
+                for (let j = 0; j < itemCount; j++) {
+                    const medicineId = ((i * 3 + j - 1) % 61) + 1;
+                    const batchId = medicineId; // Using same ID for simplicity
+                    const medicineName = `Medicine${medicineId}`;
+                    const batchNumber = `BT2024${String(medicineId).padStart(3, '0')}`;
+                    const expiryDate = formatDate(addDays(365 + (i % 5) * 60)); // 1-2 years from now
+                    const quantity = 50 + (j * 25) + (i % 20) * 10; // 50-300 strips
+                    const freeQuantity = Math.floor(quantity * 0.02); // 2% free goods
+                    const packSize = [1, 6, 10, 15][(medicineId - 1) % 4];
+                    const purchasePrice = (15 + medicineId * 3).toFixed(2);
+                    const mrp = (25 + medicineId * 5).toFixed(2);
+                    const gstRate = [0, 5, 12, 18][(medicineId - 1) % 4];
+                    const itemTotal = (parseFloat(purchasePrice) * quantity).toFixed(2);
+                    const cgstAmount = (parseFloat(itemTotal) * gstRate / 200).toFixed(2);
+                    const sgstAmount = cgstAmount;
+                    const totalWithGst = (parseFloat(itemTotal) + parseFloat(cgstAmount) * 2).toFixed(2);
+
+                    purchaseItemInserts.push(`(${i}, ${batchId}, ${medicineId}, '${medicineName}', '${batchNumber}', '${expiryDate}', ${quantity}, ${freeQuantity}, ${packSize}, ${purchasePrice}, ${mrp}, 0, ${gstRate}, ${cgstAmount}, ${sgstAmount}, ${totalWithGst})`);
+                }
+            }
+            // Insert purchase items in chunks
+            for (let i = 0; i < purchaseItemInserts.length; i += chunkSize) {
+                const chunk = purchaseItemInserts.slice(i, i + chunkSize);
+                await execute(`INSERT INTO purchase_items (purchase_id, batch_id, medicine_id, medicine_name, batch_number, expiry_date, quantity, free_quantity, pack_size, purchase_price, mrp, discount_percent, gst_rate, cgst_amount, sgst_amount, total_amount) VALUES ${chunk.join(', ')}`, []);
+            }
 
             // =========================================
             // BILLS (60+ Sales)
@@ -350,7 +395,7 @@ export async function seedDatabase(): Promise<void> {
             const billInserts = [];
             const billItemInserts = [];
             let billItemId = 1;
-            
+
             for (let i = 1; i <= 65; i++) {
                 const billNumber = `INV-2425${String(i).padStart(5, '0')}`;
                 const daysAgo = Math.floor(Math.random() * 30);
@@ -368,9 +413,9 @@ export async function seedDatabase(): Promise<void> {
                 const cashAmount = paymentMode === 'CASH' ? grandTotal : (paymentMode === 'SPLIT' ? (parseFloat(grandTotal) * 0.6).toFixed(2) : '0.00');
                 const onlineAmount = paymentMode === 'ONLINE' ? grandTotal : (paymentMode === 'SPLIT' ? (parseFloat(grandTotal) * 0.4).toFixed(2) : '0.00');
                 const creditAmount = paymentMode === 'CREDIT' ? grandTotal : '0.00';
-                
+
                 billInserts.push(`('${billNumber}', '${billDate}', ${customerId}, '${customerName}', 1, ${subtotal}, ${taxableAmount}, ${cgstAmount}, ${sgstAmount}, ${totalGst}, ${grandTotal}, '${paymentMode}', ${cashAmount}, ${onlineAmount}, ${creditAmount}, ${isCancelled})`);
-                
+
                 // Add 1-3 items per bill
                 const itemCount = (i % 3) + 1;
                 for (let j = 0; j < itemCount; j++) {
@@ -383,19 +428,18 @@ export async function seedDatabase(): Promise<void> {
                     const itemTaxable = (parseFloat(itemSubtotal) / 1.12).toFixed(2);
                     const itemCgst = (parseFloat(itemTaxable) * 0.06).toFixed(2);
                     const itemSgst = itemCgst;
-                    
+
                     // bill_id, batch_id, medicine_id, medicine_name, hsn_code, batch_number, quantity, selling_price, taxable_amount, gst_rate, cgst_amount, sgst_amount, total_amount, mrp, unit
                     billItemInserts.push(`(${i}, ${batchId}, ${medicineId}, 'Medicine${medicineId}', '3004', 'BT2024${String(batchId).padStart(3, '0')}', ${qty}, ${unitPrice}, ${itemTaxable}, 12, ${itemCgst}, ${itemSgst}, ${itemSubtotal}, ${mrp}, 'PCS')`);
                 }
             }
-            
+
             // Insert in batches to avoid SQL length limits
-            const chunkSize = 20;
             for (let i = 0; i < billInserts.length; i += chunkSize) {
                 const chunk = billInserts.slice(i, i + chunkSize);
                 await execute(`INSERT INTO bills (bill_number, bill_date, customer_id, customer_name, user_id, subtotal, taxable_amount, cgst_amount, sgst_amount, total_gst, grand_total, payment_mode, cash_amount, online_amount, credit_amount, is_cancelled) VALUES ${chunk.join(', ')}`, []);
             }
-            
+
             // =========================================
             // BILL ITEMS
             // =========================================
@@ -416,8 +460,8 @@ export async function seedDatabase(): Promise<void> {
                 const billId = ((i - 1) % 65) + 1;
                 const amount = (100 + i * 50).toFixed(2);
                 const transactionType = i % 4 === 0 ? 'PAYMENT' : 'SALE';
-                const balanceAfter = transactionType === 'PAYMENT' ? 
-                    Math.max(0, 5000 - i * 100).toFixed(2) : 
+                const balanceAfter = transactionType === 'PAYMENT' ?
+                    Math.max(0, 5000 - i * 100).toFixed(2) :
                     (1000 + i * 100).toFixed(2);
                 const paymentMode = transactionType === 'PAYMENT' ? "'CASH'" : 'NULL';
                 const notes = transactionType === 'PAYMENT' ? 'Payment received' : 'Credit sale';
@@ -450,7 +494,7 @@ export async function seedDatabase(): Promise<void> {
                 'Vijaya Hospital', 'Sri Ramachandra', 'Billroth Hospital', 'Global Hospitals',
                 'Chennai Medical Center', 'Sundaram Medical Foundation', 'Prashanth Hospital', 'Chettinad Hospital'
             ];
-            
+
             const scheduledInserts = [];
             for (let i = 1; i <= 45; i++) {
                 const billId = ((i - 1) % 65) + 1;
@@ -467,7 +511,7 @@ export async function seedDatabase(): Promise<void> {
                 const clinic = clinics[(i - 1) % clinics.length];
                 const prescriptionNo = `RX${String(2024).padStart(4, '0')}${String(i).padStart(5, '0')}`;
                 const qty = 5 + (i % 20);
-                
+
                 scheduledInserts.push(`(${billId}, ${billItemId}, ${medicineId}, ${batchId}, '${patientName}', ${patientAge}, '${patientGender}', '${patientPhone}', '${patientAddress}', '${doctorName}', '${doctorRegNo}', '${clinic}', '${prescriptionNo}', '${formatDate(subDays(i % 30))}', ${qty})`);
             }
             await execute(`INSERT INTO scheduled_medicine_records (bill_id, bill_item_id, medicine_id, batch_id, patient_name, patient_age, patient_gender, patient_phone, patient_address, doctor_name, doctor_registration_number, clinic_hospital_name, prescription_number, prescription_date, quantity) VALUES ${scheduledInserts.join(', ')}`, []);
@@ -488,7 +532,7 @@ export async function seedDatabase(): Promise<void> {
                 'Gabapentin 300', 'Pregabalin 75', 'Duloxetine 30', 'Escitalopram 10', 'Sertraline 50',
                 'Fluoxetine 20', 'Alprazolam 0.5', 'Clonazepam 0.5', 'Lorazepam 2', 'Zolpidem 10'
             ];
-            
+
             const runningBillInserts = [];
             for (let i = 1; i <= 45; i++) {
                 const billId = ((i - 1) % 65) + 1;
@@ -504,7 +548,7 @@ export async function seedDatabase(): Promise<void> {
                 const linkedMedicineId = status === 'STOCKED' ? ((i - 1) % 61) + 1 : 'NULL';
                 const stockedAt = status === 'STOCKED' ? `'${formatDate(subDays(i % 10))}'` : 'NULL';
                 const stockedBy = status === 'STOCKED' ? 1 : 'NULL';
-                
+
                 runningBillInserts.push(`(${billId}, '${medicineName}', ${quantity}, ${unitPrice}, ${totalAmount}, ${gstRate}, '${hsnCode}', '${notes}', 1, '${status}', ${linkedBatchId}, ${linkedMedicineId}, ${stockedAt}, ${stockedBy})`);
             }
             await execute(`INSERT INTO running_bills (bill_id, medicine_name, quantity, unit_price, total_amount, gst_rate, hsn_code, notes, user_id, status, linked_batch_id, linked_medicine_id, stocked_at, stocked_by) VALUES ${runningBillInserts.join(', ')}`, []);
@@ -524,7 +568,7 @@ export async function seedDatabase(): Promise<void> {
                 auditInserts.push(`(1, '${action}', '${entity}', ${entityId}, '${description}')`);
             }
             await execute(`INSERT INTO audit_log (user_id, action, entity_type, entity_id, description) VALUES ${auditInserts.join(', ')}`, []);
-        });
+        }
 
         console.log('');
         console.log('========================================');
@@ -534,7 +578,7 @@ export async function seedDatabase(): Promise<void> {
         console.log('  - 45 Suppliers');
         console.log('  - 61 Medicines with batches (inventory stock)');
         console.log('  - 50 Customers (some with credit balances)');
-        console.log('  - 50 Purchase invoices');
+        console.log('  - 50 Purchase invoices with ~125 purchase items');
         console.log('  - 65 Sales bills with ~130 bill items');
         console.log('  - 45 Credit transactions');
         console.log('  - 45 Scheduled medicine records');
@@ -548,7 +592,7 @@ export async function seedDatabase(): Promise<void> {
         console.log('  - Bill History: 65+ bills with items');
         console.log('  - Running Bills: 35 pending stock reconciliation');
         console.log('  - Scheduled Medicines: 45 records for Schedule H/H1');
-        console.log('  - Purchases: View 50+ purchase history');
+        console.log('  - Purchases: View 50+ purchases with line items');
         console.log('  - Customers: 50+ customers, credit balances to collect');
         console.log('  - Reports: Sales, GST, inventory, credit reports');
         console.log('========================================');
