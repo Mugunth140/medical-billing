@@ -81,6 +81,7 @@ function createTables() {
             box TEXT,
             last_sold_date DATE,
             purchase_id INTEGER,
+            supplier_id INTEGER REFERENCES suppliers(id),
             is_active INTEGER DEFAULT 1,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -426,28 +427,78 @@ function seedDatabase() {
         ('Cheston Cold', 'Paracetamol + CPM', 'Cipla', '3004', 12, 'Cold & Cough', 'STRIP', 40)
     `);
     
+    // Add scheduled (H1) medicines separately
+    console.log('Seeding scheduled (H1) medicines...');
+    db.exec(`
+        INSERT INTO medicines (name, generic_name, manufacturer, hsn_code, gst_rate, category, unit, reorder_level, is_schedule) VALUES
+        ('Alprazolam 0.5mg', 'Alprazolam 0.5mg', 'Sun Pharma', '3004', 12, 'Anxiolytic', 'STRIP', 20, 1),
+        ('Clonazepam 0.5mg', 'Clonazepam 0.5mg', 'Sun Pharma', '3004', 12, 'Anticonvulsant', 'STRIP', 15, 1),
+        ('Diazepam 5mg', 'Diazepam 5mg', 'Ranbaxy', '3004', 12, 'Anxiolytic', 'STRIP', 20, 1),
+        ('Tramadol 50mg', 'Tramadol HCL 50mg', 'Intas Pharma', '3004', 12, 'Analgesic', 'STRIP', 25, 1),
+        ('Codeine Phosphate 15mg', 'Codeine Phosphate', 'Lupin', '3004', 12, 'Antitussive', 'STRIP', 10, 1),
+        ('Phenobarbitone 30mg', 'Phenobarbital 30mg', 'Abbott', '3004', 12, 'Anticonvulsant', 'STRIP', 15, 1),
+        ('Lorazepam 2mg', 'Lorazepam 2mg', 'Torrent Pharma', '3004', 12, 'Anxiolytic', 'STRIP', 10, 1),
+        ('Nitrazepam 5mg', 'Nitrazepam 5mg', 'Sun Pharma', '3004', 12, 'Sedative', 'STRIP', 15, 1),
+        ('Zolpidem 10mg', 'Zolpidem Tartrate 10mg', 'Intas Pharma', '3004', 12, 'Hypnotic', 'STRIP', 20, 1),
+        ('Morphine Sulfate 10mg', 'Morphine Sulfate 10mg', 'Sun Pharma', '3004', 12, 'Opioid Analgesic', 'STRIP', 5, 1)
+    `);
+    
     // =========================================
-    // BATCHES (30 for now)
+    // BATCHES (60 total - 2 per medicine with supplier linking)
     // =========================================
     console.log('Seeding batches...');
     const expiry6Months = formatDate(addDays(180));
     const expiry1Year = formatDate(addDays(365));
     const expiry20Days = formatDate(addDays(20));
+    const expiry3Months = formatDate(addDays(90));
     
     const batchInserts = [];
     for (let i = 1; i <= 30; i++) {
-        const expiry = i % 5 === 0 ? expiry20Days : (i % 2 === 0 ? expiry6Months : expiry1Year);
-        const rack = `${String.fromCharCode(65 + Math.floor((i-1) / 12))}${((i-1) % 12) + 1}`;
-        const box = String(Math.floor((i-1) / 5) + 1);
-        const purchasePrice = (15 + i * 5).toFixed(2);
-        const mrp = (25 + i * 6).toFixed(2);
-        const sellingPrice = (parseFloat(mrp) - 2).toFixed(2);
-        const quantity = (100 + i * 30) * 10;
-        const tps = [1, 6, 10, 15][(i-1) % 4];
+        // First batch for each medicine
+        const expiry1 = i % 5 === 0 ? expiry20Days : (i % 2 === 0 ? expiry6Months : expiry1Year);
+        const rack1 = `${String.fromCharCode(65 + Math.floor((i-1) / 12))}${((i-1) % 12) + 1}`;
+        const box1 = String(Math.floor((i-1) / 5) + 1);
+        const purchasePrice1 = (15 + i * 5).toFixed(2);
+        const mrp1 = (25 + i * 6).toFixed(2);
+        const sellingPrice1 = (parseFloat(mrp1) - 2).toFixed(2);
+        const quantity1 = (100 + i * 30) * 10;
+        const tps1 = [1, 6, 10, 15][(i-1) % 4];
+        const supplierId1 = ((i - 1) % 10) + 1; // Link to suppliers 1-10
         
-        batchInserts.push(`(${i}, 'BT2024${String(i).padStart(3, '0')}', '${expiry}', ${purchasePrice}, ${mrp}, ${sellingPrice}, 'INCLUSIVE', ${quantity}, ${tps}, '${rack}', '${box}')`);
+        batchInserts.push(`(${i}, 'BT2024${String(i).padStart(3, '0')}', '${expiry1}', ${purchasePrice1}, ${mrp1}, ${sellingPrice1}, 'INCLUSIVE', ${quantity1}, ${tps1}, '${rack1}', '${box1}', ${supplierId1})`);
+        
+        // Second batch for each medicine (different supplier, different expiry)
+        const expiry2 = i % 3 === 0 ? expiry3Months : expiry1Year;
+        const rack2 = `${String.fromCharCode(65 + Math.floor((i-1) / 12))}${((i-1) % 12) + 1}B`;
+        const purchasePrice2 = (parseFloat(purchasePrice1) * 0.95).toFixed(2); // Slightly different price
+        const mrp2 = mrp1;
+        const sellingPrice2 = sellingPrice1;
+        const quantity2 = Math.floor(quantity1 * 0.6);
+        const tps2 = tps1;
+        const supplierId2 = ((i + 4) % 10) + 1; // Different supplier
+        
+        batchInserts.push(`(${i}, 'BT2025${String(i).padStart(3, '0')}', '${expiry2}', ${purchasePrice2}, ${mrp2}, ${sellingPrice2}, 'INCLUSIVE', ${quantity2}, ${tps2}, '${rack2}', '${box1}', ${supplierId2})`);
     }
-    db.exec(`INSERT INTO batches (medicine_id, batch_number, expiry_date, purchase_price, mrp, selling_price, price_type, quantity, tablets_per_strip, rack, box) VALUES ${batchInserts.join(', ')}`);
+    db.exec(`INSERT INTO batches (medicine_id, batch_number, expiry_date, purchase_price, mrp, selling_price, price_type, quantity, tablets_per_strip, rack, box, supplier_id) VALUES ${batchInserts.join(', ')}`);
+    
+    // Add batches for scheduled medicines (medicine IDs 31-40)
+    console.log('Seeding batches for scheduled medicines...');
+    const scheduledBatchInserts = [];
+    for (let i = 31; i <= 40; i++) {
+        const medIndex = i - 30;
+        const expiry = expiry1Year;
+        const rack = `H${medIndex}`;
+        const box = 'SAFE';
+        const purchasePrice = (50 + medIndex * 10).toFixed(2);
+        const mrp = (80 + medIndex * 15).toFixed(2);
+        const sellingPrice = (parseFloat(mrp) - 5).toFixed(2);
+        const quantity = 50 + medIndex * 10;
+        const tps = 10;
+        const supplierId = ((medIndex - 1) % 5) + 1; // Use first 5 suppliers
+        
+        scheduledBatchInserts.push(`(${i}, 'SCH2024${String(medIndex).padStart(3, '0')}', '${expiry}', ${purchasePrice}, ${mrp}, ${sellingPrice}, 'INCLUSIVE', ${quantity}, ${tps}, '${rack}', '${box}', ${supplierId})`);
+    }
+    db.exec(`INSERT INTO batches (medicine_id, batch_number, expiry_date, purchase_price, mrp, selling_price, price_type, quantity, tablets_per_strip, rack, box, supplier_id) VALUES ${scheduledBatchInserts.join(', ')}`);
     
     // =========================================
     // CUSTOMERS (50)
@@ -660,7 +711,8 @@ function seedDatabase() {
     console.log('========================================');
     console.log('Summary:');
     console.log('  - 10 Suppliers');
-    console.log('  - 30 Medicines with batches');
+    console.log('  - 40 Medicines (30 regular + 10 scheduled/H1)');
+    console.log('  - 70 Batches (60 regular + 10 scheduled, linked to suppliers)');
     console.log('  - 50 Customers');
     console.log('  - 50 Purchases with items');
     console.log('  - 65 Bills with items');

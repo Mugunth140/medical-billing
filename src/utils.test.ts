@@ -1,12 +1,20 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
     capitalize,
+    convertToUnits,
     daysUntil,
+    debounce,
+    deepClone,
     formatCurrency,
     formatDate,
     formatNumber,
+    formatQuantityDisplay,
+    generateId,
     getExpiryStatusInfo,
+    getGstLabel,
     getStockStatusInfo,
+    groupBy,
+    isEmpty,
     isExpired,
     isExpiringSoon,
     isValidEmail,
@@ -14,6 +22,10 @@ import {
     isValidPhone,
     matchesSearch,
     parseCurrency,
+    sortBy,
+    throttle,
+    toISODate,
+    toSearchable,
     truncate
 } from './utils'
 
@@ -237,6 +249,237 @@ describe('Utility Functions', () => {
             it('rejects invalid emails', () => {
                 expect(isValidEmail('invalid')).toBe(false)
                 expect(isValidEmail('missing@domain')).toBe(false)
+            })
+        })
+    })
+
+    describe('Unit Conversion', () => {
+        describe('convertToUnits', () => {
+            it('converts total pieces to strips and loose pieces', () => {
+                const result = convertToUnits(25, 10)
+                expect(result.strips).toBe(2)
+                expect(result.loosePieces).toBe(5)
+            })
+
+            it('handles exact strip multiples', () => {
+                const result = convertToUnits(30, 10)
+                expect(result.strips).toBe(3)
+                expect(result.loosePieces).toBe(0)
+            })
+
+            it('handles only loose pieces (less than one strip)', () => {
+                const result = convertToUnits(5, 10)
+                expect(result.strips).toBe(0)
+                expect(result.loosePieces).toBe(5)
+            })
+
+            it('generates correct full display string', () => {
+                const result = convertToUnits(25, 10)
+                expect(result.displayFull).toBe('2 strips + 5 pcs')
+            })
+
+            it('generates correct short display string', () => {
+                const result = convertToUnits(25, 10)
+                expect(result.displayShort).toBe('2S + 5P')
+            })
+
+            it('handles single strip correctly', () => {
+                const result = convertToUnits(10, 10)
+                expect(result.displayFull).toBe('1 strip')
+            })
+
+            it('handles single piece correctly', () => {
+                const result = convertToUnits(1, 10)
+                expect(result.displayFull).toBe('1 pc')
+            })
+
+            it('uses default tablets per strip of 10', () => {
+                const result = convertToUnits(15)
+                expect(result.strips).toBe(1)
+                expect(result.loosePieces).toBe(5)
+            })
+
+            it('works with different tablets per strip values', () => {
+                const result = convertToUnits(20, 6)
+                expect(result.strips).toBe(3)
+                expect(result.loosePieces).toBe(2)
+            })
+        })
+
+        describe('formatQuantityDisplay', () => {
+            it('returns full format by default', () => {
+                const result = formatQuantityDisplay(25, 10)
+                expect(result).toBe('2 strips + 5 pcs')
+            })
+
+            it('returns short format when specified', () => {
+                const result = formatQuantityDisplay(25, 10, 'short')
+                expect(result).toBe('2S + 5P')
+            })
+
+            it('handles zero quantity', () => {
+                const result = formatQuantityDisplay(0, 10)
+                expect(result).toBe('0 pcs')
+            })
+        })
+    })
+
+    describe('GST Utilities', () => {
+        describe('getGstLabel', () => {
+            it('returns Exempt for 0%', () => {
+                expect(getGstLabel(0)).toBe('Exempt')
+            })
+
+            it('returns percentage for standard rates', () => {
+                expect(getGstLabel(5)).toBe('5%')
+                expect(getGstLabel(12)).toBe('12%')
+                expect(getGstLabel(18)).toBe('18%')
+            })
+
+            it('handles non-standard rates', () => {
+                expect(getGstLabel(28)).toBe('28%')
+            })
+        })
+    })
+
+    describe('Date Utilities', () => {
+        describe('toISODate', () => {
+            it('formats date to ISO format', () => {
+                const date = new Date('2026-01-15T10:30:00')
+                expect(toISODate(date)).toBe('2026-01-15')
+            })
+        })
+
+        describe('toSearchable', () => {
+            it('converts to lowercase and trims', () => {
+                expect(toSearchable('  Hello World  ')).toBe('hello world')
+            })
+
+            it('normalizes multiple spaces', () => {
+                expect(toSearchable('hello    world')).toBe('hello world')
+            })
+        })
+    })
+
+    describe('Debounce and Throttle', () => {
+        describe('debounce', () => {
+            it('delays function execution', async () => {
+                vi.useFakeTimers()
+                const fn = vi.fn()
+                const debouncedFn = debounce(fn, 100)
+
+                debouncedFn()
+                debouncedFn()
+                debouncedFn()
+
+                expect(fn).not.toHaveBeenCalled()
+                
+                vi.advanceTimersByTime(100)
+                expect(fn).toHaveBeenCalledTimes(1)
+                vi.useRealTimers()
+            })
+        })
+
+        describe('throttle', () => {
+            it('limits function calls', () => {
+                vi.useFakeTimers()
+                const fn = vi.fn()
+                const throttledFn = throttle(fn, 100)
+
+                throttledFn()
+                throttledFn()
+                throttledFn()
+
+                expect(fn).toHaveBeenCalledTimes(1)
+                
+                vi.advanceTimersByTime(100)
+                throttledFn()
+                expect(fn).toHaveBeenCalledTimes(2)
+                vi.useRealTimers()
+            })
+        })
+    })
+
+    describe('Misc Utilities', () => {
+        describe('generateId', () => {
+            it('generates unique IDs', () => {
+                const id1 = generateId()
+                const id2 = generateId()
+                expect(id1).not.toBe(id2)
+            })
+
+            it('generates non-empty string', () => {
+                const id = generateId()
+                expect(id.length).toBeGreaterThan(0)
+            })
+        })
+
+        describe('deepClone', () => {
+            it('creates a deep copy of object', () => {
+                const original = { a: 1, b: { c: 2 } }
+                const clone = deepClone(original)
+                
+                expect(clone).toEqual(original)
+                expect(clone).not.toBe(original)
+                expect(clone.b).not.toBe(original.b)
+            })
+
+            it('clones arrays', () => {
+                const original = [1, 2, { a: 3 }]
+                const clone = deepClone(original)
+                
+                expect(clone).toEqual(original)
+                expect(clone).not.toBe(original)
+            })
+        })
+
+        describe('isEmpty', () => {
+            it('returns true for empty object', () => {
+                expect(isEmpty({})).toBe(true)
+            })
+
+            it('returns false for non-empty object', () => {
+                expect(isEmpty({ a: 1 })).toBe(false)
+            })
+        })
+
+        describe('groupBy', () => {
+            it('groups array by key', () => {
+                const data = [
+                    { category: 'A', value: 1 },
+                    { category: 'B', value: 2 },
+                    { category: 'A', value: 3 },
+                ]
+                const result = groupBy(data, 'category')
+                
+                expect(result['A'].length).toBe(2)
+                expect(result['B'].length).toBe(1)
+            })
+        })
+
+        describe('sortBy', () => {
+            it('sorts array in ascending order', () => {
+                const data = [{ value: 3 }, { value: 1 }, { value: 2 }]
+                const result = sortBy(data, 'value', 'asc')
+                
+                expect(result[0].value).toBe(1)
+                expect(result[2].value).toBe(3)
+            })
+
+            it('sorts array in descending order', () => {
+                const data = [{ value: 3 }, { value: 1 }, { value: 2 }]
+                const result = sortBy(data, 'value', 'desc')
+                
+                expect(result[0].value).toBe(3)
+                expect(result[2].value).toBe(1)
+            })
+
+            it('does not mutate original array', () => {
+                const data = [{ value: 3 }, { value: 1 }]
+                const result = sortBy(data, 'value')
+                
+                expect(result).not.toBe(data)
+                expect(data[0].value).toBe(3)
             })
         })
     })

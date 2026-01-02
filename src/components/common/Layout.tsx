@@ -7,6 +7,7 @@ import {
     ArrowDownLeft,
     ArrowUpRight,
     Building2,
+    ChevronDown,
     ChevronLeft,
     ChevronRight,
     ClipboardList,
@@ -21,7 +22,7 @@ import {
     Truck,
     Users
 } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore, useUIStore } from '../../stores';
 
