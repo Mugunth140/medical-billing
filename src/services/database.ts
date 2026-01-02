@@ -104,6 +104,8 @@ const TABLE_STATEMENTS = [
         bill_date DATETIME DEFAULT CURRENT_TIMESTAMP,
         customer_id INTEGER REFERENCES customers(id),
         customer_name TEXT,
+        doctor_name TEXT,
+        user_id INTEGER NOT NULL REFERENCES users(id),
         subtotal DECIMAL(12,2) NOT NULL DEFAULT 0,
         discount_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
         discount_percent DECIMAL(5,2) DEFAULT 0,
@@ -118,8 +120,8 @@ const TABLE_STATEMENTS = [
         cash_amount DECIMAL(12,2) DEFAULT 0,
         online_amount DECIMAL(12,2) DEFAULT 0,
         credit_amount DECIMAL(12,2) DEFAULT 0,
-        user_id INTEGER NOT NULL REFERENCES users(id),
         notes TEXT,
+        total_items INTEGER DEFAULT 0,
         is_cancelled INTEGER DEFAULT 0,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -476,6 +478,8 @@ export async function initDatabase(): Promise<Database> {
             `ALTER TABLE bill_items ADD COLUMN tablets_per_strip INTEGER DEFAULT 10`,
             // Add total_items to bills if not exists
             `ALTER TABLE bills ADD COLUMN total_items INTEGER DEFAULT 0`,
+            // Add doctor_name to bills for prescription tracking
+            `ALTER TABLE bills ADD COLUMN doctor_name TEXT`,
             // Add is_schedule column to medicines for scheduled drug tracking
             `ALTER TABLE medicines ADD COLUMN is_schedule INTEGER DEFAULT 0`,
             // Add missing columns to scheduled_medicine_records for older databases

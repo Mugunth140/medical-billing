@@ -7,7 +7,6 @@ import {
     AlertCircle,
     Check,
     Clock,
-    FileText,
     Package,
     Plus,
     Printer,
@@ -364,7 +363,7 @@ export function RunningBills() {
     };
 
     // Print bill
-    const handlePrintBill = async (billId: number, billNumber: string, paperSize: 'thermal' | 'legal' = 'thermal') => {
+    const handlePrintBill = async (billId: number, billNumber: string) => {
         try {
             // Get the bill details
             const bill = await queryOne<any>(
@@ -410,11 +409,11 @@ export function RunningBills() {
 
             // Dynamic import to avoid circular dependencies
             const { printBill } = await import('../services/print.service');
-            await printBill(bill, items as any, { paperSize });
+            await printBill(bill, items as any, { paperSize: 'thermal' });
             showToast('success', `Opening print preview for ${billNumber}`);
         } catch (error) {
             console.error('Print failed:', error);
-            showToast('error', 'Failed to print bill');
+            showToast('warning', 'Could not open print dialog');
         }
     };
 
@@ -723,21 +722,12 @@ export function RunningBills() {
                                     <div className="rb-qty">{bill.quantity} pcs × {formatCurrency(bill.unit_price)}</div>
                                 </div>
                                 <div className="rb-actions">
-                                    <div style={{ position: 'relative' }}>
-                                        <button
-                                            className="btn btn-ghost btn-sm"
-                                            onClick={() => handlePrintBill(bill.bill_id, bill.bill_number || '', 'thermal')}
-                                            title="Print Thermal (80mm)"
-                                        >
-                                            <Printer size={16} />
-                                        </button>
-                                    </div>
                                     <button
                                         className="btn btn-ghost btn-sm"
-                                        onClick={() => handlePrintBill(bill.bill_id, bill.bill_number || '', 'legal')}
-                                        title="Print Legal Paper"
+                                        onClick={() => handlePrintBill(bill.bill_id, bill.bill_number || '')}
+                                        title="Print Receipt"
                                     >
-                                        <FileText size={16} />
+                                        <Printer size={16} />
                                     </button>
                                     <button
                                         className="btn btn-primary btn-sm"

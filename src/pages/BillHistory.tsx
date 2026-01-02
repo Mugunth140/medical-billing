@@ -3,7 +3,7 @@
 // View and manage past bills
 // =====================================================
 
-import { Calendar, Eye, FileText, Printer, Search, X } from 'lucide-react';
+import { Calendar, Eye, Printer, Search, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Pagination } from '../components/common/Pagination';
 import { query } from '../services/database';
@@ -24,7 +24,6 @@ export function BillHistory() {
     const [selectedBill, setSelectedBill] = useState<BillWithItems | null>(null);
     const [loading, setLoading] = useState(true);
     const [currentPage, setCurrentPage] = useState(1);
-    const [showPrintOptions, setShowPrintOptions] = useState(false);
 
     // Pagination constants
     const ITEMS_PER_PAGE = 50;
@@ -410,58 +409,19 @@ export function BillHistory() {
                                 </div>
                             </div>
                         </div>
-                        <div className="modal-footer" style={{ position: 'relative' }}>
-                            <div style={{ position: 'relative' }}>
-                                <button 
-                                    className="btn btn-secondary" 
-                                    onClick={() => setShowPrintOptions(!showPrintOptions)}
-                                >
-                                    <Printer size={16} /> Print
-                                </button>
-                                {showPrintOptions && (
-                                    <div style={{
-                                        position: 'absolute',
-                                        bottom: '100%',
-                                        left: 0,
-                                        background: 'var(--bg-secondary)',
-                                        border: '1px solid var(--border-light)',
-                                        borderRadius: '8px',
-                                        boxShadow: 'var(--shadow-lg)',
-                                        padding: '8px',
-                                        marginBottom: '8px',
-                                        minWidth: '180px',
-                                        zIndex: 100
-                                    }}>
-                                        <button
-                                            className="btn btn-ghost btn-sm"
-                                            style={{ width: '100%', justifyContent: 'flex-start', marginBottom: '4px' }}
-                                            onClick={() => {
-                                                if (selectedBill?.items) {
-                                                    printBill(selectedBill, selectedBill.items, { paperSize: 'thermal' });
-                                                }
-                                                setShowPrintOptions(false);
-                                            }}
-                                        >
-                                            <Printer size={14} /> Thermal (80mm)
-                                        </button>
-                                        <button
-                                            className="btn btn-ghost btn-sm"
-                                            style={{ width: '100%', justifyContent: 'flex-start' }}
-                                            onClick={() => {
-                                                if (selectedBill?.items) {
-                                                    printBill(selectedBill, selectedBill.items, { paperSize: 'legal' });
-                                                }
-                                                setShowPrintOptions(false);
-                                            }}
-                                        >
-                                            <FileText size={14} /> Legal Paper
-                                        </button>
-                                    </div>
-                                )}
-                            </div>
+                        <div className="modal-footer">
+                            <button 
+                                className="btn btn-secondary" 
+                                onClick={() => {
+                                    if (selectedBill?.items) {
+                                        printBill(selectedBill, selectedBill.items, { paperSize: 'thermal' });
+                                    }
+                                }}
+                            >
+                                <Printer size={16} /> Print Receipt
+                            </button>
                             <button className="btn btn-primary" onClick={() => {
                                 setSelectedBill(null);
-                                setShowPrintOptions(false);
                             }}>
                                 Close
                             </button>

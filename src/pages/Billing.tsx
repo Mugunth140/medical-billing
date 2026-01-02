@@ -23,6 +23,7 @@ import { createBill } from '../services/billing.service';
 import { query } from '../services/database';
 import { calculateBill, formatCurrency } from '../services/gst.service';
 import { searchMedicinesForBilling } from '../services/inventory.service';
+import { printBill } from '../services/print.service';
 import { useAuthStore, useBillingStore } from '../stores';
 import type { Bill, Customer, ScheduledMedicineInput, StockItem } from '../types';
 import { debounce, formatDate } from '../utils';
@@ -265,12 +266,17 @@ export function Billing() {
         setIsSubmitting(false);
     };
 
-    const handlePrint = () => {
+    const handlePrint = async () => {
+        if (!lastBill || !lastBill.items) {
+            showToast('warning', 'No bill to print');
+            return;
+        }
         try {
-            window.print();
+            await printBill(lastBill, lastBill.items, { paperSize: 'thermal' });
             showToast('info', 'Print dialog opened');
-        } catch {
-            showToast('warning', 'Printer not available');
+        } catch (err) {
+            console.error('Print error:', err);
+            showToast('warning', 'Could not open print dialog. Bill was saved successfully.');
         }
     };
 
@@ -687,9 +693,9 @@ export function Billing() {
                                                 <input
                                                     type="number"
                                                     className="qty-input"
-                                                    value={item.quantityStrips}
+                                                    value={item.quantityStrips || ''}
                                                     onChange={(e) => {
-                                                        const val = e.target.value === '' ? 0 : parseInt(e.target.value);
+                                                        const val = e.target.value === '' ? 0 : parseInt(e.target.value) || 0;
                                                         updateItemStripsPieces(item.batch.batch_id, Math.max(0, val), item.quantityPieces);
                                                     }}
                                                     min={0}
@@ -698,9 +704,9 @@ export function Billing() {
                                                 <input
                                                     type="number"
                                                     className="qty-input"
-                                                    value={item.quantityPieces}
+                                                    value={item.quantityPieces || ''}
                                                     onChange={(e) => {
-                                                        const val = e.target.value === '' ? 0 : parseInt(e.target.value);
+                                                        const val = e.target.value === '' ? 0 : parseInt(e.target.value) || 0;
                                                         updateItemStripsPieces(item.batch.batch_id, item.quantityStrips, Math.max(0, val));
                                                     }}
                                                     min={0}
