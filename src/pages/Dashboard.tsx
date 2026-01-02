@@ -11,7 +11,9 @@ import {
     IndianRupee,
     Package,
     RefreshCw,
-    TrendingUp
+    TrendingUp,
+    Users,
+    Wallet
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -27,7 +29,15 @@ import {
     XAxis,
     YAxis
 } from 'recharts';
-import { getMonthlySalesSummary, getPaymentModeBreakdown, getSalesTrend, getTodaysSalesSummary } from '../services/billing.service';
+import {
+    getMonthlySalesSummary,
+    getNewCustomersCount,
+    getPaymentModeBreakdown,
+    getProfitSummary,
+    getSalesTrend,
+    getTodaysSalesSummary,
+    getTopSellingMedicines
+} from '../services/billing.service';
 import { query } from '../services/database';
 import { getExpiringItems, getLowStockItems, getNonMovingItems } from '../services/inventory.service';
 import { useAuthStore, useDashboardStore } from '../stores';
@@ -46,29 +56,49 @@ export function Dashboard() {
     const [expiringItems, setExpiringItems] = useState<StockItem[]>([]);
     const [lowStockItems, setLowStockItems] = useState<StockItem[]>([]);
 
+    // New Analytics State
+    const [profitStats, setProfitStats] = useState<{ revenue: number; profit: number; margin: number } | null>(null);
+    const [newCustomers, setNewCustomers] = useState(0);
+    const [topSelling, setTopSelling] = useState<Array<{ medicine_name: string; quantity_sold: number; total_revenue: number }>>([]);
+
     const loadDashboardData = async () => {
         setLoading(true);
         try {
-            // Load all dashboard data in parallel
-            const [
-                todaySales,
-                monthlySales,
-                trend,
-                payments,
-                expiring,
-                lowStock,
-                nonMoving,
-                credits
-            ] = await Promise.all([
+            const today = new Date();
+            const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
+            const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().split('T')[0];
+
+            // Base promises
+            const promises: Promise<any>[] = [
                 getTodaysSalesSummary(),
-                getMonthlySalesSummary(new Date().getFullYear(), new Date().getMonth() + 1),
-                getSalesTrend(14),
-                getPaymentModeBreakdown(),
+                getMonthlySalesSummary(today.getFullYear(), today.getMonth() + 1),
                 getExpiringItems(30),
                 getLowStockItems(),
                 getNonMovingItems(30),
                 query<{ total: number }>('SELECT COALESCE(SUM(current_balance), 0) as total FROM customers WHERE current_balance > 0', [])
-            ]);
+            ];
+
+            // Admin only promises
+            if (isAdmin) {
+                promises.push(
+                    getSalesTrend(14),
+                    getPaymentModeBreakdown(),
+                    getProfitSummary(startOfMonth, endOfMonth),
+                    getNewCustomersCount(startOfMonth, endOfMonth),
+                    getTopSellingMedicines(5, 30)
+                );
+            }
+
+            const results = await Promise.all(promises);
+
+            const [
+                todaySales,
+                monthlySales,
+                expiring,
+                lowStock,
+                nonMoving,
+                credits
+            ] = results;
 
             setStats({
                 todaySales: {
@@ -86,17 +116,28 @@ export function Dashboard() {
                 lowStockItems: lowStock.length
             });
 
-            setSalesTrend(trend);
-
-            setPaymentBreakdown(
-                payments.map(p => ({
-                    name: p.mode,
-                    value: p.amount
-                }))
-            );
-
             setExpiringItems(expiring.slice(0, 5));
             setLowStockItems(lowStock.slice(0, 5));
+
+            if (isAdmin) {
+                const trend = results[6];
+                const payments = results[7];
+                const profit = results[8];
+                const newCust = results[9];
+                const top = results[10];
+
+                setSalesTrend(trend);
+                setPaymentBreakdown(
+                    payments.map((p: any) => ({
+                        name: p.mode,
+                        value: p.amount
+                    }))
+                );
+                setProfitStats(profit);
+                setNewCustomers(newCust);
+                setTopSelling(top);
+            }
+
         } catch (error) {
             console.error('Failed to load dashboard:', error);
         }
@@ -105,7 +146,7 @@ export function Dashboard() {
 
     useEffect(() => {
         loadDashboardData();
-    }, []);
+    }, [isAdmin]); // Reload if role changes (unlikely but safe)
 
     const today = new Date();
     const formattedDate = formatDate(today, 'EEEE, dd MMMM yyyy');
@@ -176,6 +217,8 @@ export function Dashboard() {
           .stat-icon.green { background: var(--color-success-100); color: var(--color-success-600); }
           .stat-icon.orange { background: var(--color-warning-100); color: var(--color-warning-600); }
           .stat-icon.red { background: var(--color-danger-100); color: var(--color-danger-600); }
+          .stat-icon.purple { background: #f3e8ff; color: #9333ea; }
+          .stat-icon.teal { background: #ccfbf1; color: #0d9488; }
           
           .stat-value {
             font-size: var(--text-2xl);
@@ -188,6 +231,9 @@ export function Dashboard() {
           .stat-label {
             font-size: var(--text-sm);
             color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            gap: 4px;
           }
           
           .charts-grid {
@@ -202,7 +248,7 @@ export function Dashboard() {
             border-radius: var(--radius-lg);
             border: 1px solid var(--border-light);
             padding: var(--space-5);
-          }
+        }
           
           .chart-title {
             font-size: var(--text-lg);
@@ -220,6 +266,8 @@ export function Dashboard() {
             background: var(--bg-secondary);
             border-radius: var(--radius-lg);
             border: 1px solid var(--border-light);
+            display: flex;
+            flex-direction: column;
           }
           
           .alert-card-header {
@@ -240,6 +288,7 @@ export function Dashboard() {
           .alert-list {
             max-height: 280px;
             overflow-y: auto;
+            flex: 1;
           }
           
           .alert-item {
@@ -292,6 +341,38 @@ export function Dashboard() {
             height: 200px;
             color: var(--text-tertiary);
           }
+
+          .top-selling-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+          }
+
+          .top-selling-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid var(--border-light);
+          }
+
+          .top-selling-item:last-child {
+            border-bottom: none;
+          }
+
+          .progress-bar-bg {
+            width: 100px;
+            height: 6px;
+            background: var(--bg-tertiary);
+            border-radius: 3px;
+            overflow: hidden;
+          }
+
+          .progress-bar-fill {
+            height: 100%;
+            background: var(--color-primary-500);
+            border-radius: 3px;
+          }
           
           @media (max-width: 1200px) {
             .charts-grid {
@@ -329,12 +410,37 @@ export function Dashboard() {
 
                             <div className="stat-card">
                                 <div className="stat-card-header">
+                                    <div className="stat-icon purple">
+                                        <Wallet size={22} />
+                                    </div>
+                                </div>
+                                <div className="stat-value">{formatCurrency(profitStats?.profit ?? 0)}</div>
+                                <div className="stat-label">
+                                    Monthly Profit
+                                    <span className="badge badge-success" style={{ marginLeft: 8, fontSize: 10 }}>
+                                        {profitStats?.margin.toFixed(1)}%
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div className="stat-card">
+                                <div className="stat-card-header">
+                                    <div className="stat-icon teal">
+                                        <Users size={22} />
+                                    </div>
+                                </div>
+                                <div className="stat-value">{newCustomers}</div>
+                                <div className="stat-label">New Customers (This Month)</div>
+                            </div>
+
+                            <div className="stat-card">
+                                <div className="stat-card-header">
                                     <div className="stat-icon orange">
                                         <CreditCard size={22} />
                                     </div>
                                 </div>
                                 <div className="stat-value">{formatCurrency(stats?.pendingCredits ?? 0)}</div>
-                                <div className="stat-label">Pending Credits (Udhar)</div>
+                                <div className="stat-label">Pending Credits</div>
                             </div>
                         </>
                     )}
@@ -457,8 +563,61 @@ export function Dashboard() {
                     </div>
                 )}
 
-                {/* Alerts */}
+                {/* Alerts & Top Selling */}
                 <div className="alerts-grid">
+                    {isAdmin && (
+                        <div className="alert-card">
+                            <div className="alert-card-header">
+                                <div className="alert-card-title" style={{ color: 'var(--color-primary-600)' }}>
+                                    <TrendingUp size={18} />
+                                    Top Selling Medicines
+                                </div>
+                                <span className="view-all-btn">
+                                    Last 30 Days
+                                </span>
+                            </div>
+                            <div className="alert-list">
+                                {topSelling.length > 0 ? (
+                                    topSelling.map((item, index) => (
+                                        <div key={item.medicine_name} className="alert-item">
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1 }}>
+                                                <div style={{
+                                                    width: 24,
+                                                    height: 24,
+                                                    borderRadius: '50%',
+                                                    background: 'var(--bg-tertiary)',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    fontSize: 12,
+                                                    fontWeight: 'bold',
+                                                    color: 'var(--text-secondary)'
+                                                }}>
+                                                    {index + 1}
+                                                </div>
+                                                <div>
+                                                    <div className="alert-item-name">{item.medicine_name}</div>
+                                                    <div className="alert-item-meta">
+                                                        {item.quantity_sold} units sold
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div style={{ textAlign: 'right' }}>
+                                                <div style={{ fontWeight: 600, fontSize: 13 }}>
+                                                    {formatCurrency(item.total_revenue)}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))
+                                ) : (
+                                    <div className="empty-state" style={{ padding: 'var(--space-8)' }}>
+                                        <p className="text-tertiary">No sales data</p>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
                     <div className="alert-card">
                         <div className="alert-card-header">
                             <div className="alert-card-title" style={{ color: 'var(--color-danger-600)' }}>

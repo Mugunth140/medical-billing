@@ -16,6 +16,7 @@ import {
     X
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { Pagination } from '../components/common/Pagination';
 import { useToast } from '../components/common/Toast';
 import { execute, query } from '../services/database';
 import type { CreateCustomerInput, Credit, Customer } from '../types';
@@ -33,6 +34,10 @@ export function Customers() {
     const [showPaymentModal, setShowPaymentModal] = useState(false);
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
     const [paymentAmount, setPaymentAmount] = useState(0);
+    const [currentPage, setCurrentPage] = useState(1);
+
+    // Pagination constants
+    const ITEMS_PER_PAGE = 50;
 
     const [customerForm, setCustomerForm] = useState<CreateCustomerInput>({
         name: '',
@@ -93,6 +98,17 @@ export function Customers() {
             c.phone?.includes(searchQuery)
         )
         : customers;
+
+    // Paginated customers
+    const paginatedCustomers = filteredCustomers.slice(
+        (currentPage - 1) * ITEMS_PER_PAGE,
+        currentPage * ITEMS_PER_PAGE
+    );
+
+    // Reset page when search changes
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [searchQuery]);
 
     const totalCredit = customers.reduce((sum, c) => sum + c.current_balance, 0);
     const customersWithCredit = customers.filter(c => c.current_balance > 0).length;
@@ -455,8 +471,8 @@ export function Customers() {
                                 <div className="empty-state">
                                     <div className="loading-spinner" />
                                 </div>
-                            ) : filteredCustomers.length > 0 ? (
-                                filteredCustomers.map((customer) => (
+                            ) : paginatedCustomers.length > 0 ? (
+                                paginatedCustomers.map((customer) => (
                                     <div
                                         key={customer.id}
                                         className={`customer-item ${selectedCustomer?.id === customer.id ? 'selected' : ''}`}
@@ -477,6 +493,14 @@ export function Customers() {
                                     <p className="mt-4">No customers found</p>
                                 </div>
                             )}
+
+                            {/* Pagination */}
+                            <Pagination
+                                currentPage={currentPage}
+                                totalItems={filteredCustomers.length}
+                                itemsPerPage={ITEMS_PER_PAGE}
+                                onPageChange={setCurrentPage}
+                            />
                         </div>
                     </div>
 

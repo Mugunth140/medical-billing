@@ -3,10 +3,12 @@
 // View and manage past bills
 // =====================================================
 
-import { Calendar, Eye, Printer, Search, X } from 'lucide-react';
+import { Calendar, Eye, FileText, Printer, Search, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { Pagination } from '../components/common/Pagination';
 import { query } from '../services/database';
 import { formatCurrency } from '../services/gst.service';
+import { printBill } from '../services/print.service';
 import type { Bill, BillItem } from '../types';
 import { formatDate } from '../utils';
 
@@ -21,6 +23,11 @@ export function BillHistory() {
     const [dateTo, setDateTo] = useState('');
     const [selectedBill, setSelectedBill] = useState<BillWithItems | null>(null);
     const [loading, setLoading] = useState(true);
+    const [currentPage, setCurrentPage] = useState(1);
+    const [showPrintOptions, setShowPrintOptions] = useState(false);
+
+    // Pagination constants
+    const ITEMS_PER_PAGE = 50;
 
     useEffect(() => {
         loadBills();
@@ -51,10 +58,11 @@ export function BillHistory() {
                 params.push(dateTo);
             }
 
-            sql += ` ORDER BY b.bill_date DESC LIMIT 100`;
+            sql += ` ORDER BY b.bill_date DESC`;
 
             const result = await query<Bill>(sql, params);
             setBills(result);
+            setCurrentPage(1); // Reset to first page on new search
         } catch (err) {
             console.error('Failed to load bills:', err);
         }
@@ -77,17 +85,13 @@ export function BillHistory() {
         loadBills();
     };
 
-    const handlePrint = () => {
-        window.print();
-    };
-
     return (
         <>
             <header className="page-header">
                 <h1 className="page-title">Bill History</h1>
                 <div className="page-actions">
                     <span className="text-sm text-secondary">
-                        Showing last 100 bills
+                        {bills.length} bills found
                     </span>
                 </div>
             </header>
@@ -305,7 +309,7 @@ export function BillHistory() {
                     ) : bills.length === 0 ? (
                         <div className="empty-history">No bills found</div>
                     ) : (
-                        bills.map(bill => (
+                        bills.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE).map(bill => (
                             <div key={bill.id} className="bill-row">
                                 <div>
                                     <div className="bill-number">{bill.bill_number}</div>
@@ -328,6 +332,14 @@ export function BillHistory() {
                         ))
                     )}
                 </div>
+
+                {/* Pagination */}
+                <Pagination
+                    currentPage={currentPage}
+                    totalItems={bills.length}
+                    itemsPerPage={ITEMS_PER_PAGE}
+                    onPageChange={setCurrentPage}
+                />
             </div>
 
             {/* Bill Detail Modal */}
@@ -398,11 +410,59 @@ export function BillHistory() {
                                 </div>
                             </div>
                         </div>
-                        <div className="modal-footer">
-                            <button className="btn btn-secondary" onClick={handlePrint}>
-                                <Printer size={16} /> Print
-                            </button>
-                            <button className="btn btn-primary" onClick={() => setSelectedBill(null)}>
+                        <div className="modal-footer" style={{ position: 'relative' }}>
+                            <div style={{ position: 'relative' }}>
+                                <button 
+                                    className="btn btn-secondary" 
+                                    onClick={() => setShowPrintOptions(!showPrintOptions)}
+                                >
+                                    <Printer size={16} /> Print
+                                </button>
+                                {showPrintOptions && (
+                                    <div style={{
+                                        position: 'absolute',
+                                        bottom: '100%',
+                                        left: 0,
+                                        background: 'var(--bg-secondary)',
+                                        border: '1px solid var(--border-light)',
+                                        borderRadius: '8px',
+                                        boxShadow: 'var(--shadow-lg)',
+                                        padding: '8px',
+                                        marginBottom: '8px',
+                                        minWidth: '180px',
+                                        zIndex: 100
+                                    }}>
+                                        <button
+                                            className="btn btn-ghost btn-sm"
+                                            style={{ width: '100%', justifyContent: 'flex-start', marginBottom: '4px' }}
+                                            onClick={() => {
+                                                if (selectedBill?.items) {
+                                                    printBill(selectedBill, selectedBill.items, { paperSize: 'thermal' });
+                                                }
+                                                setShowPrintOptions(false);
+                                            }}
+                                        >
+                                            <Printer size={14} /> Thermal (80mm)
+                                        </button>
+                                        <button
+                                            className="btn btn-ghost btn-sm"
+                                            style={{ width: '100%', justifyContent: 'flex-start' }}
+                                            onClick={() => {
+                                                if (selectedBill?.items) {
+                                                    printBill(selectedBill, selectedBill.items, { paperSize: 'legal' });
+                                                }
+                                                setShowPrintOptions(false);
+                                            }}
+                                        >
+                                            <FileText size={14} /> Legal Paper
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                            <button className="btn btn-primary" onClick={() => {
+                                setSelectedBill(null);
+                                setShowPrintOptions(false);
+                            }}>
                                 Close
                             </button>
                         </div>

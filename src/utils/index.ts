@@ -146,6 +146,62 @@ export function getGstLabel(rate: number): string {
     }
 }
 
+// =====================================================
+// UNIT CONVERSION UTILITIES
+// =====================================================
+
+/**
+ * Convert total pieces to strips and loose pieces
+ * @param totalPieces - Total number of pieces/tablets
+ * @param tabletsPerStrip - Number of tablets per strip (default 10)
+ * @returns Object with strips, loosePieces, and formatted display strings
+ */
+export function convertToUnits(totalPieces: number, tabletsPerStrip: number = 10): {
+    strips: number;
+    loosePieces: number;
+    displayFull: string;
+    displayShort: string;
+} {
+    const strips = Math.floor(totalPieces / tabletsPerStrip);
+    const loosePieces = totalPieces % tabletsPerStrip;
+
+    let displayFull = '';
+    let displayShort = '';
+
+    if (strips > 0 && loosePieces > 0) {
+        displayFull = `${strips} strip${strips > 1 ? 's' : ''} + ${loosePieces} pc${loosePieces > 1 ? 's' : ''}`;
+        displayShort = `${strips}S + ${loosePieces}P`;
+    } else if (strips > 0) {
+        displayFull = `${strips} strip${strips > 1 ? 's' : ''}`;
+        displayShort = `${strips}S`;
+    } else {
+        displayFull = `${loosePieces} pc${loosePieces !== 1 ? 's' : ''}`;
+        displayShort = `${loosePieces}P`;
+    }
+
+    return {
+        strips,
+        loosePieces,
+        displayFull,
+        displayShort
+    };
+}
+
+/**
+ * Format quantity display with strips and pieces
+ * @param quantity - Total pieces
+ * @param tabletsPerStrip - Number per strip
+ * @param format - 'full' or 'short'
+ */
+export function formatQuantityDisplay(
+    quantity: number,
+    tabletsPerStrip: number = 10,
+    format: 'full' | 'short' = 'full'
+): string {
+    const units = convertToUnits(quantity, tabletsPerStrip);
+    return format === 'full' ? units.displayFull : units.displayShort;
+}
+
 /**
  * Get stock status label and color
  */

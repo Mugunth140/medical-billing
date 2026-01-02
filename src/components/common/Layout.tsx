@@ -4,6 +4,9 @@
 // =====================================================
 
 import {
+    ArrowDownLeft,
+    ArrowUpRight,
+    Building2,
     ChevronLeft,
     ChevronRight,
     ClipboardList,
@@ -15,6 +18,7 @@ import {
     Receipt,
     Settings,
     ShoppingCart,
+    Truck,
     Users
 } from 'lucide-react';
 import type { ReactNode } from 'react';
@@ -33,14 +37,50 @@ interface NavItem {
     adminOnly?: boolean;
 }
 
-const NAV_ITEMS: NavItem[] = [
+interface NavGroup {
+    id: string;
+    label: string;
+    icon: typeof LayoutDashboard;
+    adminOnly?: boolean;
+    items: NavItem[];
+}
+
+// Standalone navigation items
+const MAIN_NAV_ITEMS: NavItem[] = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
     { id: 'billing', label: 'New Bill', icon: Receipt, path: '/billing' },
     { id: 'history', label: 'Bill History', icon: History, path: '/bill-history' },
     { id: 'running-bills', label: 'Running Bills', icon: ClipboardList, path: '/running-bills' },
     { id: 'inventory', label: 'Inventory', icon: Package, path: '/inventory' },
-    { id: 'purchases', label: 'Purchases', icon: ShoppingCart, path: '/purchases', adminOnly: true },
     { id: 'customers', label: 'Customers', icon: Users, path: '/customers' },
+];
+
+// Grouped navigation items (collapsible)
+const NAV_GROUPS: NavGroup[] = [
+    {
+        id: 'purchases-group',
+        label: 'Purchases',
+        icon: ShoppingCart,
+        adminOnly: true,
+        items: [
+            { id: 'stock-entry', label: 'Stock Entry', icon: Truck, path: '/purchases' },
+            { id: 'suppliers', label: 'Supplier Management', icon: Building2, path: '/suppliers' },
+        ]
+    },
+    {
+        id: 'returns-group',
+        label: 'Returns',
+        icon: ArrowDownLeft,
+        adminOnly: true,
+        items: [
+            { id: 'sales-returns', label: 'Sales Returns', icon: ArrowDownLeft, path: '/returns?tab=sales' },
+            { id: 'supplier-returns', label: 'Supplier Returns', icon: ArrowUpRight, path: '/returns?tab=supplier' },
+        ]
+    },
+];
+
+// Bottom navigation items
+const BOTTOM_NAV_ITEMS: NavItem[] = [
     { id: 'reports', label: 'Reports', icon: FileText, path: '/reports', adminOnly: true },
     { id: 'settings', label: 'Settings', icon: Settings, path: '/settings', adminOnly: true },
 ];
@@ -50,7 +90,8 @@ export function Layout({ children }: LayoutProps) {
     const location = useLocation();
     const { user, logout } = useAuthStore();
     const { sidebarOpen, toggleSidebar } = useUIStore();
-    
+    const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+
     const isAdmin = user?.role === 'admin';
 
     const handleLogout = () => {
@@ -60,6 +101,31 @@ export function Layout({ children }: LayoutProps) {
 
     const handleNavClick = (path: string) => {
         navigate(path);
+    };
+
+    const toggleGroup = (groupId: string) => {
+        setExpandedGroups(prev => ({
+            ...prev,
+            [groupId]: !prev[groupId]
+        }));
+    };
+
+    const isPathActive = (path: string) => {
+        // Handle paths with query params
+        const [basePath, queryString] = path.split('?');
+        if (location.pathname !== basePath) return false;
+        if (queryString) {
+            const params = new URLSearchParams(queryString);
+            const searchParams = new URLSearchParams(location.search);
+            for (const [key, value] of params) {
+                if (searchParams.get(key) !== value) return false;
+            }
+        }
+        return true;
+    };
+
+    const isGroupActive = (group: NavGroup) => {
+        return group.items.some(item => location.pathname === item.path.split('?')[0]);
     };
 
     return (
@@ -74,9 +140,72 @@ export function Layout({ children }: LayoutProps) {
                 <nav className="sidebar-nav">
                     <div className="nav-section">
                         {sidebarOpen && <div className="nav-section-title">Menu</div>}
-                        {NAV_ITEMS.filter(item => !item.adminOnly || isAdmin).map((item) => {
+                        
+                        {/* Main Navigation Items */}
+                        {MAIN_NAV_ITEMS.filter(item => !item.adminOnly || isAdmin).map((item) => {
                             const Icon = item.icon;
-                            const isActive = location.pathname === item.path;
+                            const isActive = isPathActive(item.path);
+                            return (
+                                <div
+                                    key={item.id}
+                                    className={`nav-item ${isActive ? 'active' : ''}`}
+                                    onClick={() => handleNavClick(item.path)}
+                                    title={!sidebarOpen ? item.label : undefined}
+                                >
+                                    <Icon className="nav-item-icon" size={20} />
+                                    {sidebarOpen && <span className="nav-item-label">{item.label}</span>}
+                                </div>
+                            );
+                        })}
+
+                        {/* Grouped Navigation (Purchases, Returns) */}
+                        {NAV_GROUPS.filter(group => !group.adminOnly || isAdmin).map((group) => {
+                            const GroupIcon = group.icon;
+                            const isExpanded = expandedGroups[group.id] || isGroupActive(group);
+                            return (
+                                <div key={group.id} className="nav-group">
+                                    <div
+                                        className={`nav-item nav-group-header ${isGroupActive(group) ? 'group-active' : ''}`}
+                                        onClick={() => sidebarOpen ? toggleGroup(group.id) : handleNavClick(group.items[0].path)}
+                                        title={!sidebarOpen ? group.label : undefined}
+                                    >
+                                        <GroupIcon className="nav-item-icon" size={20} />
+                                        {sidebarOpen && (
+                                            <>
+                                                <span className="nav-item-label">{group.label}</span>
+                                                <ChevronDown 
+                                                    className={`nav-group-chevron ${isExpanded ? 'expanded' : ''}`} 
+                                                    size={16} 
+                                                />
+                                            </>
+                                        )}
+                                    </div>
+                                    {sidebarOpen && isExpanded && (
+                                        <div className="nav-group-items">
+                                            {group.items.map((item) => {
+                                                const Icon = item.icon;
+                                                const isActive = isPathActive(item.path);
+                                                return (
+                                                    <div
+                                                        key={item.id}
+                                                        className={`nav-item nav-subitem ${isActive ? 'active' : ''}`}
+                                                        onClick={() => handleNavClick(item.path)}
+                                                    >
+                                                        <Icon className="nav-item-icon" size={16} />
+                                                        <span className="nav-item-label">{item.label}</span>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+
+                        {/* Bottom Navigation Items */}
+                        {BOTTOM_NAV_ITEMS.filter(item => !item.adminOnly || isAdmin).map((item) => {
+                            const Icon = item.icon;
+                            const isActive = isPathActive(item.path);
                             return (
                                 <div
                                     key={item.id}

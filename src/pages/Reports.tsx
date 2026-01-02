@@ -24,9 +24,18 @@ import {
     XAxis,
     YAxis
 } from 'recharts';
+import { useToast } from '../components/common/Toast';
 import { getBills, getPaymentModeBreakdown, getSalesTrend, getTopSellingMedicines } from '../services/billing.service';
 import { query } from '../services/database';
 import { getExpiringItems, getStockValue } from '../services/inventory.service';
+import {
+    generateCreditReportHTML,
+    generateGSTReportHTML,
+    generateSalesReportHTML,
+    generateScheduledDrugsReportHTML,
+    openReportForPDF,
+    printReportHTML
+} from '../services/report-export.service';
 import type { ScheduledMedicineRecord } from '../types';
 import { formatCurrency, formatDate, toISODate } from '../utils';
 
@@ -42,6 +51,7 @@ interface ReportData {
 }
 
 export function Reports() {
+    const { showToast } = useToast();
     const [activeReport, setActiveReport] = useState<ReportType>('sales');
     const [dateRange, setDateRange] = useState({
         start: toISODate(new Date(new Date().setDate(1))), // First of month
@@ -193,8 +203,109 @@ export function Reports() {
         loadReport();
     }, [activeReport, dateRange]);
 
-    const handlePrint = () => {
-        window.print();
+    const handlePrint = async () => {
+        try {
+            let html = '';
+            const options = {
+                title: getReportTitle(),
+                dateRange
+            };
+
+            switch (activeReport) {
+                case 'sales':
+                    if (reportData.sales) {
+                        html = await generateSalesReportHTML({
+                            summary: reportData.sales.summary,
+                            payments: reportData.sales.payments,
+                            topMeds: reportData.sales.topMeds
+                        }, options);
+                    }
+                    break;
+                case 'gst':
+                    if (reportData.gst) {
+                        html = await generateGSTReportHTML(reportData.gst, options);
+                    }
+                    break;
+                case 'scheduled':
+                    if (reportData.scheduled) {
+                        html = await generateScheduledDrugsReportHTML(reportData.scheduled, options);
+                    }
+                    break;
+                case 'credit':
+                    if (reportData.credit) {
+                        html = await generateCreditReportHTML(reportData.credit, options);
+                    }
+                    break;
+            }
+
+            if (html) {
+                printReportHTML(html);
+            } else {
+                showToast('warning', 'No data to print. Load the report first.');
+            }
+        } catch (error) {
+            console.error('Print failed:', error);
+            showToast('error', 'Failed to generate print view');
+        }
+    };
+
+    const handleExportPDF = async () => {
+        try {
+            let html = '';
+            const options = {
+                title: getReportTitle(),
+                dateRange
+            };
+
+            switch (activeReport) {
+                case 'sales':
+                    if (reportData.sales) {
+                        html = await generateSalesReportHTML({
+                            summary: reportData.sales.summary,
+                            payments: reportData.sales.payments,
+                            topMeds: reportData.sales.topMeds
+                        }, options);
+                    }
+                    break;
+                case 'gst':
+                    if (reportData.gst) {
+                        html = await generateGSTReportHTML(reportData.gst, options);
+                    }
+                    break;
+                case 'scheduled':
+                    if (reportData.scheduled) {
+                        html = await generateScheduledDrugsReportHTML(reportData.scheduled, options);
+                    }
+                    break;
+                case 'credit':
+                    if (reportData.credit) {
+                        html = await generateCreditReportHTML(reportData.credit, options);
+                    }
+                    break;
+            }
+
+            if (html) {
+                openReportForPDF(html);
+                showToast('info', 'Press Ctrl+P and select "Save as PDF" to download');
+            } else {
+                showToast('warning', 'No data to export. Load the report first.');
+            }
+        } catch (error) {
+            console.error('Export failed:', error);
+            showToast('error', 'Failed to export report');
+        }
+    };
+
+    const getReportTitle = (): string => {
+        switch (activeReport) {
+            case 'sales': return 'Sales Report';
+            case 'gst': return 'GST Report';
+            case 'inventory': return 'Stock Valuation Report';
+            case 'expiry': return 'Expiry Report';
+            case 'credit': return 'Credit (Udhar) Report';
+            case 'scheduled': return 'Scheduled Drugs Register';
+            default: return 'Report';
+        }
     };
 
     const reportTabs = [
@@ -215,7 +326,7 @@ export function Reports() {
                         <Printer size={18} />
                         Print
                     </button>
-                    <button className="btn btn-primary">
+                    <button className="btn btn-primary" onClick={handleExportPDF}>
                         <Download size={18} />
                         Export PDF
                     </button>

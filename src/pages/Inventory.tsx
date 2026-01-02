@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { Pagination } from '../components/common/Pagination';
 import { useToast } from '../components/common/Toast';
 import {
     createBatch,
@@ -42,9 +43,13 @@ export function Inventory() {
     const [isLoading, setIsLoading] = useState(true);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
+    const [currentPage, setCurrentPage] = useState(1);
     const [activeFilter, setActiveFilter] = useState<FilterType>(
         (searchParams.get('filter') as FilterType) || 'all'
     );
+
+    // Pagination constants
+    const ITEMS_PER_PAGE = 50;
     const [showAddMedicineModal, setShowAddMedicineModal] = useState(false);
     const [showEditMedicineModal, setShowEditMedicineModal] = useState(false);
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -134,7 +139,19 @@ export function Inventory() {
     const handleFilterChange = (filter: FilterType) => {
         setActiveFilter(filter);
         setSearchParams(filter === 'all' ? {} : { filter });
+        setCurrentPage(1); // Reset to first page on filter change
     };
+
+    // Paginated items
+    const paginatedItems = filteredItems.slice(
+        (currentPage - 1) * ITEMS_PER_PAGE,
+        currentPage * ITEMS_PER_PAGE
+    );
+
+    // Reset page when search changes
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [searchQuery]);
 
     const handleAddMedicine = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -350,7 +367,7 @@ export function Inventory() {
           
           .stock-row {
             display: grid;
-            grid-template-columns: 2fr 1fr 100px 100px 100px 120px 100px 80px;
+            grid-template-columns: 2fr 1fr 100px 80px 80px 100px 120px 100px 80px;
             gap: var(--space-3);
             align-items: center;
             padding: var(--space-3) var(--space-4);
@@ -469,7 +486,8 @@ export function Inventory() {
                         <span>Medicine</span>
                         <span>Batch</span>
                         <span>Expiry</span>
-                        <span>Stock</span>
+                        <span>Tablets</span>
+                        <span>Strips</span>
                         <span>MRP</span>
                         <span>Location</span>
                         <span>Status</span>
@@ -480,8 +498,8 @@ export function Inventory() {
                         <div className="empty-state">
                             <div className="loading-spinner" />
                         </div>
-                    ) : filteredItems.length > 0 ? (
-                        filteredItems.map((item) => {
+                    ) : paginatedItems.length > 0 ? (
+                        paginatedItems.map((item) => {
                             const stockInfo = getStockStatusInfo(item.stock_status);
                             const expiryInfo = getExpiryStatusInfo(item.expiry_status);
                             const medicine = medicines.find(m => m.id === item.medicine_id);
@@ -499,18 +517,10 @@ export function Inventory() {
                                         {formatDate(item.expiry_date)}
                                     </span>
                                     <span className={`font-mono font-semibold ${item.stock_status !== 'IN_STOCK' ? 'text-warning' : ''}`}>
-                                        {(() => {
-                                            const tabletsPerStrip = item.tablets_per_strip || 10;
-                                            const strips = Math.floor(item.quantity / tabletsPerStrip);
-                                            const pcs = item.quantity % tabletsPerStrip;
-                                            if (strips > 0 && pcs > 0) {
-                                                return `${strips}S + ${pcs}pcs`;
-                                            } else if (strips > 0) {
-                                                return `${strips} strips`;
-                                            } else {
-                                                return `${pcs} pcs`;
-                                            }
-                                        })()}
+                                        {item.quantity}
+                                    </span>
+                                    <span className="font-mono text-sm">
+                                        {Math.floor(item.quantity / (item.tablets_per_strip || 10))}
                                     </span>
                                     <span className="font-mono">{formatCurrency(item.mrp)}</span>
                                     <span className="location-badge">
@@ -550,6 +560,14 @@ export function Inventory() {
                         </div>
                     )}
                 </div>
+
+                {/* Pagination */}
+                <Pagination
+                    currentPage={currentPage}
+                    totalItems={filteredItems.length}
+                    itemsPerPage={ITEMS_PER_PAGE}
+                    onPageChange={setCurrentPage}
+                />
             </div>
 
             {/* Add Medicine Modal */}

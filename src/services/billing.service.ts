@@ -620,5 +620,51 @@ export default {
     getSalesTrend,
     getPaymentModeBreakdown,
     getTopSellingMedicines,
-    cancelBill
+    cancelBill,
+    getProfitSummary,
+    getNewCustomersCount
 };
+
+/**
+ * Get profit summary (Revenue - Cost)
+ */
+export async function getProfitSummary(startDate: string, endDate: string): Promise<{
+    revenue: number;
+    cost: number;
+    profit: number;
+    margin: number;
+}> {
+    const result = await queryOne<{
+        revenue: number;
+        cost: number;
+    }>(
+        `SELECT
+            COALESCE(SUM(bi.total_amount), 0) as revenue,
+            COALESCE(SUM(b.purchase_price * (bi.quantity / CAST(COALESCE(b.tablets_per_strip, 10) AS REAL))), 0) as cost
+         FROM bill_items bi
+         JOIN bills bill ON bi.bill_id = bill.id
+         JOIN batches b ON bi.batch_id = b.id
+         WHERE date(bill.bill_date) BETWEEN ? AND ?
+           AND bill.is_cancelled = 0`,
+        [startDate, endDate]
+    );
+
+    const revenue = result?.revenue ?? 0;
+    const cost = result?.cost ?? 0;
+    const profit = revenue - cost;
+    const margin = revenue > 0 ? (profit / revenue) * 100 : 0;
+
+    return { revenue, cost, profit, margin };
+}
+
+/**
+ * Get new customers count for a period
+ */
+export async function getNewCustomersCount(startDate: string, endDate: string): Promise<number> {
+    const result = await queryOne<{ count: number }>(
+        `SELECT COUNT(*) as count FROM customers 
+         WHERE date(created_at) BETWEEN ? AND ?`,
+        [startDate, endDate]
+    );
+    return result?.count ?? 0;
+}

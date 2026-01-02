@@ -57,6 +57,7 @@ const TABLE_STATEMENTS = [
         box TEXT,
         last_sold_date DATE,
         purchase_id INTEGER,
+        supplier_id INTEGER REFERENCES suppliers(id),
         is_active INTEGER DEFAULT 1,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -282,6 +283,70 @@ const TABLE_STATEMENTS = [
         stocked_by INTEGER REFERENCES users(id),
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`,
+
+    // Sales Returns Table - Customer returns to pharmacy
+    `CREATE TABLE IF NOT EXISTS sales_returns (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        return_number TEXT NOT NULL UNIQUE,
+        return_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+        bill_id INTEGER NOT NULL REFERENCES bills(id),
+        customer_id INTEGER REFERENCES customers(id),
+        reason TEXT,
+        refund_mode TEXT CHECK (refund_mode IN ('CASH', 'CREDIT_NOTE', 'ADJUSTMENT')),
+        total_amount DECIMAL(12,2) NOT NULL,
+        total_gst DECIMAL(12,2) DEFAULT 0,
+        status TEXT DEFAULT 'COMPLETED',
+        notes TEXT,
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`,
+
+    // Sales Return Items Table
+    `CREATE TABLE IF NOT EXISTS sales_return_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        return_id INTEGER NOT NULL REFERENCES sales_returns(id),
+        bill_item_id INTEGER NOT NULL REFERENCES bill_items(id),
+        batch_id INTEGER NOT NULL REFERENCES batches(id),
+        quantity INTEGER NOT NULL,
+        unit_price DECIMAL(10,2) NOT NULL,
+        gst_rate DECIMAL(5,2) NOT NULL,
+        cgst DECIMAL(10,2) DEFAULT 0,
+        sgst DECIMAL(10,2) DEFAULT 0,
+        total DECIMAL(12,2) NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`,
+
+    // Purchase Returns Table - Pharmacy returns to supplier
+    `CREATE TABLE IF NOT EXISTS purchase_returns (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        return_number TEXT NOT NULL UNIQUE,
+        return_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+        purchase_id INTEGER REFERENCES purchases(id),
+        supplier_id INTEGER NOT NULL REFERENCES suppliers(id),
+        reason TEXT CHECK (reason IN ('EXPIRY', 'DAMAGE', 'OVERSTOCK', 'OTHER')),
+        total_amount DECIMAL(12,2) NOT NULL,
+        total_gst DECIMAL(12,2) DEFAULT 0,
+        status TEXT DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'APPROVED', 'COMPLETED')),
+        notes TEXT,
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`,
+
+    // Purchase Return Items Table
+    `CREATE TABLE IF NOT EXISTS purchase_return_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        return_id INTEGER NOT NULL REFERENCES purchase_returns(id),
+        batch_id INTEGER NOT NULL REFERENCES batches(id),
+        medicine_id INTEGER NOT NULL REFERENCES medicines(id),
+        quantity INTEGER NOT NULL,
+        unit_price DECIMAL(10,2) NOT NULL,
+        gst_rate DECIMAL(5,2) NOT NULL,
+        cgst DECIMAL(10,2) DEFAULT 0,
+        sgst DECIMAL(10,2) DEFAULT 0,
+        total DECIMAL(12,2) NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`
 ];
 
@@ -304,7 +369,13 @@ const INDEX_STATEMENTS = [
     `CREATE INDEX IF NOT EXISTS idx_scheduled_medicine_bill ON scheduled_medicine_records(bill_id)`,
     `CREATE INDEX IF NOT EXISTS idx_scheduled_medicine_medicine ON scheduled_medicine_records(medicine_id)`,
     `CREATE INDEX IF NOT EXISTS idx_running_bills_status ON running_bills(status)`,
-    `CREATE INDEX IF NOT EXISTS idx_running_bills_bill ON running_bills(bill_id)`
+    `CREATE INDEX IF NOT EXISTS idx_running_bills_bill ON running_bills(bill_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_batches_supplier ON batches(supplier_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_sales_returns_bill ON sales_returns(bill_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_sales_returns_customer ON sales_returns(customer_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_sales_return_items_return ON sales_return_items(return_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_purchase_returns_supplier ON purchase_returns(supplier_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_purchase_return_items_return ON purchase_return_items(return_id)`
 ];
 
 // Default data statements
@@ -410,7 +481,9 @@ export async function initDatabase(): Promise<Database> {
             // Add missing columns to scheduled_medicine_records for older databases
             `ALTER TABLE scheduled_medicine_records ADD COLUMN doctor_registration_number TEXT`,
             `ALTER TABLE scheduled_medicine_records ADD COLUMN clinic_hospital_name TEXT`,
-            `ALTER TABLE scheduled_medicine_records ADD COLUMN prescription_date TEXT`
+            `ALTER TABLE scheduled_medicine_records ADD COLUMN prescription_date TEXT`,
+            // Add supplier_id to batches for direct supplier tracking
+            `ALTER TABLE batches ADD COLUMN supplier_id INTEGER REFERENCES suppliers(id)`
         ];
         for (const migration of migrations) {
             try {

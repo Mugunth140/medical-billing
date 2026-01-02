@@ -15,6 +15,7 @@ import {
     X
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { Pagination } from '../components/common/Pagination';
 import { useToast } from '../components/common/Toast';
 import { execute, query } from '../services/database';
 import { useAuthStore } from '../stores';
@@ -69,6 +70,11 @@ export function Purchases() {
     const [showQuickAddMedicineModal, setShowQuickAddMedicineModal] = useState(false);
     const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
     const [editingPurchase, setEditingPurchase] = useState<Purchase | null>(null);
+    const [currentPage, setCurrentPage] = useState(1);
+    const [currentSuppliersPage, setCurrentSuppliersPage] = useState(1);
+
+    // Pagination constants
+    const ITEMS_PER_PAGE = 50;
 
     // Medicine search state
     const [medicineSearch, setMedicineSearch] = useState('');
@@ -118,8 +124,7 @@ export function Purchases() {
                     `SELECT p.*, s.name as supplier_name 
              FROM purchases p 
              LEFT JOIN suppliers s ON p.supplier_id = s.id 
-             ORDER BY p.invoice_date DESC 
-             LIMIT 50`,
+             ORDER BY p.invoice_date DESC`,
                     []
                 ),
                 query<Supplier>(
@@ -180,13 +185,13 @@ export function Purchases() {
         try {
             // Delete purchase items first
             await execute('DELETE FROM purchase_items WHERE purchase_id = ?', [purchaseId]);
-            
+
             // Delete batches associated with this purchase
             await execute('DELETE FROM batches WHERE purchase_id = ?', [purchaseId]);
-            
+
             // Delete the purchase
             await execute('DELETE FROM purchases WHERE id = ?', [purchaseId]);
-            
+
             showToast('success', `Purchase ${invoiceNumber} deleted successfully`);
             loadData();
         } catch (error) {
@@ -204,7 +209,7 @@ export function Purchases() {
         try {
             // Soft delete - set is_active to 0
             await execute('UPDATE suppliers SET is_active = 0 WHERE id = ?', [supplierId]);
-            
+
             showToast('success', `Supplier "${supplierName}" deleted successfully`);
             loadData();
         } catch (error) {
@@ -302,7 +307,7 @@ export function Purchases() {
         const existingWithoutBatch = purchaseItems.find(
             item => item.medicine_id === medicine.id && !item.batch_number
         );
-        
+
         if (existingWithoutBatch) {
             showToast('warning', `${medicine.name} is already in the list. Add different batch number or remove duplicate.`);
             setMedicineSearch('');
@@ -580,6 +585,7 @@ export function Purchases() {
                             rack = COALESCE(?, rack),
                             box = COALESCE(?, box),
                             purchase_id = ?,
+                            supplier_id = ?,
                             updated_at = CURRENT_TIMESTAMP
                          WHERE id = ?`,
                         [
@@ -592,6 +598,7 @@ export function Purchases() {
                             item.rack || null,
                             item.box || null,
                             purchaseId,
+                            purchaseForm.supplier_id,
                             batchId,
                         ]
                     );
@@ -601,8 +608,8 @@ export function Purchases() {
                         `INSERT INTO batches (
                             medicine_id, batch_number, expiry_date,
                             purchase_price, mrp, selling_price, price_type,
-                            quantity, tablets_per_strip, rack, box, purchase_id
-                        ) VALUES (?, ?, ?, ?, ?, ?, 'INCLUSIVE', ?, ?, ?, ?, ?)`,
+                            quantity, tablets_per_strip, rack, box, purchase_id, supplier_id
+                        ) VALUES (?, ?, ?, ?, ?, ?, 'INCLUSIVE', ?, ?, ?, ?, ?, ?)`,
                         [
                             item.medicine_id,
                             item.batch_number,
@@ -615,6 +622,7 @@ export function Purchases() {
                             item.rack || null,
                             item.box || null,
                             purchaseId,
+                            purchaseForm.supplier_id,
                         ]
                     );
                     batchId = batchResult.lastInsertId;
@@ -857,7 +865,7 @@ export function Purchases() {
                                 <div className="loading-spinner" />
                             </div>
                         ) : purchases.length > 0 ? (
-                            purchases.map((purchase) => (
+                            purchases.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE).map((purchase) => (
                                 <div key={purchase.id} className="purchase-card">
                                     <div className="purchase-info">
                                         <div className="purchase-header">
@@ -888,7 +896,7 @@ export function Purchases() {
                                                 GST: {formatCurrency(purchase.total_gst)}
                                             </div>
                                         </div>
-                                        <button 
+                                        <button
                                             className="btn btn-ghost btn-icon"
                                             onClick={(e) => {
                                                 e.stopPropagation();
@@ -909,13 +917,21 @@ export function Purchases() {
                                 <p className="text-secondary">Use Inventory &gt; Add Stock to add inventory from suppliers</p>
                             </div>
                         )}
+
+                        {/* Pagination */}
+                        <Pagination
+                            currentPage={currentPage}
+                            totalItems={purchases.length}
+                            itemsPerPage={ITEMS_PER_PAGE}
+                            onPageChange={setCurrentPage}
+                        />
                     </>
                 )}
 
                 {activeTab === 'suppliers' && (
                     <>
                         {suppliers.length > 0 ? (
-                            suppliers.map((supplier) => (
+                            suppliers.slice((currentSuppliersPage - 1) * ITEMS_PER_PAGE, currentSuppliersPage * ITEMS_PER_PAGE).map((supplier) => (
                                 <div key={supplier.id} className="supplier-card">
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
                                         <div style={{ flex: 1 }}>
@@ -932,14 +948,14 @@ export function Purchases() {
                                             )}
                                         </div>
                                         <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-                                            <button 
+                                            <button
                                                 className="btn btn-ghost btn-icon"
                                                 onClick={() => handleEditSupplier(supplier)}
                                                 title="Edit supplier"
                                             >
                                                 <Pencil size={16} />
                                             </button>
-                                            <button 
+                                            <button
                                                 className="btn btn-ghost btn-icon"
                                                 onClick={() => handleDeleteSupplier(supplier.id, supplier.name)}
                                                 title="Delete supplier"
@@ -958,6 +974,14 @@ export function Purchases() {
                                 <p className="text-secondary">Add suppliers to manage your purchases</p>
                             </div>
                         )}
+
+                        {/* Pagination */}
+                        <Pagination
+                            currentPage={currentSuppliersPage}
+                            totalItems={suppliers.length}
+                            itemsPerPage={ITEMS_PER_PAGE}
+                            onPageChange={setCurrentSuppliersPage}
+                        />
                     </>
                 )}
             </div>
@@ -1227,9 +1251,9 @@ export function Purchases() {
                                 {/* Purchase Items Table */}
                                 {purchaseItems.length > 0 ? (
                                     <div style={{ overflowX: 'auto' }}>
-                                        <div style={{ 
-                                            padding: 'var(--space-2) var(--space-3)', 
-                                            background: 'var(--color-primary-50)', 
+                                        <div style={{
+                                            padding: 'var(--space-2) var(--space-3)',
+                                            background: 'var(--color-primary-50)',
                                             borderRadius: 'var(--radius-sm)',
                                             marginBottom: 'var(--space-2)',
                                             fontSize: 'var(--text-xs)',

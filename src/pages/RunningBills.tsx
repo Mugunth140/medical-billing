@@ -15,6 +15,7 @@ import {
     X
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { Pagination } from '../components/common/Pagination';
 import { useToast } from '../components/common/Toast';
 import { execute, query, queryOne } from '../services/database';
 import { useAuthStore } from '../stores';
@@ -25,7 +26,7 @@ import { formatCurrency, formatDate } from '../utils';
 function calculateGstBreakdown(amount: number, gstRate: number, priceType: 'INCLUSIVE' | 'EXCLUSIVE' = 'INCLUSIVE') {
     let taxableAmount: number;
     let totalGst: number;
-    
+
     if (priceType === 'INCLUSIVE') {
         // Price already includes GST
         taxableAmount = amount / (1 + gstRate / 100);
@@ -35,10 +36,10 @@ function calculateGstBreakdown(amount: number, gstRate: number, priceType: 'INCL
         taxableAmount = amount;
         totalGst = amount * (gstRate / 100);
     }
-    
+
     const cgst = totalGst / 2;
     const sgst = totalGst / 2;
-    
+
     return {
         taxableAmount: Math.round(taxableAmount * 100) / 100,
         cgst: Math.round(cgst * 100) / 100,
@@ -56,6 +57,10 @@ export function RunningBills() {
     const [showAddModal, setShowAddModal] = useState(false);
     const [showStockModal, setShowStockModal] = useState(false);
     const [selectedBill, setSelectedBill] = useState<RunningBill | null>(null);
+    const [currentPage, setCurrentPage] = useState(1);
+
+    // Pagination constants
+    const ITEMS_PER_PAGE = 50;
 
     // Form state for new running bill - can have multiple items
     const [billItems, setBillItems] = useState<Array<{
@@ -73,7 +78,7 @@ export function RunningBills() {
         hsn_code: '3004',
         notes: ''
     }]);
-    
+
     const [customerInfo, setCustomerInfo] = useState({
         customer_name: '',
         customer_phone: ''
@@ -262,12 +267,12 @@ export function RunningBills() {
     // Create running bill with actual bill
     const handleCreateRunningBill = async (e: React.FormEvent) => {
         e.preventDefault();
-        
+
         // Validate items
-        const validItems = billItems.filter(item => 
+        const validItems = billItems.filter(item =>
             item.medicine_name.trim() && item.quantity > 0 && item.unit_price > 0
         );
-        
+
         if (validItems.length === 0) {
             showToast('error', 'Please add at least one valid item');
             return;
@@ -334,7 +339,7 @@ export function RunningBills() {
             setShowAddModal(false);
             resetForm();
             loadRunningBills();
-            
+
             // Optionally trigger print
             if (confirm(`Bill ${billNumber} created. Would you like to print it?`)) {
                 handlePrintBill(billId, billNumber);
@@ -358,10 +363,58 @@ export function RunningBills() {
     };
 
     // Print bill
-    const handlePrintBill = async (billId: number, billNumber: string) => {
-        // Open print preview for this bill - you can implement a proper print template
-        window.open(`/bill-print/${billId}`, '_blank', 'width=400,height=600');
-        showToast('info', `Opening print preview for ${billNumber}`);
+    const handlePrintBill = async (billId: number, billNumber: string, paperSize: 'thermal' | 'legal' = 'thermal') => {
+        try {
+            // Get the bill details
+            const bill = await queryOne<any>(
+                `SELECT b.*, u.full_name as user_name 
+                 FROM bills b 
+                 LEFT JOIN users u ON b.user_id = u.id 
+                 WHERE b.id = ?`,
+                [billId]
+            );
+
+            if (!bill) {
+                showToast('error', 'Bill not found');
+                return;
+            }
+
+            // Get running bill items for this bill
+            const runningItems = await query<RunningBill>(
+                `SELECT * FROM running_bills WHERE bill_id = ? ORDER BY id`,
+                [billId]
+            );
+
+            // Convert running bill items to bill item format for printing
+            const items = runningItems.map(rb => ({
+                medicine_name: rb.medicine_name,
+                batch_number: 'PENDING',
+                hsn_code: rb.hsn_code || '3004',
+                expiry_date: null,
+                quantity: rb.quantity,
+                tablets_per_strip: 1,
+                unit_price: rb.unit_price,
+                selling_price: rb.unit_price,
+                gst_rate: rb.gst_rate,
+                discount_amount: 0,
+                taxable_amount: rb.total_amount / (1 + (rb.gst_rate / 100)),
+                taxable_value: rb.total_amount / (1 + (rb.gst_rate / 100)),
+                cgst_amount: (rb.total_amount - rb.total_amount / (1 + (rb.gst_rate / 100))) / 2,
+                cgst: (rb.total_amount - rb.total_amount / (1 + (rb.gst_rate / 100))) / 2,
+                sgst_amount: (rb.total_amount - rb.total_amount / (1 + (rb.gst_rate / 100))) / 2,
+                sgst: (rb.total_amount - rb.total_amount / (1 + (rb.gst_rate / 100))) / 2,
+                total: rb.total_amount,
+                total_amount: rb.total_amount
+            }));
+
+            // Dynamic import to avoid circular dependencies
+            const { printBill } = await import('../services/print.service');
+            await printBill(bill, items as any, { paperSize });
+            showToast('success', `Opening print preview for ${billNumber}`);
+        } catch (error) {
+            console.error('Print failed:', error);
+            showToast('error', 'Failed to print bill');
+        }
     };
 
     // Open stock linking modal
@@ -647,7 +700,7 @@ export function RunningBills() {
                     </div>
                 ) : runningBills.length > 0 ? (
                     <div className="running-bills-grid">
-                        {runningBills.map((bill) => (
+                        {runningBills.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE).map((bill) => (
                             <div key={bill.id} className="running-bill-card">
                                 <div className="rb-info">
                                     <div className="rb-bill-number">#{bill.bill_number}</div>
@@ -669,12 +722,21 @@ export function RunningBills() {
                                     <div className="rb-qty">{bill.quantity} pcs × {formatCurrency(bill.unit_price)}</div>
                                 </div>
                                 <div className="rb-actions">
+                                    <div style={{ position: 'relative' }}>
+                                        <button
+                                            className="btn btn-ghost btn-sm"
+                                            onClick={() => handlePrintBill(bill.bill_id, bill.bill_number || '', 'thermal')}
+                                            title="Print Thermal (80mm)"
+                                        >
+                                            <Printer size={16} />
+                                        </button>
+                                    </div>
                                     <button
                                         className="btn btn-ghost btn-sm"
-                                        onClick={() => handlePrintBill(bill.bill_id, bill.bill_number || '')}
-                                        title="Print Bill"
+                                        onClick={() => handlePrintBill(bill.bill_id, bill.bill_number || '', 'legal')}
+                                        title="Print Legal Paper"
                                     >
-                                        <Printer size={16} />
+                                        <FileText size={16} />
                                     </button>
                                     <button
                                         className="btn btn-primary btn-sm"
@@ -702,6 +764,14 @@ export function RunningBills() {
                         <p className="text-secondary">Running bills will appear here for medicines sold without stock</p>
                     </div>
                 )}
+
+                {/* Pagination */}
+                <Pagination
+                    currentPage={currentPage}
+                    totalItems={runningBills.length}
+                    itemsPerPage={ITEMS_PER_PAGE}
+                    onPageChange={setCurrentPage}
+                />
             </div>
 
             {/* Add Running Bill Modal */}
@@ -719,11 +789,11 @@ export function RunningBills() {
                                 <div className="alert alert-warning" style={{ marginBottom: 'var(--space-4)' }}>
                                     <AlertCircle size={18} />
                                     <div>
-                                        <strong>Running Bill:</strong> Creates an actual bill for the customer. 
+                                        <strong>Running Bill:</strong> Creates an actual bill for the customer.
                                         The items will appear in this list until you mark them as "Stocked" when inventory arrives.
                                     </div>
                                 </div>
-                                
+
                                 {/* Customer Info */}
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)', marginBottom: 'var(--space-4)' }}>
                                     <div className="form-group">
@@ -756,7 +826,7 @@ export function RunningBills() {
                                             <Plus size={14} /> Add Item
                                         </button>
                                     </div>
-                                    
+
                                     {billItems.map((item, index) => (
                                         <div key={index} className="bill-item-row">
                                             <div className="form-group">
@@ -809,8 +879,8 @@ export function RunningBills() {
                                             </div>
                                             <div className="form-group">
                                                 <label className="form-label">Total</label>
-                                                <div style={{ 
-                                                    padding: 'var(--space-2)', 
+                                                <div style={{
+                                                    padding: 'var(--space-2)',
                                                     fontFamily: 'var(--font-mono)',
                                                     fontWeight: 600
                                                 }}>
@@ -885,7 +955,7 @@ export function RunningBills() {
                                     Quantity: {selectedBill.quantity} pcs | Total: {formatCurrency(selectedBill.total_amount)}
                                 </div>
                             </div>
-                            
+
                             <div className="form-group">
                                 <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
                                     <input
@@ -899,7 +969,7 @@ export function RunningBills() {
                                     If checked, the quantity will be deducted from the selected batch. Uncheck if stock was already given from existing inventory.
                                 </p>
                             </div>
-                            
+
                             {deductFromStock && (
                                 <>
                                     <div className="form-group">
@@ -919,7 +989,7 @@ export function RunningBills() {
                                             />
                                         </div>
                                     </div>
-                                    
+
                                     {stockResults.length > 0 && (
                                         <div className="stock-search-results">
                                             {stockResults.map((item) => (
@@ -939,13 +1009,13 @@ export function RunningBills() {
                                             ))}
                                         </div>
                                     )}
-                                    
+
                                     {stockResults.length === 0 && stockSearch.length >= 2 && (
                                         <div style={{ padding: 'var(--space-4)', textAlign: 'center', color: 'var(--text-secondary)' }}>
                                             No stock found for "{stockSearch}"
                                         </div>
                                     )}
-                                    
+
                                     {selectedStock && (
                                         <div style={{ marginTop: 'var(--space-4)', padding: 'var(--space-3)', background: 'var(--color-success-50)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-success-200)' }}>
                                             <strong>Selected:</strong> {selectedStock.medicine_name} - {selectedStock.batch_number}
