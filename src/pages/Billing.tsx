@@ -75,7 +75,8 @@ export function Billing() {
         doctor_registration_number: '',
         clinic_hospital_name: '',
         prescription_number: '',
-        prescription_date: ''
+        prescription_date: '',
+        doctor_prescription: ''
     });
 
     // Check if cart has scheduled medicines
@@ -203,10 +204,24 @@ export function Billing() {
             return;
         }
 
-        // Check if scheduled medicines require patient info and doctor details
-        if (hasScheduled && (!patientInfo || !patientInfo.patient_name || !patientInfo.doctor_name)) {
-            setError('Patient and doctor details required for scheduled medicines');
-            showToast('warning', 'Please enter patient and prescription details for scheduled medicines');
+        // Check credit limit
+        if (paymentMode === 'CREDIT' && customerId) {
+            const customer = customers.find(c => c.id === customerId);
+            if (customer) {
+                const newBalance = customer.current_balance + billCalc.finalAmount;
+                if (newBalance > customer.credit_limit) {
+                    const msg = `Credit limit exceeded! Limit: ${formatCurrency(customer.credit_limit)}, Current: ${formatCurrency(customer.current_balance)}`;
+                    setError(msg);
+                    showToast('error', msg);
+                    return;
+                }
+            }
+        }
+
+        // Check if scheduled medicines require patient info, doctor details, prescription, age, and gender
+        if (hasScheduled && (!patientInfo || !patientInfo.patient_name || !patientInfo.doctor_name || !patientInfo.doctor_prescription || patientInfo.patient_age === undefined || !patientInfo.patient_gender)) {
+            setError('Patient details (name, age, gender), doctor name, and prescription are required for scheduled medicines');
+            showToast('warning', 'Please enter all required patient details, doctor name, and prescription for scheduled medicines');
             setShowPatientModal(true);
             return;
         }
@@ -255,7 +270,8 @@ export function Billing() {
                 doctor_registration_number: '',
                 clinic_hospital_name: '',
                 prescription_number: '',
-                prescription_date: ''
+                prescription_date: '',
+                doctor_prescription: ''
             });
         } catch (err) {
             console.error('Bill creation error:', err);
@@ -757,9 +773,14 @@ export function Billing() {
                             className="form-select"
                             value={customerId ?? ''}
                             onChange={(e) => {
-                                const id = e.target.value ? parseInt(e.target.value) : null;
-                                const c = customers.find(c => c.id === id);
-                                setCustomer(id, c?.name ?? '');
+                                const val = e.target.value;
+                                if (!val) {
+                                    setCustomer(null, 'Walk-in Customer');
+                                } else {
+                                    const id = parseInt(val);
+                                    const c = customers.find(c => c.id === id);
+                                    setCustomer(id, c?.name ?? '');
+                                }
                             }}
                             aria-label="Select Customer"
                         >
@@ -768,6 +789,17 @@ export function Billing() {
                                 <option key={c.id} value={c.id}>{c.name}</option>
                             ))}
                         </select>
+                        {customerId && (
+                            <div style={{ marginTop: 8, fontSize: '0.8rem', display: 'flex', justifyContent: 'space-between' }}>
+                                <span style={{ color: 'var(--text-secondary)' }}>Credit Balance:</span>
+                                <span style={{ color: 'var(--color-danger-600)', fontWeight: 600 }}>
+                                    {formatCurrency(customers.find(c => c.id === customerId)?.current_balance || 0)}
+                                    <span style={{ color: 'var(--text-tertiary)', fontWeight: 400, marginLeft: 4 }}>
+                                        / {formatCurrency(customers.find(c => c.id === customerId)?.credit_limit || 0)}
+                                    </span>
+                                </span>
+                            </div>
+                        )}
 
                         {!hasScheduled && (
                             <div style={{ marginTop: 12 }}>
@@ -789,7 +821,7 @@ export function Billing() {
                             <div className="sidebar-title" style={{ color: 'var(--color-warning-600)' }}>
                                 <AlertCircle size={14} /> Schedule H/H1 Drug
                             </div>
-                            {patientInfo?.patient_name && patientInfo?.doctor_name ? (
+                            {patientInfo?.patient_name && patientInfo?.doctor_name && patientInfo?.doctor_prescription && patientInfo?.patient_age !== undefined && patientInfo?.patient_gender ? (
                                 <div style={{ fontSize: 13 }}>
                                     <div style={{ fontWeight: 600 }}>{patientInfo.patient_name}</div>
                                     <div style={{ color: 'var(--text-secondary)', fontSize: 12 }}>Dr. {patientInfo.doctor_name}</div>
@@ -838,7 +870,13 @@ export function Billing() {
                             </button>
                             <button
                                 className={`payment-btn ${paymentMode === 'CREDIT' ? 'active' : ''}`}
-                                onClick={() => setPaymentMode('CREDIT')}
+                                onClick={() => {
+                                    if (!customerId) {
+                                        showToast('warning', 'Please select a customer for credit sale');
+                                        return;
+                                    }
+                                    setPaymentMode('CREDIT');
+                                }}
                             >
                                 <CreditCard size={20} />
                                 <span>Credit</span>
@@ -975,9 +1013,11 @@ export function Billing() {
                         </div>
                         <form onSubmit={(e) => {
                             e.preventDefault();
-                            if (tempPatientInfo.patient_name && tempPatientInfo.doctor_name) {
+                            if (tempPatientInfo.patient_name && tempPatientInfo.doctor_name && tempPatientInfo.doctor_prescription && tempPatientInfo.patient_age !== undefined && tempPatientInfo.patient_gender) {
                                 setPatientInfo(tempPatientInfo);
                                 setShowPatientModal(false);
+                            } else {
+                                showToast('warning', 'Please fill all required fields: Patient Name, Age, Gender, Doctor Name, and Prescription');
                             }
                         }}>
                             <div className="modal-body">
@@ -999,20 +1039,24 @@ export function Billing() {
                                         />
                                     </div>
                                     <div className="form-group">
-                                        <label className="form-label">Age</label>
+                                        <label className="form-label">Age *</label>
                                         <input
                                             type="number"
                                             className="form-input"
                                             value={tempPatientInfo.patient_age ?? ''}
                                             onChange={(e) => setTempPatientInfo({ ...tempPatientInfo, patient_age: e.target.value ? parseInt(e.target.value) : undefined })}
+                                            required
+                                            min={0}
+                                            max={150}
                                         />
                                     </div>
                                     <div className="form-group">
-                                        <label className="form-label">Gender</label>
+                                        <label className="form-label">Gender *</label>
                                         <select
                                             className="form-select"
                                             value={tempPatientInfo.patient_gender ?? ''}
                                             onChange={(e) => setTempPatientInfo({ ...tempPatientInfo, patient_gender: e.target.value as 'M' | 'F' | 'O' | undefined || undefined })}
+                                            required
                                         >
                                             <option value="">Select</option>
                                             <option value="M">Male</option>
@@ -1037,6 +1081,17 @@ export function Billing() {
                                             className="form-input"
                                             value={tempPatientInfo.doctor_registration_number ?? ''}
                                             onChange={(e) => setTempPatientInfo({ ...tempPatientInfo, doctor_registration_number: e.target.value })}
+                                        />
+                                    </div>
+                                    <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                                        <label className="form-label">Doctor's Prescription *</label>
+                                        <textarea
+                                            className="form-input"
+                                            rows={4}
+                                            value={tempPatientInfo.doctor_prescription ?? ''}
+                                            onChange={(e) => setTempPatientInfo({ ...tempPatientInfo, doctor_prescription: e.target.value })}
+                                            required
+                                            placeholder="Enter the doctor's prescription details..."
                                         />
                                     </div>
                                 </div>

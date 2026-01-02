@@ -182,27 +182,33 @@ export interface BillItem {
     quantity_strips: number;
     quantity_pieces: number;
     tablets_per_strip: number;
-    unit_price: number;
-    price_type: PriceType;
+
+    // Pricing fields (match database schema)
+    selling_price: number;  // Per strip price from batch
+    mrp: number;            // Max retail price per strip
+    unit_price?: number;    // Optional alias (not in DB, for compatibility)
+    price_type?: PriceType;
 
     discount_type?: DiscountType;
-    discount_value: number;
+    discount_value?: number;
+    discount_percent?: number;
     discount_amount: number;
 
-    taxable_value: number;
-    taxable_amount: number; // Alias
+    taxable_value?: number;
+    taxable_amount: number;
     gst_rate: GstRate;
-    cgst: number;
-    cgst_amount: number; // Alias
-    sgst: number;
-    sgst_amount: number; // Alias
-    total_gst: number;
+    cgst?: number;
+    cgst_amount: number;
+    sgst?: number;
+    sgst_amount: number;
+    total_gst?: number;
 
-    total: number;
-    total_amount: number; // Alias
+    total?: number;
+    total_amount: number;
 
     created_at: string;
 }
+
 
 // =====================================================
 // PURCHASES
@@ -433,7 +439,11 @@ export interface ScheduledMedicineRecord {
     patient_phone?: string;
     patient_address?: string;
     doctor_name?: string;
+    doctor_registration_number?: string;
+    clinic_hospital_name?: string;
     prescription_number?: string;
+    prescription_date?: string;
+    doctor_prescription?: string;
     quantity: number;
     created_at: string;
     // Joined data
@@ -454,6 +464,7 @@ export interface ScheduledMedicineInput {
     clinic_hospital_name?: string;
     prescription_number?: string;
     prescription_date?: string;
+    doctor_prescription?: string;
 }
 
 export interface CustomerCreditSummary {

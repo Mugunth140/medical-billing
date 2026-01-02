@@ -146,7 +146,7 @@ export async function createBill(
             [
                 billNumber,
                 input.customer_id ?? null,
-                input.customer_name ?? null,
+                input.customer_name || 'Walk-in Customer',
                 input.doctor_name ?? null,
                 userId,
                 billCalc.subtotal,
@@ -221,8 +221,10 @@ export async function createBill(
                     `INSERT INTO scheduled_medicine_records (
                         bill_id, bill_item_id, medicine_id, batch_id,
                         patient_name, patient_age, patient_gender, patient_phone,
-                        patient_address, doctor_name, prescription_number, quantity
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                        patient_address, doctor_name, doctor_registration_number,
+                        clinic_hospital_name, prescription_number, prescription_date,
+                        doctor_prescription, quantity
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                     [
                         billId,
                         billItemId,
@@ -234,7 +236,11 @@ export async function createBill(
                         input.patient_info.patient_phone ?? null,
                         input.patient_info.patient_address ?? null,
                         input.patient_info.doctor_name ?? null,
+                        input.patient_info.doctor_registration_number ?? null,
+                        input.patient_info.clinic_hospital_name ?? null,
                         input.patient_info.prescription_number ?? null,
+                        input.patient_info.prescription_date ?? null,
+                        input.patient_info.doctor_prescription ?? null,
                         itemInput.quantity
                     ]
                 );

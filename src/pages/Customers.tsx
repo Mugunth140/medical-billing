@@ -52,7 +52,7 @@ export function Customers() {
         setIsLoading(true);
         try {
             const data = await query<Customer>(
-                `SELECT * FROM customers WHERE is_active = 1 ORDER BY 
+                `SELECT * FROM customers WHERE is_active = 1 AND name != 'Walk-in Customer' ORDER BY 
           CASE WHEN current_balance > 0 THEN 0 ELSE 1 END,
           current_balance DESC,
           name ASC`,

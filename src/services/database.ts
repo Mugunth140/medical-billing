@@ -260,6 +260,7 @@ const TABLE_STATEMENTS = [
         clinic_hospital_name TEXT,
         prescription_number TEXT,
         prescription_date TEXT,
+        doctor_prescription TEXT,
         quantity INTEGER NOT NULL,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`,
@@ -406,6 +407,7 @@ const DEFAULT_DATA_STATEMENTS = [
     `INSERT OR IGNORE INTO settings (key, value, category, description) VALUES ('round_off_enabled', '1', 'billing', 'Enable bill rounding')`
 ];
 
+
 /**
  * Initialize the database connection and create schema
  */
@@ -486,6 +488,7 @@ export async function initDatabase(): Promise<Database> {
             `ALTER TABLE scheduled_medicine_records ADD COLUMN doctor_registration_number TEXT`,
             `ALTER TABLE scheduled_medicine_records ADD COLUMN clinic_hospital_name TEXT`,
             `ALTER TABLE scheduled_medicine_records ADD COLUMN prescription_date TEXT`,
+            `ALTER TABLE scheduled_medicine_records ADD COLUMN doctor_prescription TEXT`,
             // Add supplier_id to batches for direct supplier tracking
             `ALTER TABLE batches ADD COLUMN supplier_id INTEGER REFERENCES suppliers(id)`
         ];
@@ -536,7 +539,13 @@ export function getDatabase(): Database {
 }
 
 /**
- * Execute a query and return results
+ * Global write mutex - ensures only one write operation at a time
+ * This prevents "database is locked" errors from concurrent writes
+ */
+let writeQueue: Promise<unknown> = Promise.resolve();
+
+/**
+ * Execute a query and return results (READ operation - no locking needed)
  */
 export async function query<T>(sql: string, params: unknown[] = []): Promise<T[]> {
     const database = getDatabase();
@@ -544,53 +553,109 @@ export async function query<T>(sql: string, params: unknown[] = []): Promise<T[]
 }
 
 /**
- * Execute an insert/update/delete and return affected rows
+ * Execute an insert/update/delete and return affected rows (WRITE operation - serialized)
  */
 export async function execute(sql: string, params: unknown[] = []): Promise<{ rowsAffected: number; lastInsertId: number }> {
-    const database = getDatabase();
-    const result = await database.execute(sql, params);
-    return {
-        rowsAffected: result.rowsAffected,
-        lastInsertId: result.lastInsertId ?? 0
-    };
+    // Serialize all write operations
+    const previousWrite = writeQueue;
+    let resolveWrite: () => void = () => { };
+
+    writeQueue = new Promise<void>((resolve) => {
+        resolveWrite = resolve;
+    });
+
+    await previousWrite;
+
+    try {
+        const database = getDatabase();
+        const result = await database.execute(sql, params);
+        return {
+            rowsAffected: result.rowsAffected,
+            lastInsertId: result.lastInsertId ?? 0
+        };
+    } finally {
+        resolveWrite();
+    }
+}
+
+
+/**
+ * Operation queue to serialize all database operations
+ * This prevents "database is locked" errors by ensuring only one operation runs at a time
+ */
+let operationQueue: Promise<unknown> = Promise.resolve();
+
+/** Helper: sleep for ms milliseconds */
+function sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 /**
- * Run multiple statements in a transaction
- * Uses DEFERRED transaction with proper error handling
+ * Run operations in a serialized queue
+ * 
+ * NOTE: We're NOT using explicit BEGIN/COMMIT transactions because:
+ * 1. Tauri SQL plugin has issues with explicit transaction management
+ * 2. SQLite already uses auto-commit for each statement which is ACID
+ * 3. For our use case (billing), individual statement atomicity is sufficient
+ * 
+ * The queue ensures only one operation runs at a time, preventing lock errors.
  */
 export async function transaction<T>(callback: () => Promise<T>): Promise<T> {
-    const database = getDatabase();
-    let transactionStarted = false;
+    // Queue this operation to run after any pending operations
+    const previousQueue = operationQueue;
+    let resolveQueue: () => void = () => { };
 
-    // Use BEGIN (DEFERRED by default) - WAL mode handles concurrency
-    try {
-        await database.execute('BEGIN');
-        transactionStarted = true;
-    } catch (beginError) {
-        console.warn('Could not start transaction, using auto-commit mode:', beginError);
-        // Execute in auto-commit mode (each statement commits individually)
-        return await callback();
-    }
+    operationQueue = new Promise<void>((resolve) => {
+        resolveQueue = resolve;
+    });
+
+    // Wait for previous operation to complete
+    await previousQueue;
+
+    console.log('[DB] Starting serialized operation');
 
     try {
-        const result = await callback();
-        if (transactionStarted) {
-            await database.execute('COMMIT');
-        }
+        const result = await executeWithRetry(callback);
+        console.log('[DB] Operation completed successfully');
         return result;
-    } catch (error) {
-        // Try to rollback only if we started a transaction
-        if (transactionStarted) {
-            try {
-                await database.execute('ROLLBACK');
-            } catch (rollbackError) {
-                console.warn('Rollback warning:', rollbackError);
-            }
-        }
-        throw error;
+    } finally {
+        resolveQueue();
     }
 }
+
+/**
+ * Execute callback with retry logic for transient errors
+ */
+async function executeWithRetry<T>(callback: () => Promise<T>, maxRetries = 3): Promise<T> {
+    let lastError: Error | null = null;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            return await callback();
+        } catch (error: unknown) {
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            console.error(`[DB] Operation error (attempt ${attempt}/${maxRetries}):`, errorMsg);
+
+            // Check if it's a lock/busy error that we should retry
+            if (errorMsg.includes('locked') || errorMsg.includes('busy')) {
+                const delayMs = 100 * Math.pow(2, attempt - 1); // 100, 200, 400ms
+                console.warn(`[DB] Database busy, retrying in ${delayMs}ms...`);
+                lastError = error instanceof Error ? error : new Error(errorMsg);
+                await sleep(delayMs);
+                continue;
+            }
+
+            // Non-recoverable error - throw immediately
+            throw error;
+        }
+    }
+
+    throw lastError || new Error('Operation failed after all retries');
+}
+
+
+
+
 
 /**
  * Get a single row

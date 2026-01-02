@@ -17,7 +17,6 @@ import {
     Package,
     Receipt,
     Settings,
-    ShoppingCart,
     Truck,
     Users
 } from 'lucide-react';
@@ -59,13 +58,13 @@ const MAIN_NAV_ITEMS: NavItem[] = [
 // Grouped navigation items (collapsible)
 const NAV_GROUPS: NavGroup[] = [
     {
-        id: 'purchases-group',
-        label: 'Purchases',
-        icon: ShoppingCart,
+        id: 'suppliers-group',
+        label: 'Suppliers',
+        icon: Building2,
         adminOnly: true,
         items: [
-            { id: 'stock-entry', label: 'Stock Entry', icon: Truck, path: '/purchases' },
-            { id: 'suppliers', label: 'Supplier Management', icon: Building2, path: '/suppliers' },
+            { id: 'suppliers', label: 'Supplier List', icon: Building2, path: '/suppliers' },
+            { id: 'stock-entry', label: 'Purchase Entry', icon: Truck, path: '/purchases' },
         ]
     },
 ];
@@ -131,7 +130,7 @@ export function Layout({ children }: LayoutProps) {
                 <nav className="sidebar-nav">
                     <div className="nav-section">
                         {sidebarOpen && <div className="nav-section-title">Menu</div>}
-                        
+
                         {/* Main Navigation Items */}
                         {MAIN_NAV_ITEMS.filter(item => !item.adminOnly || isAdmin).map((item) => {
                             const Icon = item.icon;
@@ -164,9 +163,9 @@ export function Layout({ children }: LayoutProps) {
                                         {sidebarOpen && (
                                             <>
                                                 <span className="nav-item-label">{group.label}</span>
-                                                <ChevronDown 
-                                                    className={`nav-group-chevron ${isExpanded ? 'expanded' : ''}`} 
-                                                    size={16} 
+                                                <ChevronDown
+                                                    className={`nav-group-chevron ${isExpanded ? 'expanded' : ''}`}
+                                                    size={16}
                                                 />
                                             </>
                                         )}

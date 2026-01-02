@@ -952,17 +952,7 @@ export function Inventory() {
                                             required
                                         />
                                     </div>
-                                    <div className="form-group">
-                                        <label className="form-label">Price Type</label>
-                                        <select
-                                            className="form-select"
-                                            value={batchForm.price_type}
-                                            onChange={(e) => setBatchForm({ ...batchForm, price_type: e.target.value as 'INCLUSIVE' | 'EXCLUSIVE' })}
-                                        >
-                                            <option value="INCLUSIVE">GST Inclusive (MRP)</option>
-                                            <option value="EXCLUSIVE">GST Exclusive</option>
-                                        </select>
-                                    </div>
+                                    {/* Price Type removed - all prices are GST Inclusive (MRP) */}
                                     <div className="form-group">
                                         <label className="form-label">Quantity (Strips) *</label>
                                         <input

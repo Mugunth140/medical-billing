@@ -312,10 +312,15 @@ export function Returns() {
             let totalGst = 0;
 
             for (const ri of returnItems) {
-                const unitPrice = ri.item.unit_price;
-                const gstRate = ri.item.gst_rate;
-                const amount = (unitPrice * ri.quantity);
-                const gst = (amount * gstRate) / (100 + gstRate);
+                // Calculate refund: selling_price is per strip, quantity is in tablets
+                const tabletsPerStrip = ri.item.tablets_per_strip || 10;
+                const stripPrice = ri.item.selling_price ?? ri.item.mrp ?? 0;
+                const pricePerTablet = stripPrice / tabletsPerStrip;
+                const gstRate = ri.item.gst_rate ?? 0;
+
+                // Amount = price per tablet × number of tablets returned
+                const amount = pricePerTablet * ri.quantity;
+                const gst = gstRate > 0 ? (amount * gstRate) / (100 + gstRate) : 0;
                 totalAmount += amount;
                 totalGst += gst;
             }
@@ -343,18 +348,23 @@ export function Returns() {
 
             // Insert return items and restore stock
             for (const ri of returnItems) {
-                const unitPrice = ri.item.unit_price;
-                const gstRate = ri.item.gst_rate;
-                const amount = unitPrice * ri.quantity;
-                const gst = (amount * gstRate) / (100 + gstRate);
+                // Calculate refund: selling_price is per strip, quantity is in tablets
+                const tabletsPerStrip = ri.item.tablets_per_strip || 10;
+                const stripPrice = ri.item.selling_price ?? ri.item.mrp ?? 0;
+                const pricePerTablet = stripPrice / tabletsPerStrip;
+                const gstRate = ri.item.gst_rate ?? 0;
+
+                // Amount = price per tablet × number of tablets returned
+                const amount = pricePerTablet * ri.quantity;
+                const gst = gstRate > 0 ? (amount * gstRate) / (100 + gstRate) : 0;
                 const cgst = gst / 2;
                 const sgst = gst / 2;
 
-                // Insert return item
+                // Insert return item (store price per tablet for consistency)
                 await execute(
                     `INSERT INTO sales_return_items (return_id, bill_item_id, batch_id, quantity, unit_price, gst_rate, cgst, sgst, total)
                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                    [returnId, ri.item.id, ri.item.batch_id, ri.quantity, unitPrice, gstRate, cgst, sgst, amount]
+                    [returnId, ri.item.id, ri.item.batch_id, ri.quantity, pricePerTablet, gstRate, cgst, sgst, amount]
                 );
 
                 // Restore stock to batch
@@ -816,7 +826,9 @@ export function Returns() {
                                                             Batch: {item.batch_number}
                                                         </div>
                                                     </div>
-                                                    <span className="font-mono">{formatCurrency(item.unit_price)}</span>
+                                                    <span className="font-mono">
+                                                        {formatCurrency((item.selling_price ?? item.mrp ?? 0) / (item.tablets_per_strip || 10))}/pc
+                                                    </span>
                                                     <span className="font-mono">Qty: {item.quantity}</span>
                                                     <button
                                                         className="btn btn-sm btn-secondary"
@@ -856,7 +868,10 @@ export function Returns() {
                                             ))}
                                             <div className="mt-3 pt-3" style={{ borderTop: '1px solid var(--color-success-300)' }}>
                                                 <strong>
-                                                    Total: {formatCurrency(returnItems.reduce((sum, ri) => sum + (ri.item.unit_price * ri.quantity), 0))}
+                                                    Total: {formatCurrency(returnItems.reduce((sum, ri) => {
+                                                        const pricePerTablet = (ri.item.selling_price ?? ri.item.mrp ?? 0) / (ri.item.tablets_per_strip || 10);
+                                                        return sum + (pricePerTablet * ri.quantity);
+                                                    }, 0))}
                                                 </strong>
                                             </div>
                                         </div>

@@ -460,6 +460,7 @@ CREATE TABLE IF NOT EXISTS scheduled_medicine_records (
     clinic_hospital_name TEXT,
     prescription_number TEXT,
     prescription_date TEXT,
+    doctor_prescription TEXT,
     quantity INTEGER NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
