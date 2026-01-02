@@ -628,6 +628,51 @@ export interface TopSellingMedicine {
 }
 
 // =====================================================
+// RUNNING BILLS - For non-stocked medicine sales
+// Creates actual bills but tracks pending stock reconciliation
+// =====================================================
+
+export type RunningBillStatus = 'PENDING' | 'STOCKED' | 'CANCELLED';
+
+export interface RunningBill {
+    id: number;
+    bill_id: number;
+    bill_item_id?: number;
+    medicine_name: string;
+    quantity: number;
+    unit_price: number;
+    total_amount: number;
+    gst_rate: number;
+    hsn_code: string;
+    notes?: string;
+    user_id: number;
+    status: RunningBillStatus;
+    linked_batch_id?: number;
+    linked_medicine_id?: number;
+    stocked_at?: string;
+    stocked_by?: number;
+    created_at: string;
+    updated_at: string;
+    // Joined fields from bills table
+    bill_number?: string;
+    bill_date?: string;
+    customer_name?: string;
+    user_name?: string;
+    stocked_by_name?: string;
+}
+
+export interface CreateRunningBillInput {
+    medicine_name: string;
+    quantity: number;
+    unit_price: number;
+    gst_rate: number;
+    hsn_code?: string;
+    customer_name?: string;
+    customer_phone?: string;
+    notes?: string;
+}
+
+// =====================================================
 // APP STATE
 // =====================================================
 

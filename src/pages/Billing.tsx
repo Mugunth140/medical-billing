@@ -563,6 +563,7 @@ export function Billing() {
                                     const tps = item.tablets_per_strip || 10;
                                     const s = Math.floor(item.quantity / tps);
                                     const p = item.quantity % tps;
+                                    const pricePerPc = item.selling_price / tps;
                                     return (
                                         <div
                                             key={item.batch_id}
@@ -574,15 +575,15 @@ export function Billing() {
                                                     {item.medicine_name}
                                                 </div>
                                                 <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
-                                                    {item.batch_number} • Exp: {formatDate(item.expiry_date)}
+                                                    {item.batch_number} • Exp: {formatDate(item.expiry_date)} • {tps}/strip
                                                 </div>
                                             </div>
                                             <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                                                <div style={{ fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
-                                                    {formatCurrency(item.selling_price)}
+                                                <div style={{ fontWeight: 600, fontFamily: 'var(--font-mono)', fontSize: 13 }}>
+                                                    {formatCurrency(item.selling_price)}/strip
                                                 </div>
-                                                <div style={{ fontSize: 10 }}>
-                                                    <span className="badge badge-success">
+                                                <div style={{ fontSize: 10, color: 'var(--text-secondary)' }}>
+                                                    {formatCurrency(pricePerPc)}/pc • <span className="badge badge-success">
                                                         {s > 0 ? `${s}S${p > 0 ? `+${p}` : ''}` : `${p}pcs`}
                                                     </span>
                                                 </div>
@@ -639,7 +640,10 @@ export function Billing() {
                                                 max={tps - 1}
                                             />
                                             <div style={{ textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
-                                                {formatCurrency(item.batch.selling_price / tps)}/pc
+                                                <div>{formatCurrency(item.batch.selling_price / tps)}/pc</div>
+                                                <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>
+                                                    ({formatCurrency(item.batch.selling_price)}/strip)
+                                                </div>
                                             </div>
                                             <div style={{ textAlign: 'right', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
                                                 {formatCurrency(itemCalc?.total ?? 0)}

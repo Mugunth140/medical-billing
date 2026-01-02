@@ -6,6 +6,7 @@
 import {
     ChevronLeft,
     ChevronRight,
+    ClipboardList,
     FileText,
     History,
     LayoutDashboard,
@@ -36,6 +37,7 @@ const NAV_ITEMS: NavItem[] = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
     { id: 'billing', label: 'New Bill', icon: Receipt, path: '/billing' },
     { id: 'history', label: 'Bill History', icon: History, path: '/bill-history' },
+    { id: 'running-bills', label: 'Running Bills', icon: ClipboardList, path: '/running-bills' },
     { id: 'inventory', label: 'Inventory', icon: Package, path: '/inventory' },
     { id: 'purchases', label: 'Purchases', icon: ShoppingCart, path: '/purchases', adminOnly: true },
     { id: 'customers', label: 'Customers', icon: Users, path: '/customers' },

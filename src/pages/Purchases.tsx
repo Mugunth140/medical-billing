@@ -7,6 +7,7 @@ import {
     Calendar,
     FileText,
     Package,
+    Pencil,
     Plus,
     Search,
     Trash2,
@@ -21,6 +22,8 @@ import type { CreateSupplierInput, GstRate, Medicine, Purchase, Supplier } from 
 import { formatCurrency, formatDate } from '../utils';
 
 // Types for purchase entry
+// NOTE: All prices (purchase_price, mrp, selling_price) are PER STRIP/PACK
+// Quantity is in STRIPS/PACKS (will be converted to pieces when saving)
 interface PurchaseItemEntry {
     id: string;
     medicine_id: number;
@@ -29,11 +32,12 @@ interface PurchaseItemEntry {
     gst_rate: GstRate;
     batch_number: string;
     expiry_date: string;
-    quantity: number;
-    free_quantity: number;
-    purchase_price: number;
-    mrp: number;
-    selling_price: number;
+    quantity: number;           // Number of strips/packs
+    free_quantity: number;      // Free strips/packs
+    tablets_per_strip: number;  // Pieces per strip/pack
+    purchase_price: number;     // Per strip
+    mrp: number;                // Per strip
+    selling_price: number;      // Per strip
     rack?: string;
     box?: string;
     cgst: number;
@@ -62,11 +66,25 @@ export function Purchases() {
     const [activeTab, setActiveTab] = useState<'purchases' | 'suppliers'>('purchases');
     const [showAddSupplierModal, setShowAddSupplierModal] = useState(false);
     const [showNewPurchaseModal, setShowNewPurchaseModal] = useState(false);
+    const [showQuickAddMedicineModal, setShowQuickAddMedicineModal] = useState(false);
+    const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
+    const [editingPurchase, setEditingPurchase] = useState<Purchase | null>(null);
 
     // Medicine search state
     const [medicineSearch, setMedicineSearch] = useState('');
     const [filteredMedicines, setFilteredMedicines] = useState<Medicine[]>([]);
     const [showMedicineDropdown, setShowMedicineDropdown] = useState(false);
+
+    // Quick add medicine form
+    const [quickMedicineForm, setQuickMedicineForm] = useState({
+        name: '',
+        generic_name: '',
+        manufacturer: '',
+        hsn_code: '3004',
+        gst_rate: 12 as GstRate,
+        category: '',
+        is_schedule: false
+    });
 
     // Purchase form state
     const [purchaseForm, setPurchaseForm] = useState<PurchaseForm>({
@@ -153,27 +171,112 @@ export function Purchases() {
         }
     };
 
+    // Delete purchase
+    const handleDeletePurchase = async (purchaseId: number, invoiceNumber: string) => {
+        if (!confirm(`Are you sure you want to delete purchase ${invoiceNumber}? This will also remove associated batch records.`)) {
+            return;
+        }
+
+        try {
+            // Delete purchase items first
+            await execute('DELETE FROM purchase_items WHERE purchase_id = ?', [purchaseId]);
+            
+            // Delete batches associated with this purchase
+            await execute('DELETE FROM batches WHERE purchase_id = ?', [purchaseId]);
+            
+            // Delete the purchase
+            await execute('DELETE FROM purchases WHERE id = ?', [purchaseId]);
+            
+            showToast('success', `Purchase ${invoiceNumber} deleted successfully`);
+            loadData();
+        } catch (error) {
+            console.error('Failed to delete purchase:', error);
+            showToast('error', 'Failed to delete purchase. It may have associated transactions.');
+        }
+    };
+
+    // Delete supplier
+    const handleDeleteSupplier = async (supplierId: number, supplierName: string) => {
+        if (!confirm(`Are you sure you want to delete supplier "${supplierName}"?`)) {
+            return;
+        }
+
+        try {
+            // Soft delete - set is_active to 0
+            await execute('UPDATE suppliers SET is_active = 0 WHERE id = ?', [supplierId]);
+            
+            showToast('success', `Supplier "${supplierName}" deleted successfully`);
+            loadData();
+        } catch (error) {
+            console.error('Failed to delete supplier:', error);
+            showToast('error', 'Failed to delete supplier.');
+        }
+    };
+
+    // Open edit supplier modal
+    const handleEditSupplier = (supplier: Supplier) => {
+        setEditingSupplier(supplier);
+        setSupplierForm({
+            name: supplier.name,
+            contact_person: supplier.contact_person || '',
+            phone: supplier.phone || '',
+            email: supplier.email || '',
+            gstin: supplier.gstin || '',
+            address: supplier.address || '',
+            city: supplier.city || '',
+            state: supplier.state || 'Tamil Nadu',
+            pincode: supplier.pincode || '',
+            payment_terms: supplier.payment_terms || 30
+        });
+        setShowAddSupplierModal(true);
+    };
+
     const handleAddSupplier = async (e: React.FormEvent) => {
         e.preventDefault();
         try {
-            await execute(
-                `INSERT INTO suppliers (name, contact_person, phone, email, gstin, address, city, state, pincode, payment_terms)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [
-                    supplierForm.name,
-                    supplierForm.contact_person || null,
-                    supplierForm.phone || null,
-                    supplierForm.email || null,
-                    supplierForm.gstin || null,
-                    supplierForm.address || null,
-                    supplierForm.city || null,
-                    supplierForm.state || 'Tamil Nadu',
-                    supplierForm.pincode || null,
-                    supplierForm.payment_terms || 30
-                ]
-            );
-            showToast('success', `Supplier "${supplierForm.name}" added successfully!`);
+            if (editingSupplier) {
+                // Update existing supplier
+                await execute(
+                    `UPDATE suppliers SET name = ?, contact_person = ?, phone = ?, email = ?, 
+                     gstin = ?, address = ?, city = ?, state = ?, pincode = ?, payment_terms = ?
+                     WHERE id = ?`,
+                    [
+                        supplierForm.name,
+                        supplierForm.contact_person || null,
+                        supplierForm.phone || null,
+                        supplierForm.email || null,
+                        supplierForm.gstin || null,
+                        supplierForm.address || null,
+                        supplierForm.city || null,
+                        supplierForm.state || 'Tamil Nadu',
+                        supplierForm.pincode || null,
+                        supplierForm.payment_terms || 30,
+                        editingSupplier.id
+                    ]
+                );
+                showToast('success', 'Supplier updated successfully!');
+            } else {
+                // Insert new supplier
+                await execute(
+                    `INSERT INTO suppliers (name, contact_person, phone, email, gstin, address, city, state, pincode, payment_terms)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    [
+                        supplierForm.name,
+                        supplierForm.contact_person || null,
+                        supplierForm.phone || null,
+                        supplierForm.email || null,
+                        supplierForm.gstin || null,
+                        supplierForm.address || null,
+                        supplierForm.city || null,
+                        supplierForm.state || 'Tamil Nadu',
+                        supplierForm.pincode || null,
+                        supplierForm.payment_terms || 30
+                    ]
+                );
+                showToast('success', `Supplier "${supplierForm.name}" added successfully!`);
+            }
             setShowAddSupplierModal(false);
+            setEditingSupplier(null);
             setSupplierForm({
                 name: '',
                 contact_person: '',
@@ -188,13 +291,40 @@ export function Purchases() {
             });
             loadData();
         } catch (error) {
-            console.error('Failed to add supplier:', error);
-            showToast('error', 'Failed to add supplier. Please try again.');
+            console.error('Failed to save supplier:', error);
+            showToast('error', 'Failed to save supplier. Please try again.');
         }
     };
 
     // Add medicine to purchase
-    const handleAddMedicine = (medicine: Medicine) => {
+    const handleAddMedicine = async (medicine: Medicine) => {
+        // Check if medicine already exists without batch number (likely accidental duplicate)
+        const existingWithoutBatch = purchaseItems.find(
+            item => item.medicine_id === medicine.id && !item.batch_number
+        );
+        
+        if (existingWithoutBatch) {
+            showToast('warning', `${medicine.name} is already in the list. Add different batch number or remove duplicate.`);
+            setMedicineSearch('');
+            setShowMedicineDropdown(false);
+            return;
+        }
+
+        // Fetch last batch info to pre-fill values (all prices are per strip)
+        let lastBatch: { mrp: number; selling_price: number; rack: string; box: string; purchase_price: number; tablets_per_strip: number } | null = null;
+        try {
+            const batches = await query<{ mrp: number; selling_price: number; rack: string; box: string; purchase_price: number; tablets_per_strip: number }>(
+                `SELECT mrp, selling_price, rack, box, purchase_price, COALESCE(tablets_per_strip, 10) as tablets_per_strip FROM batches 
+                 WHERE medicine_id = ? ORDER BY created_at DESC LIMIT 1`,
+                [medicine.id]
+            );
+            if (batches.length > 0) {
+                lastBatch = batches[0];
+            }
+        } catch (error) {
+            console.warn('Could not fetch last batch:', error);
+        }
+
         const newItem: PurchaseItemEntry = {
             id: `item-${Date.now()}`,
             medicine_id: medicine.id,
@@ -203,13 +333,14 @@ export function Purchases() {
             gst_rate: medicine.gst_rate,
             batch_number: '',
             expiry_date: '',
-            quantity: 0,
+            quantity: 1,
             free_quantity: 0,
-            purchase_price: 0,
-            mrp: 0,
-            selling_price: 0,
-            rack: '',
-            box: '',
+            tablets_per_strip: lastBatch?.tablets_per_strip || 10,
+            purchase_price: lastBatch?.purchase_price || 0,  // Per strip
+            mrp: lastBatch?.mrp || 0,                        // Per strip
+            selling_price: lastBatch?.selling_price || 0,    // Per strip
+            rack: lastBatch?.rack || '',
+            box: lastBatch?.box || '',
             cgst: 0,
             sgst: 0,
             total_gst: 0,
@@ -218,6 +349,79 @@ export function Purchases() {
         setPurchaseItems([...purchaseItems, newItem]);
         setMedicineSearch('');
         setShowMedicineDropdown(false);
+    };
+
+    // Quick add new medicine
+    const handleQuickAddMedicine = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!quickMedicineForm.name) {
+            showToast('error', 'Medicine name is required');
+            return;
+        }
+
+        try {
+            const result = await execute(
+                `INSERT INTO medicines (name, generic_name, manufacturer, hsn_code, gst_rate, category, is_schedule)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                [
+                    quickMedicineForm.name,
+                    quickMedicineForm.generic_name || null,
+                    quickMedicineForm.manufacturer || null,
+                    quickMedicineForm.hsn_code || '3004',
+                    quickMedicineForm.gst_rate,
+                    quickMedicineForm.category || null,
+                    quickMedicineForm.is_schedule ? 1 : 0
+                ]
+            );
+
+            const newMedicine: Medicine = {
+                id: result.lastInsertId,
+                name: quickMedicineForm.name,
+                generic_name: quickMedicineForm.generic_name || undefined,
+                manufacturer: quickMedicineForm.manufacturer || undefined,
+                hsn_code: quickMedicineForm.hsn_code || '3004',
+                gst_rate: quickMedicineForm.gst_rate,
+                taxability: 'TAXABLE',
+                category: quickMedicineForm.category || undefined,
+                unit: 'PCS',
+                reorder_level: 10,
+                is_schedule: quickMedicineForm.is_schedule,
+                is_active: true,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+            };
+
+            // Add to medicines list
+            setMedicines([...medicines, newMedicine]);
+
+            // Add to purchase items
+            handleAddMedicine(newMedicine);
+
+            showToast('success', `Medicine "${quickMedicineForm.name}" added`);
+            setShowQuickAddMedicineModal(false);
+            setQuickMedicineForm({
+                name: '',
+                generic_name: '',
+                manufacturer: '',
+                hsn_code: '3004',
+                gst_rate: 12,
+                category: '',
+                is_schedule: false
+            });
+        } catch (error) {
+            console.error('Failed to add medicine:', error);
+            showToast('error', 'Failed to add medicine');
+        }
+    };
+
+    // Open quick add with search text pre-filled
+    const openQuickAddMedicine = () => {
+        setQuickMedicineForm({
+            ...quickMedicineForm,
+            name: medicineSearch
+        });
+        setShowMedicineDropdown(false);
+        setShowQuickAddMedicineModal(true);
     };
 
     // Update purchase item
@@ -327,9 +531,9 @@ export function Purchases() {
             const purchaseResult = await execute(
                 `INSERT INTO purchases (
                     invoice_number, invoice_date, supplier_id, user_id,
-                    subtotal, total_cgst, total_sgst, total_gst, grand_total,
-                    payment_status, paid_amount, due_date, notes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    subtotal, cgst_amount, sgst_amount, total_gst, grand_total,
+                    payment_status, paid_amount, notes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     purchaseForm.invoice_number,
                     purchaseForm.invoice_date,
@@ -342,7 +546,6 @@ export function Purchases() {
                     purchaseTotals.grand_total,
                     purchaseForm.payment_status,
                     purchaseForm.paid_amount || 0,
-                    purchaseForm.due_date || null,
                     purchaseForm.notes || null,
                 ]
             );
@@ -359,9 +562,12 @@ export function Purchases() {
                 );
 
                 let batchId: number;
+                const tabletsPerStrip = item.tablets_per_strip || 10;
+                // Convert strips to pieces for storage
+                const totalPieces = (item.quantity + item.free_quantity) * tabletsPerStrip;
 
                 if (existingBatches.length > 0) {
-                    // Update existing batch
+                    // Update existing batch - add pieces to existing quantity
                     batchId = existingBatches[0].id;
                     await execute(
                         `UPDATE batches SET 
@@ -369,6 +575,7 @@ export function Purchases() {
                             purchase_price = ?,
                             mrp = ?,
                             selling_price = ?,
+                            tablets_per_strip = ?,
                             expiry_date = ?,
                             rack = COALESCE(?, rack),
                             box = COALESCE(?, box),
@@ -376,10 +583,11 @@ export function Purchases() {
                             updated_at = CURRENT_TIMESTAMP
                          WHERE id = ?`,
                         [
-                            item.quantity + item.free_quantity,
-                            item.purchase_price,
-                            item.mrp,
-                            item.selling_price,
+                            totalPieces,            // Add pieces, not strips
+                            item.purchase_price,    // Per strip
+                            item.mrp,               // Per strip
+                            item.selling_price,     // Per strip
+                            tabletsPerStrip,
                             item.expiry_date,
                             item.rack || null,
                             item.box || null,
@@ -388,21 +596,22 @@ export function Purchases() {
                         ]
                     );
                 } else {
-                    // Create new batch
+                    // Create new batch - store quantity in pieces
                     const batchResult = await execute(
                         `INSERT INTO batches (
                             medicine_id, batch_number, expiry_date,
                             purchase_price, mrp, selling_price, price_type,
-                            quantity, rack, box, purchase_id
-                        ) VALUES (?, ?, ?, ?, ?, ?, 'INCLUSIVE', ?, ?, ?, ?)`,
+                            quantity, tablets_per_strip, rack, box, purchase_id
+                        ) VALUES (?, ?, ?, ?, ?, ?, 'INCLUSIVE', ?, ?, ?, ?, ?)`,
                         [
                             item.medicine_id,
                             item.batch_number,
                             item.expiry_date,
-                            item.purchase_price,
-                            item.mrp,
-                            item.selling_price,
-                            item.quantity + item.free_quantity,
+                            item.purchase_price,    // Per strip
+                            item.mrp,               // Per strip
+                            item.selling_price,     // Per strip
+                            totalPieces,            // Store as pieces
+                            tabletsPerStrip,
                             item.rack || null,
                             item.box || null,
                             purchaseId,
@@ -415,23 +624,26 @@ export function Purchases() {
                 await execute(
                     `INSERT INTO purchase_items (
                         purchase_id, medicine_id, batch_id,
+                        medicine_name, batch_number, expiry_date,
                         quantity, free_quantity,
-                        purchase_price, mrp, selling_price,
-                        gst_rate, cgst, sgst, total_gst, total
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                        purchase_price, mrp, discount_percent,
+                        gst_rate, cgst_amount, sgst_amount, total_amount
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                     [
                         purchaseId,
                         item.medicine_id,
                         batchId,
+                        item.medicine_name,
+                        item.batch_number,
+                        item.expiry_date,
                         item.quantity,
                         item.free_quantity,
                         item.purchase_price,
                         item.mrp,
-                        item.selling_price,
+                        0, // discount_percent
                         item.gst_rate,
                         item.cgst,
                         item.sgst,
-                        item.total_gst,
                         item.total,
                     ]
                 );
@@ -669,11 +881,24 @@ export function Purchases() {
                                             </span>
                                         </div>
                                     </div>
-                                    <div className="purchase-amount">
-                                        <div className="purchase-total">{formatCurrency(purchase.grand_total)}</div>
-                                        <div className="text-sm text-secondary">
-                                            GST: {formatCurrency(purchase.total_gst)}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+                                        <div className="purchase-amount">
+                                            <div className="purchase-total">{formatCurrency(purchase.grand_total)}</div>
+                                            <div className="text-sm text-secondary">
+                                                GST: {formatCurrency(purchase.total_gst)}
+                                            </div>
                                         </div>
+                                        <button 
+                                            className="btn btn-ghost btn-icon"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleDeletePurchase(purchase.id, purchase.invoice_number);
+                                            }}
+                                            title="Delete purchase"
+                                            style={{ color: 'var(--color-danger-600)' }}
+                                        >
+                                            <Trash2 size={16} />
+                                        </button>
                                     </div>
                                 </div>
                             ))
@@ -692,17 +917,38 @@ export function Purchases() {
                         {suppliers.length > 0 ? (
                             suppliers.map((supplier) => (
                                 <div key={supplier.id} className="supplier-card">
-                                    <div className="supplier-name">{supplier.name}</div>
-                                    <div className="supplier-contact">
-                                        {supplier.contact_person && <span>{supplier.contact_person} | </span>}
-                                        {supplier.phone && <span>{supplier.phone} | </span>}
-                                        {supplier.gstin && <span>GSTIN: {supplier.gstin}</span>}
-                                    </div>
-                                    {supplier.address && (
-                                        <div className="text-sm text-tertiary mt-2">
-                                            {supplier.address}, {supplier.city}, {supplier.state}
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
+                                        <div style={{ flex: 1 }}>
+                                            <div className="supplier-name">{supplier.name}</div>
+                                            <div className="supplier-contact">
+                                                {supplier.contact_person && <span>{supplier.contact_person} | </span>}
+                                                {supplier.phone && <span>{supplier.phone} | </span>}
+                                                {supplier.gstin && <span>GSTIN: {supplier.gstin}</span>}
+                                            </div>
+                                            {supplier.address && (
+                                                <div className="text-sm text-tertiary mt-2">
+                                                    {supplier.address}, {supplier.city}, {supplier.state}
+                                                </div>
+                                            )}
                                         </div>
-                                    )}
+                                        <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+                                            <button 
+                                                className="btn btn-ghost btn-icon"
+                                                onClick={() => handleEditSupplier(supplier)}
+                                                title="Edit supplier"
+                                            >
+                                                <Pencil size={16} />
+                                            </button>
+                                            <button 
+                                                className="btn btn-ghost btn-icon"
+                                                onClick={() => handleDeleteSupplier(supplier.id, supplier.name)}
+                                                title="Delete supplier"
+                                                style={{ color: 'var(--color-danger-600)' }}
+                                            >
+                                                <Trash2 size={16} />
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
                             ))
                         ) : (
@@ -721,8 +967,11 @@ export function Purchases() {
                 <div className="modal-overlay" onClick={() => setShowAddSupplierModal(false)}>
                     <div className="modal modal-lg" onClick={(e) => e.stopPropagation()}>
                         <div className="modal-header">
-                            <h3 className="modal-title">Add New Supplier</h3>
-                            <button className="btn btn-ghost btn-icon" onClick={() => setShowAddSupplierModal(false)}>
+                            <h3 className="modal-title">{editingSupplier ? 'Edit Supplier' : 'Add New Supplier'}</h3>
+                            <button className="btn btn-ghost btn-icon" onClick={() => {
+                                setShowAddSupplierModal(false);
+                                setEditingSupplier(null);
+                            }}>
                                 <X size={20} />
                             </button>
                         </div>
@@ -826,11 +1075,14 @@ export function Purchases() {
                                 </div>
                             </div>
                             <div className="modal-footer">
-                                <button type="button" className="btn btn-secondary" onClick={() => setShowAddSupplierModal(false)}>
+                                <button type="button" className="btn btn-secondary" onClick={() => {
+                                    setShowAddSupplierModal(false);
+                                    setEditingSupplier(null);
+                                }}>
                                     Cancel
                                 </button>
                                 <button type="submit" className="btn btn-primary">
-                                    Add Supplier
+                                    {editingSupplier ? 'Update Supplier' : 'Add Supplier'}
                                 </button>
                             </div>
                         </form>
@@ -910,12 +1162,12 @@ export function Purchases() {
                                             type="text"
                                             className="form-input"
                                             style={{ paddingLeft: 40 }}
-                                            placeholder="Search medicine by name..."
+                                            placeholder="Search medicine by name or add new..."
                                             value={medicineSearch}
                                             onChange={(e) => setMedicineSearch(e.target.value)}
                                             onFocus={() => medicineSearch.length > 0 && setShowMedicineDropdown(true)}
                                         />
-                                        {showMedicineDropdown && filteredMedicines.length > 0 && (
+                                        {showMedicineDropdown && medicineSearch.length > 0 && (
                                             <div style={{
                                                 position: 'absolute',
                                                 top: '100%',
@@ -926,7 +1178,7 @@ export function Purchases() {
                                                 borderRadius: 'var(--radius-md)',
                                                 boxShadow: 'var(--shadow-lg)',
                                                 zIndex: 100,
-                                                maxHeight: 200,
+                                                maxHeight: 250,
                                                 overflowY: 'auto'
                                             }}>
                                                 {filteredMedicines.map(m => (
@@ -943,10 +1195,30 @@ export function Purchases() {
                                                     >
                                                         <div style={{ fontWeight: 500 }}>{m.name}</div>
                                                         <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
-                                                            GST: {m.gst_rate}% | HSN: {m.hsn_code}
+                                                            {m.manufacturer && `${m.manufacturer} | `}GST: {m.gst_rate}% | HSN: {m.hsn_code}
                                                         </div>
                                                     </div>
                                                 ))}
+                                                {/* Add New Medicine Option */}
+                                                <div
+                                                    style={{
+                                                        padding: 'var(--space-3)',
+                                                        cursor: 'pointer',
+                                                        background: 'var(--color-primary-50)',
+                                                        borderTop: '2px solid var(--color-primary-200)',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: 'var(--space-2)',
+                                                        color: 'var(--color-primary-700)',
+                                                        fontWeight: 500
+                                                    }}
+                                                    onClick={openQuickAddMedicine}
+                                                    onMouseEnter={(e) => e.currentTarget.style.background = 'var(--color-primary-100)'}
+                                                    onMouseLeave={(e) => e.currentTarget.style.background = 'var(--color-primary-50)'}
+                                                >
+                                                    <Plus size={16} />
+                                                    Add "{medicineSearch}" as new medicine
+                                                </div>
                                             </div>
                                         )}
                                     </div>
@@ -955,17 +1227,28 @@ export function Purchases() {
                                 {/* Purchase Items Table */}
                                 {purchaseItems.length > 0 ? (
                                     <div style={{ overflowX: 'auto' }}>
-                                        <table className="data-table" style={{ minWidth: 1100 }}>
+                                        <div style={{ 
+                                            padding: 'var(--space-2) var(--space-3)', 
+                                            background: 'var(--color-primary-50)', 
+                                            borderRadius: 'var(--radius-sm)',
+                                            marginBottom: 'var(--space-2)',
+                                            fontSize: 'var(--text-xs)',
+                                            color: 'var(--color-primary-700)'
+                                        }}>
+                                            💡 All prices are <strong>per strip/pack</strong>. Qty is in strips. Pieces = Qty × Pcs/Strip
+                                        </div>
+                                        <table className="data-table" style={{ minWidth: 1200 }}>
                                             <thead>
                                                 <tr>
                                                     <th style={{ minWidth: 180 }}>Medicine</th>
                                                     <th style={{ minWidth: 100 }}>Batch *</th>
                                                     <th style={{ minWidth: 120 }}>Expiry *</th>
-                                                    <th style={{ minWidth: 70 }}>Qty *</th>
+                                                    <th style={{ minWidth: 70 }}>Strips *</th>
                                                     <th style={{ minWidth: 70 }}>Free</th>
-                                                    <th style={{ minWidth: 90 }}>Purchase ₹ *</th>
-                                                    <th style={{ minWidth: 90 }}>MRP ₹ *</th>
-                                                    <th style={{ minWidth: 90 }}>Sell ₹ *</th>
+                                                    <th style={{ minWidth: 60 }}>Pcs/Strip</th>
+                                                    <th style={{ minWidth: 100 }}>Purchase/Strip *</th>
+                                                    <th style={{ minWidth: 100 }}>MRP/Strip *</th>
+                                                    <th style={{ minWidth: 100 }}>Sell/Strip *</th>
                                                     <th style={{ minWidth: 60 }}>GST%</th>
                                                     <th style={{ minWidth: 60 }}>Rack</th>
                                                     <th style={{ minWidth: 60 }}>Box</th>
@@ -978,7 +1261,9 @@ export function Purchases() {
                                                     <tr key={item.id}>
                                                         <td>
                                                             <div style={{ fontWeight: 500 }}>{item.medicine_name}</div>
-                                                            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>HSN: {item.hsn_code}</div>
+                                                            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
+                                                                HSN: {item.hsn_code} | {(item.quantity + item.free_quantity) * (item.tablets_per_strip || 10)} pcs total
+                                                            </div>
                                                         </td>
                                                         <td>
                                                             <input
@@ -1017,6 +1302,16 @@ export function Purchases() {
                                                                 value={item.free_quantity || ''}
                                                                 onChange={(e) => updatePurchaseItem(item.id, 'free_quantity', parseInt(e.target.value) || 0)}
                                                                 min={0}
+                                                            />
+                                                        </td>
+                                                        <td>
+                                                            <input
+                                                                type="number"
+                                                                className="form-input"
+                                                                style={{ padding: 'var(--space-2)', fontSize: 'var(--text-sm)', textAlign: 'right' }}
+                                                                value={item.tablets_per_strip || 10}
+                                                                onChange={(e) => updatePurchaseItem(item.id, 'tablets_per_strip', parseInt(e.target.value) || 10)}
+                                                                min={1}
                                                             />
                                                         </td>
                                                         <td>
@@ -1146,6 +1441,106 @@ export function Purchases() {
                                 <button type="submit" className="btn btn-primary" disabled={purchaseItems.length === 0}>
                                     <Plus size={18} />
                                     Save Purchase
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Quick Add Medicine Modal */}
+            {showQuickAddMedicineModal && (
+                <div className="modal-overlay" onClick={() => setShowQuickAddMedicineModal(false)}>
+                    <div className="modal" onClick={(e) => e.stopPropagation()}>
+                        <div className="modal-header">
+                            <h3 className="modal-title">Quick Add Medicine</h3>
+                            <button className="btn btn-ghost btn-icon" onClick={() => setShowQuickAddMedicineModal(false)}>
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <form onSubmit={handleQuickAddMedicine}>
+                            <div className="modal-body">
+                                <div className="form-group">
+                                    <label className="form-label">Medicine Name *</label>
+                                    <input
+                                        type="text"
+                                        className="form-input"
+                                        value={quickMedicineForm.name}
+                                        onChange={(e) => setQuickMedicineForm({ ...quickMedicineForm, name: e.target.value })}
+                                        required
+                                        autoFocus
+                                    />
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)' }}>
+                                    <div className="form-group">
+                                        <label className="form-label">Generic Name</label>
+                                        <input
+                                            type="text"
+                                            className="form-input"
+                                            value={quickMedicineForm.generic_name}
+                                            onChange={(e) => setQuickMedicineForm({ ...quickMedicineForm, generic_name: e.target.value })}
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Manufacturer</label>
+                                        <input
+                                            type="text"
+                                            className="form-input"
+                                            value={quickMedicineForm.manufacturer}
+                                            onChange={(e) => setQuickMedicineForm({ ...quickMedicineForm, manufacturer: e.target.value })}
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">HSN Code</label>
+                                        <input
+                                            type="text"
+                                            className="form-input"
+                                            value={quickMedicineForm.hsn_code}
+                                            onChange={(e) => setQuickMedicineForm({ ...quickMedicineForm, hsn_code: e.target.value })}
+                                            placeholder="3004"
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">GST Rate</label>
+                                        <select
+                                            className="form-select"
+                                            value={quickMedicineForm.gst_rate}
+                                            onChange={(e) => setQuickMedicineForm({ ...quickMedicineForm, gst_rate: parseInt(e.target.value) as GstRate })}
+                                        >
+                                            <option value={0}>0%</option>
+                                            <option value={5}>5%</option>
+                                            <option value={12}>12%</option>
+                                            <option value={18}>18%</option>
+                                        </select>
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Category</label>
+                                        <input
+                                            type="text"
+                                            className="form-input"
+                                            value={quickMedicineForm.category}
+                                            onChange={(e) => setQuickMedicineForm({ ...quickMedicineForm, category: e.target.value })}
+                                            placeholder="e.g., Tablets, Syrup"
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                                            <input
+                                                type="checkbox"
+                                                checked={quickMedicineForm.is_schedule}
+                                                onChange={(e) => setQuickMedicineForm({ ...quickMedicineForm, is_schedule: e.target.checked })}
+                                            />
+                                            Schedule H/H1 Drug
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="modal-footer">
+                                <button type="button" className="btn btn-secondary" onClick={() => setShowQuickAddMedicineModal(false)}>
+                                    Cancel
+                                </button>
+                                <button type="submit" className="btn btn-primary">
+                                    <Plus size={18} /> Add & Continue
                                 </button>
                             </div>
                         </form>

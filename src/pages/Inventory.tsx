@@ -837,7 +837,12 @@ export function Inventory() {
                 <div className="modal-overlay" onClick={() => setShowAddBatchModal(false)}>
                     <div className="modal modal-lg" onClick={(e) => e.stopPropagation()}>
                         <div className="modal-header">
-                            <h3 className="modal-title">Add Stock / New Batch</h3>
+                            <div>
+                                <h3 className="modal-title">Add Stock / New Batch</h3>
+                                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', marginTop: 4 }}>
+                                    💡 All prices are per strip/pack. Quantity in strips.
+                                </div>
+                            </div>
                             <button className="btn btn-ghost btn-icon" onClick={() => setShowAddBatchModal(false)}>
                                 <X size={20} />
                             </button>
@@ -881,7 +886,7 @@ export function Inventory() {
                                         />
                                     </div>
                                     <div className="form-group">
-                                        <label className="form-label">Purchase Price *</label>
+                                        <label className="form-label">Purchase Price/Strip *</label>
                                         <input
                                             type="number"
                                             step="0.01"
@@ -892,7 +897,7 @@ export function Inventory() {
                                         />
                                     </div>
                                     <div className="form-group">
-                                        <label className="form-label">MRP *</label>
+                                        <label className="form-label">MRP/Strip *</label>
                                         <input
                                             type="number"
                                             step="0.01"
@@ -906,7 +911,7 @@ export function Inventory() {
                                         />
                                     </div>
                                     <div className="form-group">
-                                        <label className="form-label">Selling Price *</label>
+                                        <label className="form-label">Selling Price/Strip *</label>
                                         <input
                                             type="number"
                                             step="0.01"

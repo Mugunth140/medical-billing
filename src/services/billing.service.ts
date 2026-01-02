@@ -538,7 +538,7 @@ export async function getTopSellingMedicines(
       bi.medicine_id,
       bi.medicine_name,
       SUM(bi.quantity) AS quantity_sold,
-      SUM(bi.total) AS total_revenue
+      SUM(bi.total_amount) AS total_revenue
     FROM bill_items bi
     JOIN bills b ON bi.bill_id = b.id
     WHERE b.is_cancelled = 0

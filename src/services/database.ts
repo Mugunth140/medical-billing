@@ -259,6 +259,29 @@ const TABLE_STATEMENTS = [
         prescription_date TEXT,
         quantity INTEGER NOT NULL,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`,
+
+    // Running Bills Table - For medicines sold without stock (to be reconciled later)
+    // Creates an actual bill for the customer, but tracks the pending stock reconciliation
+    `CREATE TABLE IF NOT EXISTS running_bills (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        bill_id INTEGER NOT NULL REFERENCES bills(id),
+        bill_item_id INTEGER REFERENCES bill_items(id),
+        medicine_name TEXT NOT NULL,
+        quantity INTEGER NOT NULL,
+        unit_price DECIMAL(10,2) NOT NULL,
+        total_amount DECIMAL(12,2) NOT NULL,
+        gst_rate DECIMAL(5,2) DEFAULT 0,
+        hsn_code TEXT DEFAULT '3004',
+        notes TEXT,
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'STOCKED', 'CANCELLED')),
+        linked_batch_id INTEGER REFERENCES batches(id),
+        linked_medicine_id INTEGER REFERENCES medicines(id),
+        stocked_at DATETIME,
+        stocked_by INTEGER REFERENCES users(id),
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`
 ];
 
@@ -279,7 +302,9 @@ const INDEX_STATEMENTS = [
     `CREATE INDEX IF NOT EXISTS idx_credits_customer ON credits(customer_id)`,
     `CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_log(entity_type, entity_id)`,
     `CREATE INDEX IF NOT EXISTS idx_scheduled_medicine_bill ON scheduled_medicine_records(bill_id)`,
-    `CREATE INDEX IF NOT EXISTS idx_scheduled_medicine_medicine ON scheduled_medicine_records(medicine_id)`
+    `CREATE INDEX IF NOT EXISTS idx_scheduled_medicine_medicine ON scheduled_medicine_records(medicine_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_running_bills_status ON running_bills(status)`,
+    `CREATE INDEX IF NOT EXISTS idx_running_bills_bill ON running_bills(bill_id)`
 ];
 
 // Default data statements
@@ -518,9 +543,11 @@ export async function exportDatabase(): Promise<Record<string, unknown[]>> {
         'purchase_items',
         'bills',
         'bill_items',
-        'credit_transactions',
+        'credits',
         'scheduled_medicine_records',
-        'settings'
+        'running_bills',
+        'settings',
+        'bill_sequence'
     ];
     
     const backup: Record<string, unknown[]> = {
@@ -555,7 +582,8 @@ export async function importDatabase(backup: Record<string, unknown[]>): Promise
     
     const tables = [
         'scheduled_medicine_records',
-        'credit_transactions',
+        'running_bills',
+        'credits',
         'bill_items',
         'bills',
         'purchase_items',
@@ -564,7 +592,8 @@ export async function importDatabase(backup: Record<string, unknown[]>): Promise
         'medicines',
         'customers',
         'suppliers',
-        'settings'
+        'settings',
+        'bill_sequence'
         // Note: users table is handled separately to preserve current user
     ];
     

@@ -86,14 +86,14 @@ export function Reports() {
                     const gstData = await query<any>(
                         `SELECT 
               bi.gst_rate,
-              SUM(bi.taxable_value) as taxable_value,
-              SUM(bi.cgst) as cgst,
-              SUM(bi.sgst) as sgst,
-              SUM(bi.total_gst) as total_gst
+              SUM(bi.taxable_amount) as taxable_value,
+              SUM(bi.cgst_amount) as cgst,
+              SUM(bi.sgst_amount) as sgst,
+              SUM(bi.cgst_amount + bi.sgst_amount) as total_gst
             FROM bill_items bi
             JOIN bills b ON bi.bill_id = b.id
             WHERE date(b.bill_date) BETWEEN ? AND ?
-              AND b.status = 'COMPLETED'
+              AND b.is_cancelled = 0
             GROUP BY bi.gst_rate
             ORDER BY bi.gst_rate`,
                         [dateRange.start, dateRange.end]

@@ -15,6 +15,7 @@ import { Inventory } from './pages/Inventory';
 import { Login } from './pages/Login';
 import { Purchases } from './pages/Purchases';
 import { Reports } from './pages/Reports';
+import { RunningBills } from './pages/RunningBills';
 import { Settings } from './pages/Settings';
 import { initDatabase, query } from './services/database';
 import { useAuthStore, useSettingsStore } from './stores';
@@ -103,6 +104,7 @@ function App() {
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/billing" element={<Billing />} />
             <Route path="/bill-history" element={<BillHistory />} />
+            <Route path="/running-bills" element={<RunningBills />} />
             <Route path="/inventory" element={<Inventory />} />
             <Route path="/purchases" element={<Purchases />} />
             <Route path="/customers" element={<Customers />} />
