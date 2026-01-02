@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS medicines (
     drug_type TEXT,
     unit TEXT DEFAULT 'PCS',
     reorder_level INTEGER DEFAULT 10,
+    is_schedule INTEGER DEFAULT 0,
     is_active INTEGER DEFAULT 1,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -48,6 +49,7 @@ CREATE INDEX IF NOT EXISTS idx_medicines_name ON medicines(name);
 CREATE INDEX IF NOT EXISTS idx_medicines_hsn ON medicines(hsn_code);
 CREATE INDEX IF NOT EXISTS idx_medicines_gst ON medicines(gst_rate);
 CREATE INDEX IF NOT EXISTS idx_medicines_active ON medicines(is_active);
+CREATE INDEX IF NOT EXISTS idx_medicines_schedule ON medicines(is_schedule);
 
 -- =====================================================
 -- 3. BATCHES - Batch-wise Inventory
@@ -62,10 +64,12 @@ CREATE TABLE IF NOT EXISTS batches (
     selling_price DECIMAL(10,2) NOT NULL,
     price_type TEXT NOT NULL DEFAULT 'INCLUSIVE' CHECK (price_type IN ('INCLUSIVE', 'EXCLUSIVE')),
     quantity INTEGER NOT NULL DEFAULT 0,
+    tablets_per_strip INTEGER DEFAULT 10,
     rack TEXT,
     box TEXT,
     last_sold_date DATE,
     purchase_id INTEGER REFERENCES purchases(id),
+    supplier_id INTEGER REFERENCES suppliers(id),
     is_active INTEGER DEFAULT 1,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -131,6 +135,7 @@ CREATE TABLE IF NOT EXISTS bills (
     bill_date DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     customer_id INTEGER REFERENCES customers(id),
     customer_name TEXT,
+    doctor_name TEXT,
     user_id INTEGER NOT NULL REFERENCES users(id),
     
     -- Amounts
@@ -434,6 +439,61 @@ CREATE TABLE IF NOT EXISTS bill_sequence (
     financial_year TEXT NOT NULL,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+-- =====================================================
+-- 18. SCHEDULED_MEDICINE_RECORDS - For Schedule H/H1 Drugs
+-- =====================================================
+CREATE TABLE IF NOT EXISTS scheduled_medicine_records (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    bill_id INTEGER NOT NULL REFERENCES bills(id),
+    bill_item_id INTEGER NOT NULL REFERENCES bill_items(id),
+    medicine_id INTEGER NOT NULL REFERENCES medicines(id),
+    batch_id INTEGER NOT NULL REFERENCES batches(id),
+    patient_name TEXT NOT NULL,
+    patient_age INTEGER,
+    patient_gender TEXT CHECK (patient_gender IN ('M', 'F', 'O')),
+    patient_phone TEXT,
+    patient_address TEXT,
+    doctor_name TEXT,
+    doctor_registration_number TEXT,
+    clinic_hospital_name TEXT,
+    prescription_number TEXT,
+    prescription_date TEXT,
+    quantity INTEGER NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_scheduled_bill ON scheduled_medicine_records(bill_id);
+CREATE INDEX IF NOT EXISTS idx_scheduled_medicine ON scheduled_medicine_records(medicine_id);
+CREATE INDEX IF NOT EXISTS idx_scheduled_patient ON scheduled_medicine_records(patient_name);
+CREATE INDEX IF NOT EXISTS idx_scheduled_date ON scheduled_medicine_records(created_at);
+
+-- =====================================================
+-- 19. RUNNING_BILLS - Pending Stock Reconciliation
+-- =====================================================
+CREATE TABLE IF NOT EXISTS running_bills (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    bill_id INTEGER NOT NULL REFERENCES bills(id),
+    bill_item_id INTEGER REFERENCES bill_items(id),
+    medicine_name TEXT NOT NULL,
+    quantity INTEGER NOT NULL,
+    unit_price DECIMAL(10,2) NOT NULL,
+    total_amount DECIMAL(12,2) NOT NULL,
+    gst_rate DECIMAL(5,2) DEFAULT 0,
+    hsn_code TEXT DEFAULT '3004',
+    notes TEXT,
+    user_id INTEGER NOT NULL DEFAULT 1,
+    status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'STOCKED', 'CANCELLED')),
+    linked_batch_id INTEGER REFERENCES batches(id),
+    linked_medicine_id INTEGER REFERENCES medicines(id),
+    stocked_at DATETIME,
+    stocked_by INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_running_bills_bill ON running_bills(bill_id);
+CREATE INDEX IF NOT EXISTS idx_running_bills_status ON running_bills(status);
 
 -- =====================================================
 -- DEFAULT DATA

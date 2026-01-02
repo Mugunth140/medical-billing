@@ -656,6 +656,57 @@ export async function getStockValue(): Promise<{
   };
 }
 
+/**
+ * Get scheduled medicines (Schedule H/H1)
+ */
+export async function getScheduledMedicines(): Promise<StockItem[]> {
+  const sql = `
+    SELECT 
+      b.id AS batch_id,
+      b.batch_number,
+      b.expiry_date,
+      b.purchase_price,
+      b.mrp,
+      b.selling_price,
+      b.price_type,
+      b.quantity,
+      COALESCE(b.tablets_per_strip, 10) AS tablets_per_strip,
+      b.rack,
+      b.box,
+      b.last_sold_date,
+      m.id AS medicine_id,
+      m.name AS medicine_name,
+      m.generic_name,
+      m.manufacturer,
+      m.hsn_code,
+      m.gst_rate,
+      m.taxability,
+      m.category,
+      m.unit,
+      m.reorder_level,
+      COALESCE(m.is_schedule, 0) AS is_schedule,
+      CASE 
+        WHEN b.quantity <= 0 THEN 'OUT_OF_STOCK'
+        WHEN b.quantity <= m.reorder_level THEN 'LOW_STOCK'
+        ELSE 'IN_STOCK'
+      END AS stock_status,
+      CASE 
+        WHEN b.expiry_date <= date('now') THEN 'EXPIRED'
+        WHEN b.expiry_date <= date('now', '+30 days') THEN 'EXPIRING_SOON'
+        ELSE 'OK'
+      END AS expiry_status,
+      julianday(b.expiry_date) - julianday('now') AS days_to_expiry
+    FROM batches b
+    JOIN medicines m ON b.medicine_id = m.id
+    WHERE b.is_active = 1 
+      AND m.is_active = 1
+      AND m.is_schedule = 1
+    ORDER BY m.name ASC, b.expiry_date ASC
+  `;
+
+  return await query<StockItem>(sql, []);
+}
+
 export default {
   // Medicine operations
   getMedicines,
@@ -678,6 +729,7 @@ export default {
   getExpiringItems,
   getLowStockItems,
   getNonMovingItems,
+  getScheduledMedicines,
   getStockByLocation,
   getStockValue
 };

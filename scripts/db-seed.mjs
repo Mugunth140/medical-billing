@@ -122,6 +122,7 @@ function createTables() {
             bill_date DATETIME DEFAULT CURRENT_TIMESTAMP,
             customer_id INTEGER REFERENCES customers(id),
             customer_name TEXT,
+            doctor_name TEXT,
             subtotal DECIMAL(12,2) NOT NULL DEFAULT 0,
             discount_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
             discount_percent DECIMAL(5,2) DEFAULT 0,

@@ -12,7 +12,6 @@ import {
     Download,
     Edit2,
     HardDrive,
-    Package,
     Printer,
     Save,
     Store,
@@ -24,7 +23,6 @@ import {
 import { useEffect, useState } from 'react';
 import { createUser, deactivateUser, updateUser } from '../services/auth.service';
 import { execute, exportDatabase, importDatabase, query } from '../services/database';
-import { clearDatabase, seedDatabase } from '../services/seed';
 import { useAuthStore, useSettingsStore } from '../stores';
 import type { User, UserRole } from '../types';
 
@@ -345,31 +343,6 @@ export function Settings() {
         } catch (error) {
             console.error('Failed to delete user:', error);
             alert('Failed to delete user. Please try again.');
-        }
-    };
-
-    const handleSeedDatabase = async () => {
-        if (!confirm('This will add demo data to your database. Continue?')) return;
-        try {
-            await seedDatabase();
-            alert('Demo data added successfully! Refresh the app to see the changes.');
-            window.location.reload();
-        } catch (error) {
-            console.error('Failed to seed database:', error);
-            alert('Failed to seed database. Check console for details.');
-        }
-    };
-
-    const handleClearDatabase = async () => {
-        if (!confirm('⚠️ WARNING: This will DELETE all data except settings. This cannot be undone!\n\nAre you absolutely sure?')) return;
-        if (!confirm('Final confirmation: Type "DELETE" below to confirm.\n\nClick OK to proceed or Cancel to abort.')) return;
-        try {
-            await clearDatabase();
-            alert('Database cleared successfully! The app will now reload.');
-            window.location.reload();
-        } catch (error) {
-            console.error('Failed to clear database:', error);
-            alert('Failed to clear database. Check console for details.');
         }
     };
 
@@ -936,39 +909,6 @@ export function Settings() {
                                             data locally. For extra safety, create manual backups regularly and store
                                             them on a separate drive or cloud storage.
                                         </div>
-                                    </div>
-                                </div>
-
-                                <div className="settings-section">
-                                    <h2 className="settings-section-title">Demo Data</h2>
-                                    <div className="backup-card">
-                                        <div className="backup-icon" style={{ background: 'var(--color-success-100)', color: 'var(--color-success-600)' }}>
-                                            <Package size={24} />
-                                        </div>
-                                        <h3 className="font-semibold mb-2">Seed Demo Data</h3>
-                                        <p className="text-secondary text-sm mb-4">
-                                            Add sample medicines, suppliers, customers, bills, and purchases to test the application.
-                                            This will not overwrite existing data.
-                                        </p>
-                                        <button className="btn btn-success" onClick={handleSeedDatabase}>
-                                            <Package size={18} />
-                                            Add Demo Data
-                                        </button>
-                                    </div>
-
-                                    <div className="backup-card" style={{ marginTop: 'var(--space-4)' }}>
-                                        <div className="backup-icon" style={{ background: 'var(--color-danger-100)', color: 'var(--color-danger-600)' }}>
-                                            <Trash2 size={24} />
-                                        </div>
-                                        <h3 className="font-semibold mb-2">Clear All Data</h3>
-                                        <p className="text-secondary text-sm mb-4">
-                                            Delete all medicines, suppliers, customers, bills, and purchases.
-                                            Settings will be preserved. This action cannot be undone!
-                                        </p>
-                                        <button className="btn btn-danger" onClick={handleClearDatabase}>
-                                            <Trash2 size={18} />
-                                            Clear Database
-                                        </button>
                                     </div>
                                 </div>
                             </>

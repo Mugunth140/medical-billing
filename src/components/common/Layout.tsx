@@ -5,7 +5,6 @@
 
 import {
     ArrowDownLeft,
-    ArrowUpRight,
     Building2,
     ChevronDown,
     ChevronLeft,
@@ -54,6 +53,7 @@ const MAIN_NAV_ITEMS: NavItem[] = [
     { id: 'running-bills', label: 'Running Bills', icon: ClipboardList, path: '/running-bills' },
     { id: 'inventory', label: 'Inventory', icon: Package, path: '/inventory' },
     { id: 'customers', label: 'Customers', icon: Users, path: '/customers' },
+    { id: 'returns', label: 'Returns', icon: ArrowDownLeft, path: '/returns', adminOnly: true },
 ];
 
 // Grouped navigation items (collapsible)
@@ -66,16 +66,6 @@ const NAV_GROUPS: NavGroup[] = [
         items: [
             { id: 'stock-entry', label: 'Stock Entry', icon: Truck, path: '/purchases' },
             { id: 'suppliers', label: 'Supplier Management', icon: Building2, path: '/suppliers' },
-        ]
-    },
-    {
-        id: 'returns-group',
-        label: 'Returns',
-        icon: ArrowDownLeft,
-        adminOnly: true,
-        items: [
-            { id: 'sales-returns', label: 'Sales Returns', icon: ArrowDownLeft, path: '/returns?tab=sales' },
-            { id: 'supplier-returns', label: 'Supplier Returns', icon: ArrowUpRight, path: '/returns?tab=supplier' },
         ]
     },
 ];

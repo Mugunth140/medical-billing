@@ -9,6 +9,7 @@ import {
     Edit,
     MapPin,
     Package,
+    Pill,
     Plus,
     Search,
     Trash2,
@@ -27,12 +28,13 @@ import {
     getLowStockItems,
     getMedicines,
     getNonMovingItems,
+    getScheduledMedicines,
     updateMedicine
 } from '../services/inventory.service';
 import type { CreateBatchInput, CreateMedicineInput, GstRate, Medicine, StockItem } from '../types';
 import { formatCurrency, formatDate, getExpiryStatusInfo, getStockStatusInfo } from '../utils';
 
-type FilterType = 'all' | 'expiring' | 'low-stock' | 'non-moving';
+type FilterType = 'all' | 'expiring' | 'low-stock' | 'non-moving' | 'scheduled';
 
 export function Inventory() {
     const { showToast } = useToast();
@@ -100,6 +102,9 @@ export function Inventory() {
                     break;
                 case 'non-moving':
                     items = await getNonMovingItems(30);
+                    break;
+                case 'scheduled':
+                    items = await getScheduledMedicines();
                     break;
                 default:
                     items = await getAllStock();
@@ -465,6 +470,14 @@ export function Inventory() {
                     >
                         <Clock size={16} />
                         Non-Moving
+                    </button>
+                    <button
+                        className={`filter-btn ${activeFilter === 'scheduled' ? 'active' : ''}`}
+                        onClick={() => handleFilterChange('scheduled')}
+                        title="Schedule H/H1 Drugs"
+                    >
+                        <Pill size={16} />
+                        Schedule Drugs
                     </button>
                 </div>
 

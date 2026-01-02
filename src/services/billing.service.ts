@@ -137,16 +137,17 @@ export async function createBill(
         console.log('Inserting bill...', { billNumber, userId, totals: billCalc });
         const billResult = await execute(
             `INSERT INTO bills (
-        bill_number, customer_id, customer_name, user_id,
+        bill_number, customer_id, customer_name, doctor_name, user_id,
         subtotal, discount_amount, discount_percent,
         taxable_amount, cgst_amount, sgst_amount, total_gst,
         grand_total, round_off, payment_mode,
         cash_amount, online_amount, credit_amount, notes, total_items
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 billNumber,
                 input.customer_id ?? null,
                 input.customer_name ?? null,
+                input.doctor_name ?? null,
                 userId,
                 billCalc.subtotal,
                 billCalc.billDiscount,

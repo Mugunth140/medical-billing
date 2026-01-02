@@ -7,6 +7,7 @@ import {
     AlertCircle,
     Check,
     Clock,
+    FileText,
     Package,
     Plus,
     Printer,

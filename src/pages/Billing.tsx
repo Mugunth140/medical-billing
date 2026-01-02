@@ -218,6 +218,7 @@ export function Billing() {
                 {
                     customer_id: customerId ?? undefined,
                     customer_name: customerName || undefined,
+                    doctor_name: doctorName || (hasScheduled && patientInfo?.doctor_name ? patientInfo.doctor_name : undefined),
                     items: items.map(item => ({
                         batch_id: item.batch.batch_id,
                         quantity: item.quantity,

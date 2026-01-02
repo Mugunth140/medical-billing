@@ -130,6 +130,7 @@ export interface Bill {
     bill_date: string;
     customer_id?: number;
     customer_name?: string;
+    doctor_name?: string;
     user_id: number;
 
     subtotal: number;
@@ -540,6 +541,7 @@ export interface BillItemInput {
 export interface CreateBillInput {
     customer_id?: number;
     customer_name?: string;
+    doctor_name?: string;
     items: BillItemInput[];
     discount_type?: DiscountType;
     discount_value?: number;
