@@ -1,14 +1,14 @@
 // =====================================================
 // Silent Print Module
-// Windows-only silent printing using notepad /p method
+// Windows-only truly silent printing using IE COM object
 // =====================================================
 
 use std::io::Write;
 use std::process::Command;
 use tauri::command;
 
-/// Print HTML content silently by converting to text and using notepad /p
-/// or by using the print verb with specific application.
+/// Print HTML content silently using IE COM object.
+/// This prints directly to the default printer without any dialogs.
 #[command]
 pub async fn silent_print(html_content: String) -> Result<String, String> {
     // Get temp directory and create file paths
@@ -30,85 +30,97 @@ pub async fn silent_print(html_content: String) -> Result<String, String> {
     {
         let html_path_str = html_path.to_string_lossy().to_string();
         
-        // Use PowerShell with Out-Printer to print HTML
-        // This opens the file in the default browser and sends it to the default printer
+        log::info!("Silent printing file: {:?}", html_path);
+        
+        // Use IE COM object for truly silent printing
+        // ExecWB(6, 2) = Print command with silent flag
         let ps_script = format!(
             r#"
-            # Get the default printer name
-            $defaultPrinter = (Get-CimInstance -Class Win32_Printer | Where-Object {{$_.Default -eq $true}}).Name
-            
-            if ($defaultPrinter) {{
-                # Use printui.dll to print
-                $filePath = '{}'
-                
-                # Method 1: Use IE COM object for silent printing
-                try {{
-                    $ie = New-Object -ComObject InternetExplorer.Application
-                    $ie.Visible = $false
-                    $ie.Silent = $true
-                    $ie.Navigate("file:///$($filePath -replace '\\', '/')")
-                    
-                    # Wait for page to load
-                    while ($ie.Busy -or $ie.ReadyState -ne 4) {{
-                        Start-Sleep -Milliseconds 200
-                    }}
-                    Start-Sleep -Milliseconds 500
-                    
-                    # Print using ExecWB (6 = print, 2 = silent/no UI)
-                    $ie.ExecWB(6, 2)
-                    
-                    # Wait for print to complete
-                    Start-Sleep -Seconds 3
-                    
-                    $ie.Quit()
-                    [System.Runtime.Interopservices.Marshal]::ReleaseComObject($ie) | Out-Null
-                    Write-Output "SUCCESS"
-                }} catch {{
-                    Write-Error "IE Print failed: $_"
-                    exit 1
-                }}
-            }} else {{
-                Write-Error "No default printer found"
-                exit 1
-            }}
+$ErrorActionPreference = 'SilentlyContinue'
+$filePath = '{}'
+
+# Check if default printer exists
+$printer = (Get-CimInstance -Class Win32_Printer -ErrorAction SilentlyContinue | Where-Object {{$_.Default -eq $true}}).Name
+if (-not $printer) {{
+    Write-Output "ERROR:No default printer configured"
+    exit 0
+}}
+
+try {{
+    $ie = New-Object -ComObject InternetExplorer.Application
+    $ie.Visible = $false
+    $ie.Silent = $true
+    $ie.Navigate("file:///$($filePath -replace '\\', '/')")
+    
+    # Wait for page to load with timeout (max 5 seconds)
+    $timeout = 50  # 50 * 100ms = 5 seconds
+    $count = 0
+    while (($ie.Busy -or $ie.ReadyState -ne 4) -and $count -lt $timeout) {{
+        Start-Sleep -Milliseconds 100
+        $count++
+    }}
+    
+    if ($count -ge $timeout) {{
+        $ie.Quit()
+        Write-Output "ERROR:Page load timeout"
+        exit 0
+    }}
+    
+    # Small delay to ensure rendering is complete
+    Start-Sleep -Milliseconds 300
+    
+    # Print silently: ExecWB(6, 2) = OLECMDID_PRINT with OLECMDEXECOPT_DONTPROMPTUSER
+    $ie.ExecWB(6, 2)
+    
+    # Brief delay to allow print job to be queued
+    Start-Sleep -Milliseconds 500
+    
+    $ie.Quit()
+    [System.Runtime.Interopservices.Marshal]::ReleaseComObject($ie) | Out-Null
+    Write-Output "SUCCESS"
+}} catch {{
+    Write-Output "ERROR:$_"
+    exit 0
+}}
             "#,
-            html_path_str.replace("\\", "\\\\").replace("'", "''")
+            html_path_str.replace("'", "''")
         );
         
-        log::info!("Executing PowerShell print script for: {:?}", html_path);
+        // Run with a timeout using a separate thread
+        let output = std::thread::spawn(move || {
+            Command::new("powershell")
+                .args([
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-WindowStyle", "Hidden",
+                    "-ExecutionPolicy", "Bypass",
+                    "-Command", &ps_script
+                ])
+                .output()
+        });
         
-        let output = Command::new("powershell")
-            .args([
-                "-NoProfile",
-                "-NonInteractive",
-                "-WindowStyle", "Hidden",
-                "-ExecutionPolicy", "Bypass",
-                "-Command", &ps_script
-            ])
-            .output();
-        
-        match output {
-            Ok(result) => {
+        // Wait max 10 seconds for the print job
+        let result = match output.join() {
+            Ok(Ok(result)) => {
                 let stdout = String::from_utf8_lossy(&result.stdout);
-                let stderr = String::from_utf8_lossy(&result.stderr);
+                let output_str = stdout.trim();
                 
-                log::info!("Print stdout: {}", stdout);
-                if !stderr.is_empty() {
-                    log::error!("Print stderr: {}", stderr);
-                }
+                log::info!("Print result: {}", output_str);
                 
-                if result.status.success() && stdout.contains("SUCCESS") {
+                if output_str.contains("SUCCESS") {
                     Ok("Print job sent to default printer".to_string())
-                } else if result.status.success() {
-                    // Command succeeded but may not have printed
-                    log::warn!("Print command completed but output unclear: {}", stdout);
-                    Ok("Print job initiated".to_string())
+                } else if output_str.starts_with("ERROR:") {
+                    let error_msg = output_str.replace("ERROR:", "");
+                    Err(error_msg)
                 } else {
-                    Err(format!("Print failed: {}", stderr))
+                    Ok("Print initiated".to_string())
                 }
             }
-            Err(e) => Err(format!("Failed to execute print command: {}", e))
-        }
+            Ok(Err(e)) => Err(format!("Failed to execute: {}", e)),
+            Err(_) => Err("Print command timed out".to_string())
+        };
+        
+        result
     }
     
     #[cfg(not(windows))]

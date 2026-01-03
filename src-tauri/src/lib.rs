@@ -11,7 +11,8 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
             print::silent_print,
-            print::check_printer_available
+            print::check_printer_available,
+            print::get_default_printer
         ])
         .setup(|app| {
             // Initialize logging in debug mode
