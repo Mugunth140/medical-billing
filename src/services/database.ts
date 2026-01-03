@@ -391,7 +391,7 @@ const INDEX_STATEMENTS = [
 const DEFAULT_DATA_STATEMENTS = [
     // Default Admin User - IMPORTANT: Change password on first login!
     // In production, password should be hashed with bcrypt
-    `INSERT OR IGNORE INTO users (id, username, password_hash, full_name, role) VALUES (1, 'admin', 'changeme123', 'Administrator', 'admin')`,
+    `INSERT OR IGNORE INTO users (id, username, password_hash, full_name, role) VALUES (1, 'admin', 'admin@123', 'Administrator', 'admin')`,
 
     // Bill Sequence
     `INSERT OR IGNORE INTO bill_sequence (id, prefix, current_number, financial_year) VALUES (1, 'INV', 0, '2024-25')`,

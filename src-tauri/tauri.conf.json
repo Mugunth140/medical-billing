@@ -3,12 +3,14 @@
   "productName": "Medical Billing Software",
   "version": "1.0.0",
   "identifier": "com.medicalbilling.app",
+
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build"
   },
+
   "app": {
     "windows": [
       {
@@ -23,15 +25,20 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:"
+      "csp": {
+        "default-src": "'self'",
+        "script-src": "'self' 'unsafe-eval'",
+        "style-src": "'self' 'unsafe-inline' https://fonts.googleapis.com",
+        "font-src": "'self' https://fonts.gstatic.com",
+        "img-src": "'self' data: blob:",
+        "connect-src": "'self' http://localhost:5173"
+      }
     }
   },
+
   "bundle": {
     "active": true,
-    "targets": [
-      "msi",
-      "nsis"
-    ],
+    "targets": ["msi", "nsis"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -45,11 +52,10 @@
       }
     }
   },
+
   "plugins": {
     "sql": {
-      "preload": [
-        "sqlite:medbill.db"
-      ]
+      "preload": ["sqlite:medbill.db"]
     },
     "fs": {
       "requireLiteralLeadingDot": false

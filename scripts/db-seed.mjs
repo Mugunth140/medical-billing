@@ -268,7 +268,7 @@ function createTables() {
     // Insert default user and bill sequence if not exists
     const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get();
     if (userCount.count === 0) {
-        db.exec(`INSERT INTO users (username, password_hash, full_name, role) VALUES ('admin', 'changeme123', 'Administrator', 'admin')`);
+        db.exec(`INSERT INTO users (username, password_hash, full_name, role) VALUES ('admin', 'admin@123', 'Administrator', 'admin')`);
     }
 
     const seqCount = db.prepare('SELECT COUNT(*) as count FROM bill_sequence').get();
