@@ -3,16 +3,18 @@
 // Application Settings and Configuration
 // =====================================================
 
-import { open, save } from '@tauri-apps/plugin-dialog';
-import { readFile, writeFile } from '@tauri-apps/plugin-fs';
 import {
     AlertCircle,
+    Calendar,
     Check,
+    Clock,
     Database,
     Download,
     Edit2,
+    FolderOpen,
     HardDrive,
     Printer,
+    RefreshCw,
     Save,
     Store,
     Trash2,
@@ -22,7 +24,16 @@ import {
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { createUser, deactivateUser, updateUser } from '../services/auth.service';
-import { execute, exportDatabase, importDatabase, query } from '../services/database';
+import type { BackupInfo } from '../services/backup.service';
+import {
+    createBackup,
+    deleteBackup,
+    formatFileSize,
+    getBackupFolderPath,
+    listBackups,
+    restoreFromBackup
+} from '../services/backup.service';
+import { execute, query } from '../services/database';
 import { useAuthStore, useSettingsStore } from '../stores';
 import type { User, UserRole } from '../types';
 
@@ -61,6 +72,10 @@ export function Settings() {
     // Backup state
     const [isBackingUp, setIsBackingUp] = useState(false);
     const [isRestoring, setIsRestoring] = useState(false);
+    const [backups, setBackups] = useState<BackupInfo[]>([]);
+    const [isLoadingBackups, setIsLoadingBackups] = useState(false);
+    const [backupFolder, setBackupFolder] = useState<string>('');
+    const [deletingBackup, setDeletingBackup] = useState<string | null>(null);
 
     // Shop settings form
     const [shopForm, setShopForm] = useState({
@@ -94,6 +109,9 @@ export function Settings() {
     useEffect(() => {
         if (activeTab === 'users') {
             loadUsers();
+        }
+        if (activeTab === 'backup') {
+            loadBackups();
         }
     }, [activeTab]);
 
@@ -154,22 +172,9 @@ export function Settings() {
     const handleBackup = async () => {
         setIsBackingUp(true);
         try {
-            // Get the database content as JSON
-            const backupData = await exportDatabase();
-
-            // Show save dialog
-            const filePath = await save({
-                title: 'Save Database Backup',
-                defaultPath: `medbill_backup_${new Date().toISOString().split('T')[0]}.json`,
-                filters: [{ name: 'JSON Backup', extensions: ['json'] }]
-            });
-
-            if (filePath) {
-                // Write the backup file
-                const encoder = new TextEncoder();
-                await writeFile(filePath, encoder.encode(JSON.stringify(backupData, null, 2)));
-                alert('Backup created successfully!');
-            }
+            await createBackup();
+            await loadBackups();
+            alert('Backup created successfully!');
         } catch (error) {
             console.error('Backup failed:', error);
             alert('Failed to create backup. Check console for details.');
@@ -177,37 +182,50 @@ export function Settings() {
         setIsBackingUp(false);
     };
 
-    const handleRestore = async () => {
-        if (!confirm('⚠️ WARNING: This will replace ALL current data with the backup data.\n\nAre you sure you want to continue?')) {
+    const handleRestoreBackup = async (filename: string) => {
+        if (!confirm(`⚠️ WARNING: This will replace ALL current data with the backup "${filename}".\n\nThe application will reload after restore. Are you sure you want to continue?`)) {
             return;
         }
 
         setIsRestoring(true);
         try {
-            // Show open dialog
-            const filePath = await open({
-                title: 'Select Backup File',
-                filters: [{ name: 'JSON Backup', extensions: ['json'] }],
-                multiple: false
-            });
-
-            if (filePath && typeof filePath === 'string') {
-                // Read the backup file
-                const fileData = await readFile(filePath);
-                const decoder = new TextDecoder();
-                const jsonString = decoder.decode(fileData);
-                const backupData = JSON.parse(jsonString);
-
-                // Import the data
-                await importDatabase(backupData);
-                alert('Database restored successfully! The app will now reload.');
-                window.location.reload();
-            }
+            await restoreFromBackup(filename);
+            alert('Database restored successfully! The app will now reload.');
+            window.location.reload();
         } catch (error) {
             console.error('Restore failed:', error);
-            alert('Failed to restore backup. The file may be corrupted or incompatible.');
+            alert('Failed to restore backup. The file may be corrupted.');
         }
         setIsRestoring(false);
+    };
+
+    const handleDeleteBackup = async (filename: string) => {
+        if (!confirm(`Are you sure you want to delete the backup "${filename}"?\n\nThis action cannot be undone.`)) {
+            return;
+        }
+
+        setDeletingBackup(filename);
+        try {
+            await deleteBackup(filename);
+            await loadBackups();
+        } catch (error) {
+            console.error('Delete failed:', error);
+            alert('Failed to delete backup.');
+        }
+        setDeletingBackup(null);
+    };
+
+    const loadBackups = async () => {
+        setIsLoadingBackups(true);
+        try {
+            const backupList = await listBackups();
+            setBackups(backupList);
+            const folder = await getBackupFolderPath();
+            setBackupFolder(folder);
+        } catch (error) {
+            console.error('Failed to load backups:', error);
+        }
+        setIsLoadingBackups(false);
     };
 
     // User management functions
@@ -870,44 +888,110 @@ export function Settings() {
                         {activeTab === 'backup' && isAdmin && (
                             <>
                                 <div className="settings-section">
-                                    <h2 className="settings-section-title">Backup & Restore</h2>
-
-                                    <div className="backup-card">
-                                        <div className="backup-icon">
-                                            <Download size={24} />
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
+                                        <h2 className="settings-section-title" style={{ marginBottom: 0, borderBottom: 'none', paddingBottom: 0 }}>Backup & Restore</h2>
+                                        <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+                                            <button className="btn btn-ghost btn-sm" onClick={loadBackups} disabled={isLoadingBackups}>
+                                                <RefreshCw size={16} className={isLoadingBackups ? 'animate-spin' : ''} />
+                                                Refresh
+                                            </button>
+                                            <button className="btn btn-primary" onClick={handleBackup} disabled={isBackingUp}>
+                                                <Download size={18} />
+                                                {isBackingUp ? 'Creating...' : 'Create Backup'}
+                                            </button>
                                         </div>
-                                        <h3 className="font-semibold mb-2">Create Backup</h3>
-                                        <p className="text-secondary text-sm mb-4">
-                                            Download a complete backup of your database including all medicines,
-                                            bills, customers, and settings.
-                                        </p>
-                                        <button className="btn btn-primary" onClick={handleBackup} disabled={isBackingUp}>
-                                            <Download size={18} />
-                                            {isBackingUp ? 'Creating Backup...' : 'Download Backup'}
-                                        </button>
                                     </div>
 
-                                    <div className="backup-card">
-                                        <div className="backup-icon" style={{ background: 'var(--color-warning-100)', color: 'var(--color-warning-600)' }}>
-                                            <Upload size={24} />
+                                    {/* Backup folder location */}
+                                    {backupFolder && (
+                                        <div className="alert alert-info" style={{ marginBottom: 'var(--space-4)' }}>
+                                            <FolderOpen size={18} />
+                                            <div>
+                                                <strong>Backup Location:</strong>
+                                                <span style={{ marginLeft: 'var(--space-2)', fontFamily: 'monospace', fontSize: 'var(--text-sm)' }}>
+                                                    {backupFolder}
+                                                </span>
+                                            </div>
                                         </div>
-                                        <h3 className="font-semibold mb-2">Restore from Backup</h3>
-                                        <p className="text-secondary text-sm mb-4">
-                                            Restore your database from a previously created backup file.
-                                            This will replace all current data.
-                                        </p>
-                                        <button className="btn btn-secondary" onClick={handleRestore} disabled={isRestoring}>
-                                            <Upload size={18} />
-                                            {isRestoring ? 'Restoring...' : 'Restore Backup'}
-                                        </button>
+                                    )}
+
+                                    {/* Backup list */}
+                                    <div style={{ marginTop: 'var(--space-4)' }}>
+                                        <h3 className="font-semibold mb-3">Available Backups</h3>
+
+                                        {isLoadingBackups ? (
+                                            <div className="text-center text-secondary" style={{ padding: 'var(--space-6)' }}>
+                                                <RefreshCw size={24} className="animate-spin" style={{ margin: '0 auto var(--space-2)' }} />
+                                                Loading backups...
+                                            </div>
+                                        ) : backups.length === 0 ? (
+                                            <div className="text-center text-secondary" style={{ padding: 'var(--space-6)', background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-lg)' }}>
+                                                <Database size={32} style={{ margin: '0 auto var(--space-2)', opacity: 0.5 }} />
+                                                <p>No backups found</p>
+                                                <p className="text-sm">Click "Create Backup" to create your first backup</p>
+                                            </div>
+                                        ) : (
+                                            <div className="backup-list">
+                                                {backups.map((backup) => (
+                                                    <div key={backup.filename} className="backup-card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 'var(--space-4)' }}>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)' }}>
+                                                            <div className="backup-icon" style={{ width: '40px', height: '40px', background: backup.isAutomatic ? 'var(--color-success-100)' : 'var(--color-primary-100)', color: backup.isAutomatic ? 'var(--color-success-600)' : 'var(--color-primary-600)' }}>
+                                                                {backup.isAutomatic ? <Clock size={20} /> : <Download size={20} />}
+                                                            </div>
+                                                            <div>
+                                                                <div className="font-medium" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                                                                    {backup.filename}
+                                                                    {backup.isAutomatic && (
+                                                                        <span className="badge badge-success" style={{ fontSize: 'var(--text-xs)' }}>Auto</span>
+                                                                    )}
+                                                                </div>
+                                                                <div className="text-sm text-secondary" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', marginTop: '2px' }}>
+                                                                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                                        <Calendar size={12} />
+                                                                        {backup.createdAt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                                                    </span>
+                                                                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                                        <Clock size={12} />
+                                                                        {backup.createdAt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                                                                    </span>
+                                                                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                                        <HardDrive size={12} />
+                                                                        {formatFileSize(backup.sizeBytes)}
+                                                                    </span>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+                                                            <button
+                                                                className="btn btn-secondary btn-sm"
+                                                                onClick={() => handleRestoreBackup(backup.filename)}
+                                                                disabled={isRestoring}
+                                                                title="Restore this backup"
+                                                            >
+                                                                <Upload size={16} />
+                                                                {isRestoring ? 'Restoring...' : 'Restore'}
+                                                            </button>
+                                                            <button
+                                                                className="btn btn-ghost btn-sm"
+                                                                onClick={() => handleDeleteBackup(backup.filename)}
+                                                                disabled={deletingBackup === backup.filename}
+                                                                title="Delete this backup"
+                                                                style={{ color: 'var(--color-danger-500)' }}
+                                                            >
+                                                                <Trash2 size={16} />
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
 
-                                    <div className="alert alert-info">
+                                    <div className="alert alert-info" style={{ marginTop: 'var(--space-6)' }}>
                                         <HardDrive size={18} />
                                         <div>
-                                            <strong>Automatic Backups:</strong> The application automatically saves your
-                                            data locally. For extra safety, create manual backups regularly and store
-                                            them on a separate drive or cloud storage.
+                                            <strong>Automatic Daily Backups:</strong> The application creates automatic daily backups
+                                            with the format Backup_DDMMYYYY.db. Manual backups include timestamp for precise tracking.
                                         </div>
                                     </div>
                                 </div>

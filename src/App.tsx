@@ -19,6 +19,7 @@ import { Returns } from './pages/Returns';
 import { RunningBills } from './pages/RunningBills';
 import { Settings } from './pages/Settings';
 import { SupplierManagement } from './pages/SupplierManagement';
+import { createDailyBackup } from './services/backup.service';
 import { initDatabase, query } from './services/database';
 import { useAuthStore, useSettingsStore } from './stores';
 
@@ -39,7 +40,7 @@ function App() {
 
   useEffect(() => {
     let mounted = true;
-    
+
     async function init() {
       try {
         // Initialize database
@@ -61,6 +62,11 @@ function App() {
         }
         setSettings(settingsMap);
 
+        // Trigger daily backup (non-blocking)
+        createDailyBackup().catch((err) => {
+          console.warn('Daily backup failed:', err);
+        });
+
         setIsLoading(false);
       } catch (err) {
         console.error('Initialization failed:', err);
@@ -72,7 +78,7 @@ function App() {
     }
 
     init();
-    
+
     return () => {
       mounted = false;
     };
