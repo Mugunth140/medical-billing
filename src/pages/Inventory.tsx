@@ -271,8 +271,7 @@ export function Inventory() {
 
         setIsSubmitting(true);
         try {
-            const tabletsPerStrip = batchForm.tablets_per_strip || 10;
-            const totalPieces = batchForm.quantity * tabletsPerStrip;
+            // Quantity is stored directly, tablets_per_strip is used for display
 
             // Create batch first
             const batchId = await createBatch({ ...batchForm, medicine_id: selectedMedicine.id });

@@ -501,9 +501,9 @@ CREATE INDEX IF NOT EXISTS idx_running_bills_status ON running_bills(status);
 -- DEFAULT DATA
 -- =====================================================
 
--- Default Admin User (password: admin123)
+-- Default Admin User (change password on first login)
 INSERT OR IGNORE INTO users (id, username, password_hash, full_name, role) VALUES
-(1, 'admin', '$2b$10$defaulthashforadmin123', 'Administrator', 'admin');
+(1, 'admin', 'changeme123', 'Administrator', 'admin');
 
 -- Bill Sequence Initialization
 INSERT OR IGNORE INTO bill_sequence (id, prefix, current_number, financial_year) VALUES

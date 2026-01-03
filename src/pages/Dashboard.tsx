@@ -15,7 +15,7 @@ import {
     Users,
     Wallet
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     Area,
@@ -61,15 +61,18 @@ export function Dashboard() {
     const [newCustomers, setNewCustomers] = useState(0);
     const [topSelling, setTopSelling] = useState<Array<{ medicine_name: string; quantity_sold: number; total_revenue: number }>>([]);
 
-    const loadDashboardData = async () => {
+    const loadDashboardData = useCallback(async () => {
+        if (isLoading) return; // Prevent concurrent loads
+        
         setLoading(true);
+        
         try {
             const today = new Date();
             const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
             const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().split('T')[0];
 
             // Base promises
-            const promises: Promise<any>[] = [
+            const promises: Promise<unknown>[] = [
                 getTodaysSalesSummary(),
                 getMonthlySalesSummary(today.getFullYear(), today.getMonth() + 1),
                 getExpiringItems(30),
@@ -98,7 +101,14 @@ export function Dashboard() {
                 lowStock,
                 nonMoving,
                 credits
-            ] = results;
+            ] = results as [
+                Awaited<ReturnType<typeof getTodaysSalesSummary>>,
+                Awaited<ReturnType<typeof getMonthlySalesSummary>>,
+                StockItem[],
+                StockItem[],
+                StockItem[],
+                { total: number }[]
+            ];
 
             setStats({
                 todaySales: {
@@ -119,34 +129,36 @@ export function Dashboard() {
             setExpiringItems(expiring.slice(0, 5));
             setLowStockItems(lowStock.slice(0, 5));
 
-            if (isAdmin) {
-                const trend = results[6];
-                const payments = results[7];
-                const profit = results[8];
-                const newCust = results[9];
-                const top = results[10];
+            if (isAdmin && results.length > 6) {
+                const trend = results[6] as Array<{ date: string; amount: number; bills: number }>;
+                const payments = results[7] as Array<{ mode: string; amount: number }>;
+                const profit = results[8] as { revenue: number; profit: number; margin: number };
+                const newCust = results[9] as number;
+                const top = results[10] as Array<{ medicine_name: string; quantity_sold: number; total_revenue: number }>;
 
-                setSalesTrend(trend);
+                setSalesTrend(trend ?? []);
                 setPaymentBreakdown(
-                    payments.map((p: any) => ({
+                    (payments ?? []).map((p) => ({
                         name: p.mode,
                         value: p.amount
                     }))
                 );
-                setProfitStats(profit);
-                setNewCustomers(newCust);
-                setTopSelling(top);
+                setProfitStats(profit ?? null);
+                setNewCustomers(newCust ?? 0);
+                setTopSelling(top ?? []);
             }
 
         } catch (error) {
             console.error('Failed to load dashboard:', error);
+            // Error is logged but we continue to show partial data
         }
         setLoading(false);
-    };
+    }, [isAdmin, isLoading, setLoading, setStats]);
 
     useEffect(() => {
         loadDashboardData();
-    }, [isAdmin]); // Reload if role changes (unlikely but safe)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isAdmin]); // Only reload when admin status changes
 
     const today = new Date();
     const formattedDate = formatDate(today, 'EEEE, dd MMMM yyyy');

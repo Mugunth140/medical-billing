@@ -179,7 +179,7 @@ describe('CreateBillInput with Patient Info', () => {
     })
 
     it('should work without patient_info for regular medicines', () => {
-        const billInput = {
+        const billInput: { customer_name: string; items: { batch_id: number; quantity: number }[]; payment_mode: 'CASH'; patient_info?: unknown } = {
             customer_name: 'Walk-in',
             items: [
                 { batch_id: 1, quantity: 10 }

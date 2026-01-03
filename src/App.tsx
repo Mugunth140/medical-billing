@@ -22,6 +22,15 @@ import { SupplierManagement } from './pages/SupplierManagement';
 import { initDatabase, query } from './services/database';
 import { useAuthStore, useSettingsStore } from './stores';
 
+// Global unhandled promise rejection handler
+if (typeof window !== 'undefined') {
+  window.addEventListener('unhandledrejection', (event) => {
+    console.error('Unhandled promise rejection:', event.reason);
+    // Prevent the default browser error dialog
+    event.preventDefault();
+  });
+}
+
 function App() {
   const { isAuthenticated } = useAuthStore();
   const { setSettings } = useSettingsStore();
@@ -29,16 +38,22 @@ function App() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let mounted = true;
+    
     async function init() {
       try {
         // Initialize database
         await initDatabase();
+
+        if (!mounted) return;
 
         // Load settings
         const settings = await query<{ key: string; value: string }>(
           'SELECT key, value FROM settings',
           []
         );
+
+        if (!mounted) return;
 
         const settingsMap: Record<string, string> = {};
         for (const s of settings) {
@@ -49,12 +64,18 @@ function App() {
         setIsLoading(false);
       } catch (err) {
         console.error('Initialization failed:', err);
-        setError(err instanceof Error ? err.message : 'Failed to initialize application');
-        setIsLoading(false);
+        if (mounted) {
+          setError(err instanceof Error ? err.message : 'Failed to initialize application');
+          setIsLoading(false);
+        }
       }
     }
 
     init();
+    
+    return () => {
+      mounted = false;
+    };
   }, [setSettings]);
 
   if (isLoading) {

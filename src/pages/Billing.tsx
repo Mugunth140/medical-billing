@@ -17,7 +17,7 @@ import {
     User,
     X
 } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useToast } from '../components/common/Toast';
 import { createBill } from '../services/billing.service';
 import { query } from '../services/database';
@@ -106,18 +106,27 @@ export function Billing() {
     );
 
     useEffect(() => {
+        let mounted = true;
         async function loadCustomers() {
-            const result = await query<Customer>(
-                'SELECT * FROM customers WHERE is_active = 1 ORDER BY name',
-                []
-            );
-            setCustomers(result);
+            try {
+                const result = await query<Customer>(
+                    'SELECT * FROM customers WHERE is_active = 1 ORDER BY name',
+                    []
+                );
+                if (mounted) {
+                    setCustomers(result);
+                }
+            } catch (err) {
+                console.error('Failed to load customers:', err);
+            }
         }
         loadCustomers();
+        return () => { mounted = false; };
     }, []);
 
-    const performSearch = useCallback(
-        debounce(async (term: string) => {
+    // Memoize debounced search to prevent recreation on every render
+    const debouncedSearch = useMemo(
+        () => debounce(async (term: string) => {
             if (term.length < 2) {
                 setSearchResults([]);
                 setShowSearchDropdown(false);
@@ -133,6 +142,11 @@ export function Billing() {
             }
         }, 300),
         []
+    );
+
+    const performSearch = useCallback(
+        (term: string) => debouncedSearch(term),
+        [debouncedSearch]
     );
 
     useEffect(() => {

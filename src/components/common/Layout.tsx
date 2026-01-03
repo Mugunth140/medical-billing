@@ -17,7 +17,7 @@ import {
     Package,
     Receipt,
     Settings,
-    Truck,
+
     Users
 } from 'lucide-react';
 import { useState, type ReactNode } from 'react';

@@ -362,12 +362,18 @@ const INDEX_STATEMENTS = [
     `CREATE INDEX IF NOT EXISTS idx_batches_medicine ON batches(medicine_id)`,
     `CREATE INDEX IF NOT EXISTS idx_batches_expiry ON batches(expiry_date)`,
     `CREATE INDEX IF NOT EXISTS idx_batches_location ON batches(rack, box)`,
+    `CREATE INDEX IF NOT EXISTS idx_batches_quantity ON batches(quantity)`,
     `CREATE INDEX IF NOT EXISTS idx_bills_number ON bills(bill_number)`,
     `CREATE INDEX IF NOT EXISTS idx_bills_date ON bills(bill_date)`,
     `CREATE INDEX IF NOT EXISTS idx_bills_customer ON bills(customer_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_bills_cancelled ON bills(is_cancelled)`,
     `CREATE INDEX IF NOT EXISTS idx_bill_items_bill ON bill_items(bill_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_bill_items_batch ON bill_items(batch_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_bill_items_medicine ON bill_items(medicine_id)`,
     `CREATE INDEX IF NOT EXISTS idx_purchases_supplier ON purchases(supplier_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_purchases_date ON purchases(invoice_date)`,
     `CREATE INDEX IF NOT EXISTS idx_credits_customer ON credits(customer_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_credits_bill ON credits(bill_id)`,
     `CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_log(entity_type, entity_id)`,
     `CREATE INDEX IF NOT EXISTS idx_scheduled_medicine_bill ON scheduled_medicine_records(bill_id)`,
     `CREATE INDEX IF NOT EXISTS idx_scheduled_medicine_medicine ON scheduled_medicine_records(medicine_id)`,
@@ -383,8 +389,9 @@ const INDEX_STATEMENTS = [
 
 // Default data statements
 const DEFAULT_DATA_STATEMENTS = [
-    // Default Admin User
-    `INSERT OR IGNORE INTO users (id, username, password_hash, full_name, role) VALUES (1, 'admin', 'admin123', 'Administrator', 'admin')`,
+    // Default Admin User - IMPORTANT: Change password on first login!
+    // In production, password should be hashed with bcrypt
+    `INSERT OR IGNORE INTO users (id, username, password_hash, full_name, role) VALUES (1, 'admin', 'changeme123', 'Administrator', 'admin')`,
 
     // Bill Sequence
     `INSERT OR IGNORE INTO bill_sequence (id, prefix, current_number, financial_year) VALUES (1, 'INV', 0, '2024-25')`,

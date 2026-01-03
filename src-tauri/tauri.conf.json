@@ -40,9 +40,9 @@
       "icons/icon.ico"
     ],
     "windows": {
-      "certificateThumbprint": null,
-      "timestampUrl": null,
-      "wix": null
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      }
     }
   },
   "plugins": {

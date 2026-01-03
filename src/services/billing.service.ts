@@ -62,14 +62,29 @@ export async function createBill(
     input: CreateBillInput,
     userId: number
 ): Promise<Bill> {
+    // Validate input
+    if (!input.items || input.items.length === 0) {
+        throw new Error('Cannot create bill with no items');
+    }
+    if (!userId || userId <= 0) {
+        throw new Error('Invalid user ID');
+    }
+
     return await transaction(async () => {
-        // 1. Fetch all batch details
+        // 1. Fetch all batch details and validate
         const batchDetails: Array<{
             input: typeof input.items[0];
             batch: StockItem;
         }> = [];
 
         for (const item of input.items) {
+            if (!item.batch_id || item.batch_id <= 0) {
+                throw new Error('Invalid batch ID in bill items');
+            }
+            if (!item.quantity || item.quantity <= 0) {
+                throw new Error('Quantity must be greater than 0');
+            }
+
             const batch = await getBatchWithMedicine(item.batch_id);
             if (!batch) {
                 throw new Error(`Batch not found: ${item.batch_id}`);

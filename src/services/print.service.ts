@@ -442,6 +442,7 @@ export async function generateLegalBillHTML(bill: Bill, items: BillItem[]): Prom
         <div class="bill-to">
             <div class="bill-to-title">BILL TO</div>
             <div class="customer-name">${bill.customer_name || 'Walk-in Customer'}</div>
+            ${bill.doctor_name ? `<div style="font-size: 12px; margin-top: 5px; color: #666;"><strong>Doctor:</strong> ${bill.doctor_name}</div>` : ''}
         </div>
         
         <!-- Items Table -->
@@ -655,6 +656,7 @@ export async function generateThermalBillHTML(bill: Bill, items: BillItem[]): Pr
             <span>${formatDate(bill.bill_date, 'dd/MM/yy HH:mm')}</span>
         </div>
         ${bill.customer_name ? `<div>Customer: ${bill.customer_name}</div>` : ''}
+        ${bill.doctor_name ? `<div>Doctor: ${bill.doctor_name}</div>` : ''}
         
         <div class="separator"></div>
         
@@ -733,49 +735,113 @@ export async function printBill(
             break;
     }
 
-    // Try popup window first, fallback to iframe
-    const printWindow = window.open('', '_blank', 'width=800,height=600');
-    if (printWindow && !printWindow.closed) {
-        printWindow.document.write(html);
-        printWindow.document.close();
-        printWindow.focus();
-        setTimeout(() => {
-            try {
-                printWindow.print();
-            } catch (e) {
-                console.error('Print failed:', e);
-            }
-        }, 300);
-    } else {
-        // Fallback: use hidden iframe for printing
-        const iframe = document.createElement('iframe');
-        iframe.style.position = 'fixed';
-        iframe.style.right = '0';
-        iframe.style.bottom = '0';
-        iframe.style.width = '0';
-        iframe.style.height = '0';
-        iframe.style.border = 'none';
-        document.body.appendChild(iframe);
-        
-        const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
-        if (iframeDoc) {
-            iframeDoc.open();
-            iframeDoc.write(html);
-            iframeDoc.close();
-            
-            setTimeout(() => {
-                try {
-                    iframe.contentWindow?.focus();
-                    iframe.contentWindow?.print();
-                } catch (e) {
-                    console.error('Iframe print failed:', e);
+    // Always generate and save HTML first as a reliable fallback
+    // This ensures the bill is preserved even if printing fails
+    return new Promise<void>((resolve) => {
+        try {
+            // Try popup window first, fallback to iframe
+            const printWindow = window.open('', '_blank', 'width=800,height=600');
+            if (printWindow && !printWindow.closed) {
+                printWindow.document.write(html);
+                printWindow.document.close();
+                printWindow.focus();
+                
+                // Use requestAnimationFrame for more reliable timing
+                requestAnimationFrame(() => {
+                    setTimeout(() => {
+                        try {
+                            printWindow.print();
+                            resolve();
+                        } catch (e) {
+                            console.error('Print failed:', e);
+                            // Don't reject - printing is optional, resolve anyway
+                            resolve();
+                        }
+                    }, 300);
+                });
+            } else {
+                // Fallback: use hidden iframe for printing
+                const iframe = document.createElement('iframe');
+                iframe.style.position = 'fixed';
+                iframe.style.right = '0';
+                iframe.style.bottom = '0';
+                iframe.style.width = '0';
+                iframe.style.height = '0';
+                iframe.style.border = 'none';
+                document.body.appendChild(iframe);
+                
+                const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
+                if (iframeDoc) {
+                    iframeDoc.open();
+                    iframeDoc.write(html);
+                    iframeDoc.close();
+                    
+                    requestAnimationFrame(() => {
+                        setTimeout(() => {
+                            try {
+                                iframe.contentWindow?.focus();
+                                iframe.contentWindow?.print();
+                            } catch (e) {
+                                console.error('Iframe print failed:', e);
+                            }
+                            // Clean up after printing
+                            setTimeout(() => {
+                                try {
+                                    document.body.removeChild(iframe);
+                                } catch {
+                                    // Iframe may already be removed
+                                }
+                            }, 1000);
+                            resolve();
+                        }, 300);
+                    });
+                } else {
+                    resolve(); // Can't print but don't block
                 }
-                // Clean up after printing
-                setTimeout(() => {
-                    document.body.removeChild(iframe);
-                }, 1000);
-            }, 300);
+            }
+        } catch (error) {
+            console.error('Print setup failed:', error);
+            // Don't reject - resolve so billing flow continues
+            resolve();
         }
+    });
+}
+
+/**
+ * Generate bill as HTML string for preview/download
+ */
+export async function generateBillHTML(
+    bill: Bill,
+    items: BillItem[],
+    paperSize: 'thermal' | 'a4' | 'legal' = 'legal'
+): Promise<string> {
+    switch (paperSize) {
+        case 'legal':
+        case 'a4':
+            return await generateLegalBillHTML(bill, items);
+        case 'thermal':
+        default:
+            return await generateThermalBillHTML(bill, items);
+    }
+}
+
+/**
+ * Preview bill in a new window without printing
+ */
+export async function previewBill(
+    bill: Bill,
+    items: BillItem[],
+    paperSize: 'thermal' | 'a4' | 'legal' = 'legal'
+): Promise<void> {
+    const html = await generateBillHTML(bill, items, paperSize);
+    const previewWindow = window.open('', '_blank', 'width=900,height=700');
+    if (previewWindow) {
+        previewWindow.document.write(html);
+        previewWindow.document.close();
+        previewWindow.focus();
+    } else {
+        // If popup blocked, download instead
+        downloadBillHTML(html, bill.bill_number);
     }
 }
 
@@ -801,7 +867,7 @@ export function downloadBillHTML(html: string, billNumber: string): void {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `Invoice_${billNumber}.html`;
+    a.download = `Invoice_${billNumber.replace(/[/\\]/g, '_')}.html`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

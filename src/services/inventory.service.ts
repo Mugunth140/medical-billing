@@ -4,11 +4,11 @@
 // =====================================================
 
 import type {
-  Batch,
-  CreateBatchInput,
-  CreateMedicineInput,
-  Medicine,
-  StockItem
+    Batch,
+    CreateBatchInput,
+    CreateMedicineInput,
+    Medicine,
+    StockItem
 } from '../types';
 import { execute, query, queryOne } from './database';
 
@@ -307,13 +307,31 @@ export async function createBatch(input: CreateBatchInput): Promise<number> {
 
 /**
  * Update batch quantity
+ * @throws Error if the update would result in negative quantity
  */
 export async function updateBatchQuantity(
   batchId: number,
   quantityChange: number,
   updateLastSold: boolean = false
 ): Promise<void> {
-  let sql = `UPDATE batches SET quantity = quantity + ?, updated_at = CURRENT_TIMESTAMP`;
+  // First, check if this change would result in negative quantity
+  if (quantityChange < 0) {
+    const batch = await queryOne<{ quantity: number }>(
+      'SELECT quantity FROM batches WHERE id = ?',
+      [batchId]
+    );
+    
+    if (!batch) {
+      throw new Error(`Batch not found: ${batchId}`);
+    }
+    
+    const newQuantity = batch.quantity + quantityChange;
+    if (newQuantity < 0) {
+      throw new Error(`Insufficient stock. Available: ${batch.quantity}, Requested: ${Math.abs(quantityChange)}`);
+    }
+  }
+
+  let sql = `UPDATE batches SET quantity = MAX(0, quantity + ?), updated_at = CURRENT_TIMESTAMP`;
   if (updateLastSold) {
     sql += `, last_sold_date = date('now')`;
   }

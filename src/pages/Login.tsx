@@ -206,23 +206,6 @@ export function Login() {
                     cursor: not-allowed;
                 }
 
-                .login-hint {
-                    margin-top: var(--space-6);
-                    padding: var(--space-4);
-                    background: var(--bg-tertiary);
-                    border-radius: var(--radius-lg);
-                    font-size: var(--text-sm);
-                    color: var(--text-secondary);
-                }
-
-                .login-hint code {
-                    background: var(--bg-secondary);
-                    padding: 2px 6px;
-                    border-radius: var(--radius-sm);
-                    font-family: var(--font-mono);
-                    font-size: var(--text-xs);
-                }
-
                 .login-footer {
                     position: absolute;
                     bottom: var(--space-6);
@@ -301,11 +284,6 @@ export function Login() {
                         {isLoading ? 'Signing in...' : 'Sign In'}
                     </button>
                 </form>
-
-                <div className="login-hint">
-                    <strong>Demo credentials:</strong><br />
-                    Username: <code>admin</code> &nbsp;|&nbsp; Password: <code>admin123</code>
-                </div>
 
                 <div className="login-footer">
                     Offline Medical Billing Software

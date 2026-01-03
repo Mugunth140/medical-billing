@@ -29,13 +29,11 @@ let autoIncrementIds: Record<string, number> = {
 }
 
 class MockDatabase {
-    private path: string
-
-    constructor(path: string) {
-        this.path = path
+    constructor(_path: string) {
+        // Path stored for reference but not used in mock
     }
 
-    async select<T>(sql: string, params: unknown[] = []): Promise<T> {
+    async select<T>(sql: string, _params: unknown[] = []): Promise<T> {
         console.log('[MockDB] SELECT:', sql.substring(0, 100))
 
         // Parse table name from SQL

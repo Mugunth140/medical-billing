@@ -271,7 +271,7 @@ describe('Backup & Restore', () => {
 
     describe('Backup Validation', () => {
         it('should reject backup without metadata', () => {
-            const invalidBackup = {
+            const invalidBackup: Record<string, unknown> = {
                 users: [],
                 medicines: []
             };

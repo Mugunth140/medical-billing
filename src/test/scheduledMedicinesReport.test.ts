@@ -6,7 +6,9 @@ const mockScheduledRecords: ScheduledMedicineRecord[] = [
     {
         id: 1,
         bill_id: 100,
+        bill_item_id: 1,
         medicine_id: 1,
+        batch_id: 1,
         medicine_name: 'Alprazolam 0.5mg',
         batch_number: 'BATCH001',
         quantity: 10,
@@ -23,7 +25,9 @@ const mockScheduledRecords: ScheduledMedicineRecord[] = [
     {
         id: 2,
         bill_id: 101,
+        bill_item_id: 2,
         medicine_id: 2,
+        batch_id: 2,
         medicine_name: 'Codeine Phosphate',
         batch_number: 'BATCH002',
         quantity: 5,
@@ -104,7 +108,7 @@ describe('Scheduled Medicines Report', () => {
             const searchTerm = 'Alprazolam'
             
             const filtered = mockScheduledRecords.filter(record =>
-                record.medicine_name.toLowerCase().includes(searchTerm.toLowerCase())
+                record.medicine_name?.toLowerCase().includes(searchTerm.toLowerCase())
             )
 
             expect(filtered.length).toBe(1)
