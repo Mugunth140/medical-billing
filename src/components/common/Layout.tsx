@@ -113,10 +113,17 @@ export function Layout({ children }: LayoutProps) {
             {/* Sidebar */}
             <aside className={`sidebar ${!sidebarOpen ? 'collapsed' : ''}`}>
                 <div className="sidebar-header">
-                    <div className="sidebar-logo">
-                        <img src="./logo.png" alt="Logo" style={{ width: '32px', height: '32px', objectFit: 'contain' }} />
+                    <div className="sidebar-brand">
+                        <div className="brand-logo">
+                            <img src="./logo.png" alt="Logo" />
+                        </div>
+                        {sidebarOpen && (
+                            <div className="brand-text">
+                                <span className="brand-name">Velan</span>
+                                <span className="brand-suffix">Medicals</span>
+                            </div>
+                        )}
                     </div>
-                    {sidebarOpen && <span className="sidebar-title">Velan Medicals</span>}
                 </div>
 
                 <nav className="sidebar-nav">
