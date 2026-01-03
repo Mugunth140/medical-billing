@@ -19,6 +19,7 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Pagination } from '../components/common/Pagination';
 import { useToast } from '../components/common/Toast';
+import { execute, query } from '../services/database';
 import {
     createBatch,
     createMedicine,
@@ -31,17 +32,20 @@ import {
     getScheduledMedicines,
     updateMedicine
 } from '../services/inventory.service';
-import type { CreateBatchInput, CreateMedicineInput, GstRate, Medicine, StockItem } from '../types';
+import { useAuthStore } from '../stores';
+import type { CreateBatchInput, CreateMedicineInput, GstRate, Medicine, StockItem, Supplier } from '../types';
 import { formatCurrency, formatDate, getExpiryStatusInfo, getStockStatusInfo } from '../utils';
 
 type FilterType = 'all' | 'expiring' | 'low-stock' | 'non-moving' | 'scheduled';
 
 export function Inventory() {
     const { showToast } = useToast();
+    const { user } = useAuthStore();
     const [searchParams, setSearchParams] = useSearchParams();
     const [stockItems, setStockItems] = useState<StockItem[]>([]);
     const [filteredItems, setFilteredItems] = useState<StockItem[]>([]);
     const [medicines, setMedicines] = useState<Medicine[]>([]);
+    const [suppliers, setSuppliers] = useState<Supplier[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
@@ -58,6 +62,9 @@ export function Inventory() {
     const [showAddBatchModal, setShowAddBatchModal] = useState(false);
     const [selectedMedicine, setSelectedMedicine] = useState<Medicine | null>(null);
     const [editingMedicine, setEditingMedicine] = useState<Medicine | null>(null);
+    const [selectedSupplierId, setSelectedSupplierId] = useState<number>(0);
+    const [invoiceNumber, setInvoiceNumber] = useState('');
+    const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().split('T')[0]);
 
     // Form state for new medicine
     const [medicineForm, setMedicineForm] = useState<CreateMedicineInput>({
@@ -113,8 +120,12 @@ export function Inventory() {
             setStockItems(items);
             setFilteredItems(items);
 
-            const meds = await getMedicines();
+            const [meds, suppliersData] = await Promise.all([
+                getMedicines(),
+                query<Supplier>('SELECT * FROM suppliers WHERE is_active = 1 ORDER BY name', [])
+            ]);
             setMedicines(meds);
+            setSuppliers(suppliersData);
         } catch (error) {
             console.error('Failed to load inventory:', error);
         }
@@ -252,9 +263,89 @@ export function Inventory() {
         e.preventDefault();
         if (!selectedMedicine || isSubmitting) return;
 
+        // Validate supplier if provided
+        if (selectedSupplierId > 0 && !invoiceNumber) {
+            showToast('error', 'Please enter invoice number when supplier is selected');
+            return;
+        }
+
         setIsSubmitting(true);
         try {
-            await createBatch({ ...batchForm, medicine_id: selectedMedicine.id });
+            const tabletsPerStrip = batchForm.tablets_per_strip || 10;
+            const totalPieces = batchForm.quantity * tabletsPerStrip;
+
+            // Create batch first
+            const batchId = await createBatch({ ...batchForm, medicine_id: selectedMedicine.id });
+
+            // If supplier is selected, create purchase entry automatically
+            if (selectedSupplierId > 0) {
+                const subtotal = batchForm.quantity * batchForm.purchase_price;
+                const gstRate = selectedMedicine.gst_rate;
+                const halfGstRate = gstRate / 2;
+                const cgst = (subtotal * halfGstRate) / 100;
+                const sgst = (subtotal * halfGstRate) / 100;
+                const totalGst = cgst + sgst;
+                const grandTotal = subtotal + totalGst;
+
+                // Create purchase entry
+                const purchaseResult = await execute(
+                    `INSERT INTO purchases (
+                        invoice_number, invoice_date, supplier_id, user_id,
+                        subtotal, cgst_amount, sgst_amount, total_gst, grand_total,
+                        payment_status, paid_amount
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', 0)`,
+                    [
+                        invoiceNumber,
+                        invoiceDate,
+                        selectedSupplierId,
+                        user?.id || 1,
+                        subtotal,
+                        cgst,
+                        sgst,
+                        totalGst,
+                        grandTotal
+                    ]
+                );
+
+                const purchaseId = purchaseResult.lastInsertId;
+
+                // Link batch to purchase
+                await execute(
+                    `UPDATE batches SET purchase_id = ?, supplier_id = ? WHERE id = ?`,
+                    [purchaseId, selectedSupplierId, batchId]
+                );
+
+                // Create purchase item
+                await execute(
+                    `INSERT INTO purchase_items (
+                        purchase_id, medicine_id, batch_id,
+                        medicine_name, batch_number, expiry_date,
+                        quantity, free_quantity,
+                        purchase_price, mrp, discount_percent,
+                        gst_rate, cgst_amount, sgst_amount, total_amount
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, 0, ?, ?, ?, ?)`,
+                    [
+                        purchaseId,
+                        selectedMedicine.id,
+                        batchId,
+                        selectedMedicine.name,
+                        batchForm.batch_number,
+                        batchForm.expiry_date,
+                        batchForm.quantity,
+                        batchForm.purchase_price,
+                        batchForm.mrp,
+                        gstRate,
+                        cgst,
+                        sgst,
+                        grandTotal
+                    ]
+                );
+
+                showToast('success', `Stock added and purchase entry created for "${selectedMedicine.name}" (Batch: ${batchForm.batch_number})`);
+            } else {
+                showToast('success', `Stock added for "${selectedMedicine.name}" (Batch: ${batchForm.batch_number})`);
+            }
+
             setShowAddBatchModal(false);
             setBatchForm({
                 medicine_id: 0,
@@ -269,8 +360,10 @@ export function Inventory() {
                 rack: '',
                 box: ''
             });
-            showToast('success', `Stock added for "${selectedMedicine.name}" (Batch: ${batchForm.batch_number})`);
             setSelectedMedicine(null);
+            setSelectedSupplierId(0);
+            setInvoiceNumber('');
+            setInvoiceDate(new Date().toISOString().split('T')[0]);
             loadData();
         } catch (error) {
             console.error('Failed to add batch:', error);
@@ -865,143 +958,298 @@ export function Inventory() {
 
             {/* Add Batch Modal */}
             {showAddBatchModal && (
-                <div className="modal-overlay" onClick={() => setShowAddBatchModal(false)}>
+                <div className="modal-overlay" onClick={() => {
+                    setShowAddBatchModal(false);
+                    setSelectedSupplierId(0);
+                    setInvoiceNumber('');
+                    setInvoiceDate(new Date().toISOString().split('T')[0]);
+                }}>
                     <div className="modal modal-lg" onClick={(e) => e.stopPropagation()}>
                         <div className="modal-header">
                             <div>
                                 <h3 className="modal-title">Add Stock / New Batch</h3>
                                 <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', marginTop: 4 }}>
-                                    💡 All prices are per strip/pack. Quantity in strips.
+                                    Add new stock for existing medicines. For new medicines, use "New Medicine" first.
                                 </div>
                             </div>
-                            <button className="btn btn-ghost btn-icon" onClick={() => setShowAddBatchModal(false)}>
+                            <button className="btn btn-ghost btn-icon" onClick={() => {
+                                setShowAddBatchModal(false);
+                                setSelectedSupplierId(0);
+                                setInvoiceNumber('');
+                                setInvoiceDate(new Date().toISOString().split('T')[0]);
+                            }}>
                                 <X size={20} />
                             </button>
                         </div>
-                        <form onSubmit={handleAddBatch}>
+                        <form onSubmit={handleAddBatch} style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
                             <div className="modal-body">
-                                <div className="form-group">
-                                    <label className="form-label">Select Medicine *</label>
-                                    <select
-                                        className="form-select"
-                                        value={selectedMedicine?.id ?? ''}
-                                        onChange={(e) => setSelectedMedicine(medicines.find(m => m.id === parseInt(e.target.value)) ?? null)}
-                                        required
-                                    >
-                                        <option value="">Select a medicine...</option>
-                                        {medicines.map(m => (
-                                            <option key={m.id} value={m.id}>{m.name} ({m.gst_rate}% GST)</option>
-                                        ))}
-                                    </select>
+                                {/* Section 1: Purchase Source */}
+                                <div style={{ marginBottom: 'var(--space-6)' }}>
+                                    <div style={{
+                                        padding: 'var(--space-4)',
+                                        background: 'var(--color-primary-50)',
+                                        borderRadius: 'var(--radius-lg)',
+                                        border: '1px solid var(--color-primary-100)'
+                                    }}>
+                                        <div style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: 'var(--space-2)',
+                                            marginBottom: 'var(--space-3)',
+                                            color: 'var(--color-primary-700)',
+                                            fontWeight: 600,
+                                            fontSize: 'var(--text-sm)'
+                                        }}>
+                                            <Package size={16} />
+                                            Purchase Source (Optional)
+                                        </div>
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 'var(--space-3)' }}>
+                                            <div className="form-group" style={{ marginBottom: 0 }}>
+                                                <label className="form-label">Supplier</label>
+                                                <select
+                                                    className="form-select"
+                                                    value={selectedSupplierId}
+                                                    onChange={(e) => {
+                                                        const supplierId = parseInt(e.target.value);
+                                                        setSelectedSupplierId(supplierId);
+                                                        if (supplierId === 0) {
+                                                            setInvoiceNumber('');
+                                                        }
+                                                    }}
+                                                >
+                                                    <option value={0}>No Supplier (Direct Entry)</option>
+                                                    {suppliers.map(s => (
+                                                        <option key={s.id} value={s.id}>{s.name}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                            {selectedSupplierId > 0 && (
+                                                <>
+                                                    <div className="form-group" style={{ marginBottom: 0 }}>
+                                                        <label className="form-label">Invoice Number *</label>
+                                                        <input
+                                                            type="text"
+                                                            className="form-input"
+                                                            value={invoiceNumber}
+                                                            onChange={(e) => setInvoiceNumber(e.target.value)}
+                                                            required={selectedSupplierId > 0}
+                                                            placeholder="INV-001"
+                                                        />
+                                                    </div>
+                                                    <div className="form-group" style={{ marginBottom: 0 }}>
+                                                        <label className="form-label">Invoice Date *</label>
+                                                        <input
+                                                            type="date"
+                                                            className="form-input"
+                                                            value={invoiceDate}
+                                                            onChange={(e) => setInvoiceDate(e.target.value)}
+                                                            required={selectedSupplierId > 0}
+                                                        />
+                                                    </div>
+                                                </>
+                                            )}
+                                        </div>
+                                    </div>
                                 </div>
 
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)' }}>
+                                {/* Section 2: Medicine Selection */}
+                                <div style={{ marginBottom: 'var(--space-6)' }}>
+                                    <h4 style={{
+                                        fontSize: 'var(--text-xs)',
+                                        textTransform: 'uppercase',
+                                        letterSpacing: '0.05em',
+                                        color: 'var(--text-tertiary)',
+                                        marginBottom: 'var(--space-3)',
+                                        fontWeight: 600
+                                    }}>
+                                        Medicine Details
+                                    </h4>
                                     <div className="form-group">
-                                        <label className="form-label">Batch Number *</label>
-                                        <input
-                                            type="text"
-                                            className="form-input"
-                                            value={batchForm.batch_number}
-                                            onChange={(e) => setBatchForm({ ...batchForm, batch_number: e.target.value })}
+                                        <label className="form-label">Select Medicine *</label>
+                                        <select
+                                            className="form-select form-input-lg"
+                                            value={selectedMedicine?.id ?? ''}
+                                            onChange={(e) => setSelectedMedicine(medicines.find(m => m.id === parseInt(e.target.value)) ?? null)}
                                             required
-                                        />
+                                            style={{ fontWeight: 500 }}
+                                        >
+                                            <option value="">Select a medicine...</option>
+                                            {medicines.map(m => (
+                                                <option key={m.id} value={m.id}>{m.name} ({m.gst_rate}% GST)</option>
+                                            ))}
+                                        </select>
                                     </div>
-                                    <div className="form-group">
-                                        <label className="form-label">Expiry Date *</label>
-                                        <input
-                                            type="date"
-                                            className="form-input"
-                                            value={batchForm.expiry_date}
-                                            onChange={(e) => setBatchForm({ ...batchForm, expiry_date: e.target.value })}
-                                            required
-                                        />
+                                </div>
+
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-6)' }}>
+                                    {/* Left Column: Batch & Pricing */}
+                                    <div>
+                                        <h4 style={{
+                                            fontSize: 'var(--text-xs)',
+                                            textTransform: 'uppercase',
+                                            letterSpacing: '0.05em',
+                                            color: 'var(--text-tertiary)',
+                                            marginBottom: 'var(--space-3)',
+                                            fontWeight: 600
+                                        }}>
+                                            Batch & Pricing
+                                        </h4>
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)' }}>
+                                            <div className="form-group">
+                                                <label className="form-label">Batch Number *</label>
+                                                <input
+                                                    type="text"
+                                                    className="form-input"
+                                                    value={batchForm.batch_number}
+                                                    onChange={(e) => setBatchForm({ ...batchForm, batch_number: e.target.value })}
+                                                    required
+                                                    placeholder="e.g. B-123"
+                                                />
+                                            </div>
+                                            <div className="form-group">
+                                                <label className="form-label">Expiry Date *</label>
+                                                <input
+                                                    type="date"
+                                                    className="form-input"
+                                                    value={batchForm.expiry_date}
+                                                    onChange={(e) => setBatchForm({ ...batchForm, expiry_date: e.target.value })}
+                                                    required
+                                                />
+                                            </div>
+                                            <div className="form-group">
+                                                <label className="form-label">Purchase Price / Strip *</label>
+                                                <div style={{ position: 'relative' }}>
+                                                    <span style={{ position: 'absolute', left: 10, top: 9, color: 'var(--text-tertiary)' }}>₹</span>
+                                                    <input
+                                                        type="number"
+                                                        step="0.01"
+                                                        className="form-input"
+                                                        style={{ paddingLeft: 25 }}
+                                                        value={batchForm.purchase_price || ''}
+                                                        onChange={(e) => setBatchForm({ ...batchForm, purchase_price: e.target.value === '' ? 0 : parseFloat(e.target.value) })}
+                                                        required
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div className="form-group">
+                                                <label className="form-label">MRP / Strip *</label>
+                                                <div style={{ position: 'relative' }}>
+                                                    <span style={{ position: 'absolute', left: 10, top: 9, color: 'var(--text-tertiary)' }}>₹</span>
+                                                    <input
+                                                        type="number"
+                                                        step="0.01"
+                                                        className="form-input"
+                                                        style={{ paddingLeft: 25 }}
+                                                        value={batchForm.mrp || ''}
+                                                        onChange={(e) => {
+                                                            const mrp = e.target.value === '' ? 0 : parseFloat(e.target.value);
+                                                            setBatchForm({ ...batchForm, mrp, selling_price: mrp });
+                                                        }}
+                                                        required
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                                                <label className="form-label">Selling Price / Strip *</label>
+                                                <div style={{ position: 'relative' }}>
+                                                    <span style={{ position: 'absolute', left: 10, top: 9, color: 'var(--text-tertiary)' }}>₹</span>
+                                                    <input
+                                                        type="number"
+                                                        step="0.01"
+                                                        className="form-input"
+                                                        style={{ paddingLeft: 25, fontWeight: 'bold', color: 'var(--color-primary-600)' }}
+                                                        value={batchForm.selling_price || ''}
+                                                        onChange={(e) => setBatchForm({ ...batchForm, selling_price: e.target.value === '' ? 0 : parseFloat(e.target.value) })}
+                                                        required
+                                                    />
+                                                </div>
+                                                <div className="form-hint">Usually same as MRP</div>
+                                            </div>
+                                        </div>
                                     </div>
-                                    <div className="form-group">
-                                        <label className="form-label">Purchase Price/Strip *</label>
-                                        <input
-                                            type="number"
-                                            step="0.01"
-                                            className="form-input"
-                                            value={batchForm.purchase_price || ''}
-                                            onChange={(e) => setBatchForm({ ...batchForm, purchase_price: e.target.value === '' ? 0 : parseFloat(e.target.value) })}
-                                            required
-                                        />
-                                    </div>
-                                    <div className="form-group">
-                                        <label className="form-label">MRP/Strip *</label>
-                                        <input
-                                            type="number"
-                                            step="0.01"
-                                            className="form-input"
-                                            value={batchForm.mrp || ''}
-                                            onChange={(e) => {
-                                                const mrp = e.target.value === '' ? 0 : parseFloat(e.target.value);
-                                                setBatchForm({ ...batchForm, mrp, selling_price: mrp });
-                                            }}
-                                            required
-                                        />
-                                    </div>
-                                    <div className="form-group">
-                                        <label className="form-label">Selling Price/Strip *</label>
-                                        <input
-                                            type="number"
-                                            step="0.01"
-                                            className="form-input"
-                                            value={batchForm.selling_price || ''}
-                                            onChange={(e) => setBatchForm({ ...batchForm, selling_price: e.target.value === '' ? 0 : parseFloat(e.target.value) })}
-                                            required
-                                        />
-                                    </div>
-                                    {/* Price Type removed - all prices are GST Inclusive (MRP) */}
-                                    <div className="form-group">
-                                        <label className="form-label">Quantity (Strips) *</label>
-                                        <input
-                                            type="number"
-                                            className="form-input"
-                                            value={batchForm.quantity || ''}
-                                            onChange={(e) => setBatchForm({ ...batchForm, quantity: e.target.value === '' ? 0 : parseInt(e.target.value) })}
-                                            required
-                                            min="0"
-                                        />
-                                    </div>
-                                    <div className="form-group">
-                                        <label className="form-label">Tablets Per Strip</label>
-                                        <input
-                                            type="number"
-                                            className="form-input"
-                                            value={batchForm.tablets_per_strip ?? ''}
-                                            onChange={(e) => setBatchForm({ ...batchForm, tablets_per_strip: e.target.value === '' ? 10 : parseInt(e.target.value) })}
-                                            min="1"
-                                            placeholder="10"
-                                        />
-                                    </div>
-                                    <div className="form-group">
-                                        <label className="form-label">Rack Location</label>
-                                        <input
-                                            type="text"
-                                            className="form-input"
-                                            value={batchForm.rack}
-                                            onChange={(e) => setBatchForm({ ...batchForm, rack: e.target.value })}
-                                            placeholder="e.g., A1"
-                                        />
-                                    </div>
-                                    <div className="form-group">
-                                        <label className="form-label">Box Location</label>
-                                        <input
-                                            type="text"
-                                            className="form-input"
-                                            value={batchForm.box}
-                                            onChange={(e) => setBatchForm({ ...batchForm, box: e.target.value })}
-                                            placeholder="e.g., 1"
-                                        />
+
+                                    {/* Right Column: Quantity & Location */}
+                                    <div>
+                                        <h4 style={{
+                                            fontSize: 'var(--text-xs)',
+                                            textTransform: 'uppercase',
+                                            letterSpacing: '0.05em',
+                                            color: 'var(--text-tertiary)',
+                                            marginBottom: 'var(--space-3)',
+                                            fontWeight: 600
+                                        }}>
+                                            Quantity & Storage
+                                        </h4>
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)' }}>
+                                            <div className="form-group">
+                                                <label className="form-label">Quantity (Strips) *</label>
+                                                <input
+                                                    type="number"
+                                                    className="form-input"
+                                                    value={batchForm.quantity || ''}
+                                                    onChange={(e) => setBatchForm({ ...batchForm, quantity: e.target.value === '' ? 0 : parseInt(e.target.value) })}
+                                                    required
+                                                    min="0"
+                                                />
+                                            </div>
+                                            <div className="form-group">
+                                                <label className="form-label">Tablets / Strip</label>
+                                                <input
+                                                    type="number"
+                                                    className="form-input"
+                                                    value={batchForm.tablets_per_strip ?? ''}
+                                                    onChange={(e) => setBatchForm({ ...batchForm, tablets_per_strip: e.target.value === '' ? 10 : parseInt(e.target.value) })}
+                                                    min="1"
+                                                    placeholder="10"
+                                                />
+                                            </div>
+                                            <div className="form-group">
+                                                <label className="form-label">Rack Location</label>
+                                                <input
+                                                    type="text"
+                                                    className="form-input"
+                                                    value={batchForm.rack}
+                                                    onChange={(e) => setBatchForm({ ...batchForm, rack: e.target.value })}
+                                                    placeholder="e.g., A1"
+                                                />
+                                            </div>
+                                            <div className="form-group">
+                                                <label className="form-label">Box Location</label>
+                                                <input
+                                                    type="text"
+                                                    className="form-input"
+                                                    value={batchForm.box}
+                                                    onChange={(e) => setBatchForm({ ...batchForm, box: e.target.value })}
+                                                    placeholder="e.g., 1"
+                                                />
+                                            </div>
+                                            <div style={{
+                                                gridColumn: '1 / -1',
+                                                padding: 'var(--space-3)',
+                                                background: 'var(--bg-tertiary)',
+                                                borderRadius: 'var(--radius-md)',
+                                                marginTop: 'var(--space-2)'
+                                            }}>
+                                                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', marginBottom: 4 }}>Total Tablets</div>
+                                                <div style={{ fontSize: 'var(--text-xl)', fontWeight: 'bold', color: 'var(--text-primary)' }}>
+                                                    {((batchForm.quantity || 0) * (batchForm.tablets_per_strip || 10)).toLocaleString()}
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
                             <div className="modal-footer">
-                                <button type="button" className="btn btn-secondary" onClick={() => setShowAddBatchModal(false)}>
+                                <button type="button" className="btn btn-secondary" onClick={() => {
+                                    setShowAddBatchModal(false);
+                                    setSelectedSupplierId(0);
+                                    setInvoiceNumber('');
+                                    setInvoiceDate(new Date().toISOString().split('T')[0]);
+                                }}>
                                     Cancel
                                 </button>
-                                <button type="submit" className="btn btn-primary" disabled={!selectedMedicine}>
+                                <button type="submit" className="btn btn-primary" disabled={!selectedMedicine || (selectedSupplierId > 0 && !invoiceNumber)}>
+                                    <Plus size={18} />
                                     Add Stock
                                 </button>
                             </div>

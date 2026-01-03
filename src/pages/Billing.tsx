@@ -219,7 +219,15 @@ export function Billing() {
         }
 
         // Check if scheduled medicines require patient info, doctor details, prescription, age, and gender
-        if (hasScheduled && (!patientInfo || !patientInfo.patient_name || !patientInfo.doctor_name || !patientInfo.doctor_prescription || patientInfo.patient_age === undefined || !patientInfo.patient_gender)) {
+        const patientInfoValid = patientInfo &&
+            (patientInfo.patient_name?.trim() || '').length > 0 &&
+            (patientInfo.doctor_name?.trim() || '').length > 0 &&
+            (patientInfo.doctor_prescription?.trim() || '').length > 0 &&
+            typeof patientInfo.patient_age === 'number' &&
+            patientInfo.patient_age >= 0 &&
+            (patientInfo.patient_gender === 'M' || patientInfo.patient_gender === 'F' || patientInfo.patient_gender === 'O');
+
+        if (hasScheduled && !patientInfoValid) {
             setError('Patient details (name, age, gender), doctor name, and prescription are required for scheduled medicines');
             showToast('warning', 'Please enter all required patient details, doctor name, and prescription for scheduled medicines');
             setShowPatientModal(true);
@@ -507,14 +515,15 @@ export function Billing() {
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            gap: 6px;
-            padding: 12px;
+            gap: 4px;
+            padding: 8px;
             border: 2px solid var(--border-light);
             border-radius: 10px;
             background: white;
             cursor: pointer;
             transition: all 0.2s ease;
             color: var(--text-secondary);
+            font-size: 13px;
         }
 
         .payment-btn:hover {
@@ -858,15 +867,15 @@ export function Billing() {
                                 className={`payment-btn ${paymentMode === 'CASH' ? 'active' : ''}`}
                                 onClick={() => setPaymentMode('CASH')}
                             >
-                                <Banknote size={20} />
+                                <Banknote size={18} />
                                 <span>Cash</span>
                             </button>
                             <button
                                 className={`payment-btn ${paymentMode === 'ONLINE' ? 'active' : ''}`}
                                 onClick={() => setPaymentMode('ONLINE')}
                             >
-                                <Smartphone size={20} />
-                                <span>UPI/Online</span>
+                                <Smartphone size={18} />
+                                <span>UPI</span>
                             </button>
                             <button
                                 className={`payment-btn ${paymentMode === 'CREDIT' ? 'active' : ''}`}
@@ -878,14 +887,14 @@ export function Billing() {
                                     setPaymentMode('CREDIT');
                                 }}
                             >
-                                <CreditCard size={20} />
+                                <CreditCard size={18} />
                                 <span>Credit</span>
                             </button>
                             <button
                                 className={`payment-btn ${paymentMode === 'SPLIT' ? 'active' : ''}`}
                                 onClick={() => setPaymentMode('SPLIT')}
                             >
-                                <Percent size={20} />
+                                <Percent size={18} />
                                 <span>Split</span>
                             </button>
                         </div>
@@ -944,8 +953,8 @@ export function Billing() {
                     {/* Totals & Action */}
                     <div className="sidebar-card totals-card">
                         <div className="total-row">
-                            <span>Subtotal</span>
-                            <span>{formatCurrency(billCalc.subtotal)}</span>
+                            <span>Subtotal (Taxable)</span>
+                            <span>{formatCurrency(billCalc.taxableTotal)}</span>
                         </div>
                         {billCalc.billDiscount > 0 && (
                             <div className="total-row" style={{ color: '#4ade80' }}>
@@ -1004,7 +1013,7 @@ export function Billing() {
             {/* Patient Details Modal */}
             {showPatientModal && (
                 <div className="modal-overlay" onClick={() => setShowPatientModal(false)}>
-                    <div className="modal modal-lg" onClick={(e) => e.stopPropagation()}>
+                    <div className="modal modal-lg" onClick={(e) => e.stopPropagation()} style={{ maxHeight: '90vh', overflow: 'auto' }}>
                         <div className="modal-header">
                             <h3 className="modal-title">Patient & Prescription Details</h3>
                             <button className="btn btn-ghost btn-icon" onClick={() => setShowPatientModal(false)}>
@@ -1013,7 +1022,22 @@ export function Billing() {
                         </div>
                         <form onSubmit={(e) => {
                             e.preventDefault();
-                            if (tempPatientInfo.patient_name && tempPatientInfo.doctor_name && tempPatientInfo.doctor_prescription && tempPatientInfo.patient_age !== undefined && tempPatientInfo.patient_gender) {
+                            // Validate all required fields - check for truthy values and proper trimming
+                            const name = tempPatientInfo.patient_name?.trim() || '';
+                            const doctor = tempPatientInfo.doctor_name?.trim() || '';
+                            const prescription = tempPatientInfo.doctor_prescription?.trim() || '';
+                            const age = tempPatientInfo.patient_age;
+                            const gender = tempPatientInfo.patient_gender;
+
+                            const isValid = name.length > 0 &&
+                                doctor.length > 0 &&
+                                prescription.length > 0 &&
+                                typeof age === 'number' && age >= 0 &&
+                                (gender === 'M' || gender === 'F' || gender === 'O');
+
+                            console.log('Validation:', { name, doctor, prescription, age, gender, isValid });
+
+                            if (isValid) {
                                 setPatientInfo(tempPatientInfo);
                                 setShowPatientModal(false);
                             } else {
@@ -1021,20 +1045,19 @@ export function Billing() {
                             }
                         }}>
                             <div className="modal-body">
-                                <div className="alert alert-info" style={{ marginBottom: 20 }}>
+                                <div className="alert alert-info" style={{ marginBottom: 16 }}>
                                     <AlertCircle size={16} />
                                     <span>Required for Schedule H/H1 drugs compliance.</span>
                                 </div>
 
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                                     <div className="form-group" style={{ gridColumn: '1 / -1' }}>
                                         <label className="form-label">Patient Name *</label>
                                         <input
                                             type="text"
                                             className="form-input"
                                             value={tempPatientInfo.patient_name}
-                                            onChange={(e) => setTempPatientInfo({ ...tempPatientInfo, patient_name: e.target.value })}
-                                            required
+                                            onChange={(e) => setTempPatientInfo(prev => ({ ...prev, patient_name: e.target.value }))}
                                             autoFocus
                                         />
                                     </div>
@@ -1044,8 +1067,13 @@ export function Billing() {
                                             type="number"
                                             className="form-input"
                                             value={tempPatientInfo.patient_age ?? ''}
-                                            onChange={(e) => setTempPatientInfo({ ...tempPatientInfo, patient_age: e.target.value ? parseInt(e.target.value) : undefined })}
-                                            required
+                                            onChange={(e) => {
+                                                const val = e.target.value;
+                                                setTempPatientInfo(prev => ({
+                                                    ...prev,
+                                                    patient_age: val !== '' ? parseInt(val, 10) : undefined
+                                                }));
+                                            }}
                                             min={0}
                                             max={150}
                                         />
@@ -1055,8 +1083,13 @@ export function Billing() {
                                         <select
                                             className="form-select"
                                             value={tempPatientInfo.patient_gender ?? ''}
-                                            onChange={(e) => setTempPatientInfo({ ...tempPatientInfo, patient_gender: e.target.value as 'M' | 'F' | 'O' | undefined || undefined })}
-                                            required
+                                            onChange={(e) => {
+                                                const val = e.target.value as 'M' | 'F' | 'O' | '';
+                                                setTempPatientInfo(prev => ({
+                                                    ...prev,
+                                                    patient_gender: val === 'M' || val === 'F' || val === 'O' ? val : undefined
+                                                }));
+                                            }}
                                         >
                                             <option value="">Select</option>
                                             <option value="M">Male</option>
@@ -1065,13 +1098,22 @@ export function Billing() {
                                         </select>
                                     </div>
                                     <div className="form-group">
+                                        <label className="form-label">Phone</label>
+                                        <input
+                                            type="tel"
+                                            className="form-input"
+                                            value={tempPatientInfo.patient_phone ?? ''}
+                                            onChange={(e) => setTempPatientInfo(prev => ({ ...prev, patient_phone: e.target.value }))}
+                                            placeholder="Phone number"
+                                        />
+                                    </div>
+                                    <div className="form-group">
                                         <label className="form-label">Doctor Name *</label>
                                         <input
                                             type="text"
                                             className="form-input"
                                             value={tempPatientInfo.doctor_name ?? ''}
-                                            onChange={(e) => setTempPatientInfo({ ...tempPatientInfo, doctor_name: e.target.value })}
-                                            required
+                                            onChange={(e) => setTempPatientInfo(prev => ({ ...prev, doctor_name: e.target.value }))}
                                         />
                                     </div>
                                     <div className="form-group">
@@ -1080,17 +1122,16 @@ export function Billing() {
                                             type="text"
                                             className="form-input"
                                             value={tempPatientInfo.doctor_registration_number ?? ''}
-                                            onChange={(e) => setTempPatientInfo({ ...tempPatientInfo, doctor_registration_number: e.target.value })}
+                                            onChange={(e) => setTempPatientInfo(prev => ({ ...prev, doctor_registration_number: e.target.value }))}
                                         />
                                     </div>
                                     <div className="form-group" style={{ gridColumn: '1 / -1' }}>
                                         <label className="form-label">Doctor's Prescription *</label>
                                         <textarea
                                             className="form-input"
-                                            rows={4}
+                                            rows={3}
                                             value={tempPatientInfo.doctor_prescription ?? ''}
-                                            onChange={(e) => setTempPatientInfo({ ...tempPatientInfo, doctor_prescription: e.target.value })}
-                                            required
+                                            onChange={(e) => setTempPatientInfo(prev => ({ ...prev, doctor_prescription: e.target.value }))}
                                             placeholder="Enter the doctor's prescription details..."
                                         />
                                     </div>

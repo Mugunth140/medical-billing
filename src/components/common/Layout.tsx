@@ -52,22 +52,12 @@ const MAIN_NAV_ITEMS: NavItem[] = [
     { id: 'running-bills', label: 'Running Bills', icon: ClipboardList, path: '/running-bills' },
     { id: 'inventory', label: 'Inventory', icon: Package, path: '/inventory' },
     { id: 'customers', label: 'Customers', icon: Users, path: '/customers' },
+    { id: 'suppliers', label: 'Suppliers & Purchases', icon: Building2, path: '/purchases', adminOnly: true },
     { id: 'returns', label: 'Returns', icon: ArrowDownLeft, path: '/returns', adminOnly: true },
 ];
 
 // Grouped navigation items (collapsible)
-const NAV_GROUPS: NavGroup[] = [
-    {
-        id: 'suppliers-group',
-        label: 'Suppliers',
-        icon: Building2,
-        adminOnly: true,
-        items: [
-            { id: 'suppliers', label: 'Supplier List', icon: Building2, path: '/suppliers' },
-            { id: 'stock-entry', label: 'Purchase Entry', icon: Truck, path: '/purchases' },
-        ]
-    },
-];
+const NAV_GROUPS: NavGroup[] = [];
 
 // Bottom navigation items
 const BOTTOM_NAV_ITEMS: NavItem[] = [

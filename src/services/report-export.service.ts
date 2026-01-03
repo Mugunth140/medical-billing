@@ -662,6 +662,199 @@ export async function generateCreditReportHTML(
 }
 
 // =====================================================
+// INVENTORY REPORT
+// =====================================================
+
+export async function generateInventoryReportHTML(
+    data: {
+        totalItems: number;
+        totalPurchaseValue: number;
+        totalSaleValue: number;
+    },
+    options: ReportExportOptions
+): Promise<string> {
+    const shopInfo = await getShopInfo();
+
+    return `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>${options.title}</title>
+    <style>${getReportStyles()}</style>
+</head>
+<body>
+    <div class="report-container">
+        <div class="report-header">
+            <div class="shop-info">
+                <div class="shop-name">${shopInfo.shop_name}</div>
+                <div class="shop-details">
+                    ${shopInfo.shop_address ? `<div>${shopInfo.shop_address}</div>` : ''}
+                </div>
+            </div>
+            <div class="report-title-section">
+                <div class="report-title">${options.title}</div>
+                <div style="font-size: 10px; color: #999; margin-top: 5px;">
+                    Generated on ${formatDate(new Date().toISOString(), 'dd/MM/yyyy hh:mm a')}
+                </div>
+            </div>
+        </div>
+        
+        <div class="summary-cards" style="grid-template-columns: repeat(3, 1fr);">
+            <div class="summary-card">
+                <div class="summary-value">${data.totalItems}</div>
+                <div class="summary-label">Total Items</div>
+            </div>
+            <div class="summary-card">
+                <div class="summary-value">${formatCurrency(data.totalPurchaseValue)}</div>
+                <div class="summary-label">Total Purchase Value</div>
+            </div>
+            <div class="summary-card">
+                <div class="summary-value">${formatCurrency(data.totalSaleValue)}</div>
+                <div class="summary-label">Total Sale Value</div>
+            </div>
+        </div>
+        
+        <div style="padding: 20px; background: #f8f9fa; border-radius: 8px; text-align: center; color: #666;">
+            Detailed inventory list is not included in this summary report.
+            Please use the Inventory page to view item-level details.
+        </div>
+        
+        <div class="report-footer">
+            <div>This is a computer-generated stock valuation report.</div>
+            <div style="margin-top: 5px;">${shopInfo.shop_name}</div>
+        </div>
+    </div>
+</body>
+</html>
+    `;
+}
+
+// =====================================================
+// EXPIRY REPORT
+// =====================================================
+
+export async function generateExpiryReportHTML(
+    data: {
+        expired: any[];
+        expiringSoon: any[];
+        totalValue: number;
+    },
+    options: ReportExportOptions
+): Promise<string> {
+    const shopInfo = await getShopInfo();
+
+    const expiredRows = data.expired.map((item, i) => `
+        <tr>
+            <td style="text-align: center;">${i + 1}</td>
+            <td>${item.medicine_name}</td>
+            <td>${item.batch_number}</td>
+            <td class="text-danger">${formatDate(item.expiry_date)}</td>
+            <td class="numeric">${item.quantity}</td>
+            <td class="numeric">${formatCurrency(item.selling_price * item.quantity)}</td>
+        </tr>
+    `).join('');
+
+    const expiringSoonRows = data.expiringSoon.map((item, i) => `
+        <tr>
+            <td style="text-align: center;">${i + 1}</td>
+            <td>${item.medicine_name}</td>
+            <td>${item.batch_number}</td>
+            <td class="text-warning">${formatDate(item.expiry_date)}</td>
+            <td class="numeric">${item.quantity}</td>
+            <td class="numeric">${formatCurrency(item.selling_price * item.quantity)}</td>
+        </tr>
+    `).join('');
+
+    return `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>${options.title}</title>
+    <style>${getReportStyles()}</style>
+</head>
+<body>
+    <div class="report-container">
+        <div class="report-header">
+            <div class="shop-info">
+                <div class="shop-name">${shopInfo.shop_name}</div>
+                <div class="shop-details">
+                    ${shopInfo.shop_address ? `<div>${shopInfo.shop_address}</div>` : ''}
+                </div>
+            </div>
+            <div class="report-title-section">
+                <div class="report-title">${options.title}</div>
+                <div style="font-size: 10px; color: #999; margin-top: 5px;">
+                    Generated on ${formatDate(new Date().toISOString(), 'dd/MM/yyyy')}
+                </div>
+            </div>
+        </div>
+        
+        <div class="summary-cards" style="grid-template-columns: repeat(3, 1fr);">
+            <div class="summary-card">
+                <div class="summary-value text-danger">${data.expired.length}</div>
+                <div class="summary-label">Expired Items</div>
+            </div>
+            <div class="summary-card">
+                <div class="summary-value text-warning">${data.expiringSoon.length}</div>
+                <div class="summary-label">Expiring Soon (30 Days)</div>
+            </div>
+            <div class="summary-card">
+                <div class="summary-value">${formatCurrency(data.totalValue)}</div>
+                <div class="summary-label">Total Value at Risk</div>
+            </div>
+        </div>
+        
+        ${data.expired.length > 0 ? `
+            <div class="section-title text-danger">Expired Items</div>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th style="width: 40px; text-align: center;">#</th>
+                        <th>Medicine</th>
+                        <th>Batch</th>
+                        <th>Expiry Date</th>
+                        <th style="text-align: right;">Qty</th>
+                        <th style="text-align: right;">Value</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${expiredRows}
+                </tbody>
+            </table>
+        ` : ''}
+
+        ${data.expiringSoon.length > 0 ? `
+            <div class="section-title text-warning" style="margin-top: 20px;">Expiring Soon (Next 30 Days)</div>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th style="width: 40px; text-align: center;">#</th>
+                        <th>Medicine</th>
+                        <th>Batch</th>
+                        <th>Expiry Date</th>
+                        <th style="text-align: right;">Qty</th>
+                        <th style="text-align: right;">Value</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${expiringSoonRows}
+                </tbody>
+            </table>
+        ` : ''}
+        
+        <div class="report-footer">
+            <div>This is a computer-generated expiry report.</div>
+            <div style="margin-top: 5px;">${shopInfo.shop_name}</div>
+        </div>
+    </div>
+</body>
+</html>
+    `;
+}
+
+// =====================================================
 // EXPORT FUNCTIONS
 // =====================================================
 

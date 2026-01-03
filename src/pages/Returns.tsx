@@ -8,6 +8,7 @@ import {
     Building2,
     Calendar,
     FileText,
+    Pencil,
     Plus,
     RotateCcw,
     Search,
@@ -116,6 +117,16 @@ export function Returns() {
     const [supplierReturnItems, setSupplierReturnItems] = useState<{ batch: ReturnableBatch; quantity: number }[]>([]);
     const [supplierReturnReason, setSupplierReturnReason] = useState<'EXPIRY' | 'DAMAGE' | 'OVERSTOCK' | 'OTHER'>('EXPIRY');
     const [supplierReturnNotes, setSupplierReturnNotes] = useState('');
+
+    // Edit Supplier Return State
+    const [showEditSupplierReturnModal, setShowEditSupplierReturnModal] = useState(false);
+    const [editingSupplierReturn, setEditingSupplierReturn] = useState<SupplierReturnRecord | null>(null);
+    const [editSupplierReturnForm, setEditSupplierReturnForm] = useState({
+        return_date: '',
+        reason: 'EXPIRY',
+        status: 'PENDING',
+        notes: ''
+    });
 
     // Pagination
     const ITEMS_PER_PAGE = 50;
@@ -457,6 +468,47 @@ export function Returns() {
         }
     };
 
+    const handleEditSupplierReturn = (ret: SupplierReturnRecord) => {
+        setEditingSupplierReturn(ret);
+        setEditSupplierReturnForm({
+            return_date: ret.return_date,
+            reason: ret.reason || 'EXPIRY',
+            status: ret.status,
+            notes: ret.notes || ''
+        });
+        setShowEditSupplierReturnModal(true);
+    };
+
+    const handleUpdateSupplierReturn = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!editingSupplierReturn) return;
+
+        try {
+            await execute(
+                `UPDATE purchase_returns SET 
+                    return_date = ?, 
+                    reason = ?, 
+                    status = ?, 
+                    notes = ? 
+                 WHERE id = ?`,
+                [
+                    editSupplierReturnForm.return_date,
+                    editSupplierReturnForm.reason,
+                    editSupplierReturnForm.status,
+                    editSupplierReturnForm.notes,
+                    editingSupplierReturn.id
+                ]
+            );
+            showToast('success', 'Return updated successfully');
+            setShowEditSupplierReturnModal(false);
+            setEditingSupplierReturn(null);
+            loadSupplierReturns();
+        } catch (error) {
+            console.error('Failed to update return:', error);
+            showToast('error', 'Failed to update return');
+        }
+    };
+
     const resetSalesReturnForm = () => {
         setBillSearch('');
         setSelectedBill(null);
@@ -491,9 +543,11 @@ export function Returns() {
             case 'COMPLETED':
                 return 'badge-success';
             case 'APPROVED':
-                return 'badge-info';
+                return 'badge-primary';
             case 'PENDING':
                 return 'badge-warning';
+            case 'REJECTED':
+                return 'badge-danger';
             default:
                 return 'badge-secondary';
         }
@@ -745,6 +799,17 @@ export function Returns() {
                                         <div className="text-xs text-secondary">
                                             GST: {formatCurrency(ret.total_gst)}
                                         </div>
+                                        <button
+                                            className="btn btn-ghost btn-icon mt-2"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleEditSupplierReturn(ret);
+                                            }}
+                                            title="Edit return details"
+                                            style={{ marginLeft: 'auto' }}
+                                        >
+                                            <Pencil size={16} />
+                                        </button>
                                     </div>
                                 </div>
                             ))
@@ -1056,6 +1121,77 @@ export function Returns() {
                                 Create Return
                             </button>
                         </div>
+                    </div>
+                </div>
+            )}
+            {/* Edit Supplier Return Modal */}
+            {showEditSupplierReturnModal && (
+                <div className="modal-overlay" onClick={() => setShowEditSupplierReturnModal(false)}>
+                    <div className="modal" style={{ maxWidth: '500px' }} onClick={(e) => e.stopPropagation()}>
+                        <div className="modal-header">
+                            <h3 className="modal-title">Edit Supplier Return</h3>
+                            <button className="btn btn-ghost btn-icon" onClick={() => setShowEditSupplierReturnModal(false)}>
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <form onSubmit={handleUpdateSupplierReturn}>
+                            <div className="modal-body">
+                                <div className="form-group">
+                                    <label className="form-label">Return Date</label>
+                                    <input
+                                        type="date"
+                                        className="form-input"
+                                        value={editSupplierReturnForm.return_date}
+                                        onChange={(e) => setEditSupplierReturnForm({ ...editSupplierReturnForm, return_date: e.target.value })}
+                                        required
+                                    />
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">Status</label>
+                                    <select
+                                        className="form-input"
+                                        value={editSupplierReturnForm.status}
+                                        onChange={(e) => setEditSupplierReturnForm({ ...editSupplierReturnForm, status: e.target.value })}
+                                    >
+                                        <option value="PENDING">Pending</option>
+                                        <option value="APPROVED">Approved</option>
+                                        <option value="COMPLETED">Completed</option>
+                                        <option value="REJECTED">Rejected</option>
+                                    </select>
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">Reason</label>
+                                    <select
+                                        className="form-input"
+                                        value={editSupplierReturnForm.reason}
+                                        onChange={(e) => setEditSupplierReturnForm({ ...editSupplierReturnForm, reason: e.target.value })}
+                                    >
+                                        <option value="EXPIRY">Expiry</option>
+                                        <option value="DAMAGE">Damage</option>
+                                        <option value="OVERSTOCK">Overstock</option>
+                                        <option value="OTHER">Other</option>
+                                    </select>
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">Notes</label>
+                                    <textarea
+                                        className="form-textarea"
+                                        rows={3}
+                                        value={editSupplierReturnForm.notes}
+                                        onChange={(e) => setEditSupplierReturnForm({ ...editSupplierReturnForm, notes: e.target.value })}
+                                        placeholder="Add notes..."
+                                    />
+                                </div>
+                            </div>
+                            <div className="modal-footer">
+                                <button type="button" className="btn btn-secondary" onClick={() => setShowEditSupplierReturnModal(false)}>
+                                    Cancel
+                                </button>
+                                <button type="submit" className="btn btn-primary">
+                                    Update Return
+                                </button>
+                            </div>
+                        </form>
                     </div>
                 </div>
             )}

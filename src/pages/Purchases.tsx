@@ -67,6 +67,7 @@ export function Purchases() {
     const [activeTab, setActiveTab] = useState<'purchases' | 'suppliers'>('purchases');
     const [showAddSupplierModal, setShowAddSupplierModal] = useState(false);
     const [showNewPurchaseModal, setShowNewPurchaseModal] = useState(false);
+    const [showEditPurchaseModal, setShowEditPurchaseModal] = useState(false);
     const [showQuickAddMedicineModal, setShowQuickAddMedicineModal] = useState(false);
     const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
     const [editingPurchase, setEditingPurchase] = useState<Purchase | null>(null);
@@ -303,13 +304,13 @@ export function Purchases() {
 
     // Add medicine to purchase
     const handleAddMedicine = async (medicine: Medicine) => {
-        // Check if medicine already exists without batch number (likely accidental duplicate)
-        const existingWithoutBatch = purchaseItems.find(
-            item => item.medicine_id === medicine.id && !item.batch_number
+        // Check if this exact medicine is already in the list (prevent duplicates)
+        const existingMedicine = purchaseItems.find(
+            item => item.medicine_id === medicine.id
         );
 
-        if (existingWithoutBatch) {
-            showToast('warning', `${medicine.name} is already in the list. Add different batch number or remove duplicate.`);
+        if (existingMedicine) {
+            showToast('warning', `${medicine.name} is already in the list. Please edit the existing entry or remove it before adding again.`);
             setMedicineSearch('');
             setShowMedicineDropdown(false);
             return;
@@ -481,9 +482,60 @@ export function Purchases() {
             invoice_date: new Date().toISOString().split('T')[0],
             payment_status: 'PENDING',
             paid_amount: 0,
+            notes: ''
         });
         setPurchaseItems([]);
         setMedicineSearch('');
+        setEditingPurchase(null);
+    };
+
+    // Handle Edit Purchase Click
+    const handleEditPurchase = (purchase: Purchase) => {
+        setEditingPurchase(purchase);
+        setPurchaseForm({
+            supplier_id: purchase.supplier_id,
+            invoice_number: purchase.invoice_number,
+            invoice_date: purchase.invoice_date,
+            payment_status: purchase.payment_status,
+            paid_amount: purchase.paid_amount || 0,
+            notes: purchase.notes || ''
+        });
+        setShowEditPurchaseModal(true);
+    };
+
+    // Update Purchase Details (Header only)
+    const handleUpdatePurchase = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!editingPurchase) return;
+
+        try {
+            await execute(
+                `UPDATE purchases SET 
+                    supplier_id = ?, 
+                    invoice_number = ?, 
+                    invoice_date = ?, 
+                    payment_status = ?, 
+                    paid_amount = ?, 
+                    notes = ? 
+                 WHERE id = ?`,
+                [
+                    purchaseForm.supplier_id,
+                    purchaseForm.invoice_number,
+                    purchaseForm.invoice_date,
+                    purchaseForm.payment_status,
+                    purchaseForm.paid_amount,
+                    purchaseForm.notes || null,
+                    editingPurchase.id
+                ]
+            );
+            showToast('success', 'Purchase updated successfully');
+            setShowEditPurchaseModal(false);
+            resetPurchaseForm();
+            loadData();
+        } catch (error) {
+            console.error('Failed to update purchase:', error);
+            showToast('error', 'Failed to update purchase');
+        }
     };
 
     // Save new purchase
@@ -672,14 +724,18 @@ export function Purchases() {
             <header className="page-header">
                 <h1 className="page-title">Purchases</h1>
                 <div className="page-actions">
-                    <button className="btn btn-secondary" onClick={() => setShowAddSupplierModal(true)}>
-                        <Plus size={18} />
-                        Add Supplier
-                    </button>
-                    <button className="btn btn-primary" onClick={() => setShowNewPurchaseModal(true)}>
-                        <Plus size={18} />
-                        New Purchase
-                    </button>
+                    {activeTab === 'suppliers' && (
+                        <button className="btn btn-secondary" onClick={() => setShowAddSupplierModal(true)}>
+                            <Plus size={18} />
+                            Add Supplier
+                        </button>
+                    )}
+                    {activeTab === 'purchases' && (
+                        <button className="btn btn-primary" onClick={() => setShowNewPurchaseModal(true)}>
+                            <Plus size={18} />
+                            New Purchase
+                        </button>
+                    )}
                 </div>
             </header>
 
@@ -896,6 +952,16 @@ export function Purchases() {
                                                 GST: {formatCurrency(purchase.total_gst)}
                                             </div>
                                         </div>
+                                        <button
+                                            className="btn btn-ghost btn-icon"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleEditPurchase(purchase);
+                                            }}
+                                            title="Edit purchase details"
+                                        >
+                                            <Pencil size={16} />
+                                        </button>
                                         <button
                                             className="btn btn-ghost btn-icon"
                                             onClick={(e) => {
@@ -1565,6 +1631,99 @@ export function Purchases() {
                                 </button>
                                 <button type="submit" className="btn btn-primary">
                                     <Plus size={18} /> Add & Continue
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+            {/* Edit Purchase Modal */}
+            {showEditPurchaseModal && (
+                <div className="modal-overlay" onClick={() => { setShowEditPurchaseModal(false); resetPurchaseForm(); }}>
+                    <div className="modal" style={{ maxWidth: '600px' }} onClick={(e) => e.stopPropagation()}>
+                        <div className="modal-header">
+                            <h3 className="modal-title">Edit Purchase Details</h3>
+                            <button className="btn btn-ghost btn-icon" onClick={() => { setShowEditPurchaseModal(false); resetPurchaseForm(); }}>
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <form onSubmit={handleUpdatePurchase}>
+                            <div className="modal-body">
+                                <div className="form-group">
+                                    <label className="form-label">Supplier</label>
+                                    <select
+                                        className="form-input"
+                                        value={purchaseForm.supplier_id}
+                                        onChange={(e) => setPurchaseForm({ ...purchaseForm, supplier_id: parseInt(e.target.value) })}
+                                        required
+                                    >
+                                        <option value={0}>Select Supplier</option>
+                                        {suppliers.map(s => (
+                                            <option key={s.id} value={s.id}>{s.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">Invoice Number</label>
+                                    <input
+                                        type="text"
+                                        className="form-input"
+                                        value={purchaseForm.invoice_number}
+                                        onChange={(e) => setPurchaseForm({ ...purchaseForm, invoice_number: e.target.value })}
+                                        required
+                                    />
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">Invoice Date</label>
+                                    <input
+                                        type="date"
+                                        className="form-input"
+                                        value={purchaseForm.invoice_date}
+                                        onChange={(e) => setPurchaseForm({ ...purchaseForm, invoice_date: e.target.value })}
+                                        required
+                                    />
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">Payment Status</label>
+                                    <select
+                                        className="form-input"
+                                        value={purchaseForm.payment_status}
+                                        onChange={(e) => setPurchaseForm({ ...purchaseForm, payment_status: e.target.value as any })}
+                                    >
+                                        <option value="PENDING">Pending</option>
+                                        <option value="PARTIAL">Partial</option>
+                                        <option value="PAID">Paid</option>
+                                    </select>
+                                </div>
+                                {purchaseForm.payment_status !== 'PENDING' && (
+                                    <div className="form-group">
+                                        <label className="form-label">Paid Amount</label>
+                                        <input
+                                            type="number"
+                                            className="form-input"
+                                            value={purchaseForm.paid_amount}
+                                            onChange={(e) => setPurchaseForm({ ...purchaseForm, paid_amount: parseFloat(e.target.value) || 0 })}
+                                            min={0}
+                                        />
+                                    </div>
+                                )}
+                                <div className="form-group">
+                                    <label className="form-label">Notes</label>
+                                    <textarea
+                                        className="form-textarea"
+                                        rows={3}
+                                        value={purchaseForm.notes || ''}
+                                        onChange={(e) => setPurchaseForm({ ...purchaseForm, notes: e.target.value })}
+                                        placeholder="Add notes..."
+                                    />
+                                </div>
+                            </div>
+                            <div className="modal-footer">
+                                <button type="button" className="btn btn-secondary" onClick={() => { setShowEditPurchaseModal(false); resetPurchaseForm(); }}>
+                                    Cancel
+                                </button>
+                                <button type="submit" className="btn btn-primary">
+                                    Update Purchase
                                 </button>
                             </div>
                         </form>
