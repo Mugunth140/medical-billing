@@ -68,6 +68,7 @@ interface ReturnableBatch {
     tablets_per_strip: number;
     mrp: number;
     selling_price: number;
+    purchase_price: number;
     medicine_id: number;
     medicine_name: string;
     gst_rate: number;
@@ -233,6 +234,7 @@ export function Returns() {
                     b.tablets_per_strip,
                     b.mrp,
                     b.selling_price,
+                    b.purchase_price,
                     m.id as medicine_id,
                     m.name as medicine_name,
                     m.gst_rate
@@ -408,10 +410,13 @@ export function Returns() {
             let totalGst = 0;
 
             for (const sri of supplierReturnItems) {
-                const unitPrice = sri.batch.mrp;
+                // Supplier return uses purchase_price (what we paid for the stock)
+                const tabletsPerStrip = sri.batch.tablets_per_strip || 10;
+                const pricePerTablet = (sri.batch.purchase_price || sri.batch.mrp) / tabletsPerStrip;
                 const gstRate = sri.batch.gst_rate;
-                const amount = unitPrice * sri.quantity;
-                const gst = (amount * gstRate) / (100 + gstRate);
+                // Amount = price per tablet × number of tablets being returned
+                const amount = pricePerTablet * sri.quantity;
+                const gst = gstRate > 0 ? (amount * gstRate) / (100 + gstRate) : 0;
                 totalAmount += amount;
                 totalGst += gst;
             }
@@ -437,18 +442,21 @@ export function Returns() {
 
             // Insert return items and reduce stock
             for (const sri of supplierReturnItems) {
-                const unitPrice = sri.batch.mrp;
+                // Supplier return uses purchase_price (what we paid for the stock)
+                const tabletsPerStrip = sri.batch.tablets_per_strip || 10;
+                const pricePerTablet = (sri.batch.purchase_price || sri.batch.mrp) / tabletsPerStrip;
                 const gstRate = sri.batch.gst_rate;
-                const amount = unitPrice * sri.quantity;
-                const gst = (amount * gstRate) / (100 + gstRate);
+                // Amount = price per tablet × number of tablets being returned
+                const amount = pricePerTablet * sri.quantity;
+                const gst = gstRate > 0 ? (amount * gstRate) / (100 + gstRate) : 0;
                 const cgst = gst / 2;
                 const sgst = gst / 2;
 
-                // Insert return item
+                // Insert return item (store price per tablet for consistency)
                 await execute(
                     `INSERT INTO purchase_return_items (return_id, batch_id, medicine_id, quantity, unit_price, gst_rate, cgst, sgst, total)
                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                    [returnId, sri.batch.batch_id, sri.batch.medicine_id, sri.quantity, unitPrice, gstRate, cgst, sgst, amount]
+                    [returnId, sri.batch.batch_id, sri.batch.medicine_id, sri.quantity, pricePerTablet, gstRate, cgst, sgst, amount]
                 );
 
                 // Reduce stock from batch
@@ -1026,7 +1034,7 @@ export function Returns() {
                                                             Batch: {batch.batch_number} • Exp: {formatDate(batch.expiry_date)}
                                                         </div>
                                                     </div>
-                                                    <span className="font-mono">{formatCurrency(batch.mrp)}</span>
+                                                    <span className="font-mono">PP: {formatCurrency(batch.purchase_price || batch.mrp)}</span>
                                                     <span className="font-mono">Qty: {batch.quantity}</span>
                                                     <button
                                                         className="btn btn-sm btn-secondary"
@@ -1074,7 +1082,11 @@ export function Returns() {
                                             ))}
                                             <div className="mt-3 pt-3" style={{ borderTop: '1px solid var(--color-success-300)' }}>
                                                 <strong>
-                                                    Total: {formatCurrency(supplierReturnItems.reduce((sum, sri) => sum + (sri.batch.mrp * sri.quantity), 0))}
+                                                    Total: {formatCurrency(supplierReturnItems.reduce((sum, sri) => {
+                                                        const tabletsPerStrip = sri.batch.tablets_per_strip || 10;
+                                                        const pricePerTablet = (sri.batch.purchase_price || sri.batch.mrp) / tabletsPerStrip;
+                                                        return sum + (pricePerTablet * sri.quantity);
+                                                    }, 0))}
                                                 </strong>
                                             </div>
                                         </div>

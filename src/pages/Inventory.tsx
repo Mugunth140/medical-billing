@@ -595,7 +595,7 @@ export function Inventory() {
                         <span>Strips</span>
                         <span>MRP</span>
                         <span>Location</span>
-                        <span>Status</span>
+                        <span style={{ textAlign: 'center' }}>Status</span>
                         <span>Actions</span>
                     </div>
 
@@ -632,8 +632,10 @@ export function Inventory() {
                                         <MapPin size={12} />
                                         {item.rack || '-'} / {item.box || '-'}
                                     </span>
-                                    <span className={`badge badge-${item.expiry_status !== 'OK' ? 'danger' : stockInfo.color === 'green' ? 'success' : 'warning'}`}>
-                                        {item.expiry_status !== 'OK' ? expiryInfo.label : stockInfo.label}
+                                    <span style={{ textAlign: 'center' }}>
+                                        <span className={`badge badge-${item.expiry_status !== 'OK' ? 'danger' : stockInfo.color === 'green' ? 'success' : 'warning'}`}>
+                                            {item.expiry_status !== 'OK' ? expiryInfo.label : stockInfo.label}
+                                        </span>
                                     </span>
                                     <div className="action-btns">
                                         {medicine && (

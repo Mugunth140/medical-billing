@@ -4,11 +4,11 @@
 // =====================================================
 
 import type {
-    Batch,
-    CreateBatchInput,
-    CreateMedicineInput,
-    Medicine,
-    StockItem
+  Batch,
+  CreateBatchInput,
+  CreateMedicineInput,
+  Medicine,
+  StockItem
 } from '../types';
 import { execute, query, queryOne } from './database';
 
@@ -75,7 +75,7 @@ export async function searchMedicinesForBilling(searchTerm: string): Promise<Sto
       COALESCE(m.is_schedule, 0) AS is_schedule,
       CASE 
         WHEN b.quantity <= 0 THEN 'OUT_OF_STOCK'
-        WHEN (b.quantity / COALESCE(b.tablets_per_strip, 10)) <= m.reorder_level THEN 'LOW_STOCK'
+        WHEN b.quantity <= m.reorder_level THEN 'LOW_STOCK'
         ELSE 'IN_STOCK'
       END AS stock_status,
       CASE 
@@ -256,7 +256,7 @@ export async function getBatchWithMedicine(batchId: number): Promise<StockItem |
       COALESCE(m.is_schedule, 0) AS is_schedule,
       CASE 
         WHEN b.quantity <= 0 THEN 'OUT_OF_STOCK'
-        WHEN (b.quantity / COALESCE(b.tablets_per_strip, 10)) <= m.reorder_level THEN 'LOW_STOCK'
+        WHEN b.quantity <= m.reorder_level THEN 'LOW_STOCK'
         ELSE 'IN_STOCK'
       END AS stock_status,
       CASE 
@@ -320,11 +320,11 @@ export async function updateBatchQuantity(
       'SELECT quantity FROM batches WHERE id = ?',
       [batchId]
     );
-    
+
     if (!batch) {
       throw new Error(`Batch not found: ${batchId}`);
     }
-    
+
     const newQuantity = batch.quantity + quantityChange;
     if (newQuantity < 0) {
       throw new Error(`Insufficient stock. Available: ${batch.quantity}, Requested: ${Math.abs(quantityChange)}`);
@@ -429,7 +429,7 @@ export async function getAllStock(): Promise<StockItem[]> {
       m.reorder_level,
       CASE 
         WHEN b.quantity <= 0 THEN 'OUT_OF_STOCK'
-        WHEN (b.quantity / COALESCE(b.tablets_per_strip, 10)) <= m.reorder_level THEN 'LOW_STOCK'
+        WHEN b.quantity <= m.reorder_level THEN 'LOW_STOCK'
         ELSE 'IN_STOCK'
       END AS stock_status,
       CASE 
@@ -531,8 +531,8 @@ export async function getLowStockItems(): Promise<StockItem[]> {
     JOIN medicines m ON b.medicine_id = m.id
     WHERE b.is_active = 1 
       AND m.is_active = 1
-      AND (b.quantity / COALESCE(b.tablets_per_strip, 10)) <= m.reorder_level
-    ORDER BY (b.quantity / COALESCE(b.tablets_per_strip, 10)) ASC, m.name ASC
+      AND b.quantity <= m.reorder_level
+    ORDER BY b.quantity ASC, m.name ASC
   `;
 
   return await query<StockItem>(sql, []);
@@ -614,7 +614,7 @@ export async function getStockByLocation(rack?: string, box?: string): Promise<S
       m.reorder_level,
       CASE 
         WHEN b.quantity <= 0 THEN 'OUT_OF_STOCK'
-        WHEN (b.quantity / COALESCE(b.tablets_per_strip, 10)) <= m.reorder_level THEN 'LOW_STOCK'
+        WHEN b.quantity <= m.reorder_level THEN 'LOW_STOCK'
         ELSE 'IN_STOCK'
       END AS stock_status,
       CASE 
@@ -705,7 +705,7 @@ export async function getScheduledMedicines(): Promise<StockItem[]> {
       COALESCE(m.is_schedule, 0) AS is_schedule,
       CASE 
         WHEN b.quantity <= 0 THEN 'OUT_OF_STOCK'
-        WHEN (b.quantity / COALESCE(b.tablets_per_strip, 10)) <= m.reorder_level THEN 'LOW_STOCK'
+        WHEN b.quantity <= m.reorder_level THEN 'LOW_STOCK'
         ELSE 'IN_STOCK'
       END AS stock_status,
       CASE 

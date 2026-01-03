@@ -23,7 +23,7 @@ export interface BackupInfo {
  */
 export async function getBackupFolderPath(): Promise<string> {
     const appData = await appDataDir();
-    return `${appData}backups`;
+    return `${appData}\\backups`;
 }
 
 /**
@@ -31,7 +31,7 @@ export async function getBackupFolderPath(): Promise<string> {
  */
 export async function getDatabasePath(): Promise<string> {
     const appData = await appDataDir();
-    return `${appData}medbill.db`;
+    return `${appData}\\medbill.db`;
 }
 
 /**
