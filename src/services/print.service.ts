@@ -567,7 +567,7 @@ export async function generateLegalBillHTML(bill: Bill, items: BillItem[]): Prom
 }
 
 // =====================================================
-// THERMAL BILL (80mm/58mm)
+// THERMAL BILL (6-inch / 152mm width)
 // =====================================================
 
 export async function generateThermalBillHTML(bill: Bill, items: BillItem[]): Promise<string> {
@@ -580,19 +580,16 @@ export async function generateThermalBillHTML(bill: Bill, items: BillItem[]): Pr
 
         return `
             <tr>
-                <td colspan="3" style="border-bottom: none; padding-bottom: 0;">
-                    ${index + 1}. ${item.medicine_name}
-                    <span style="color: #888; font-size: 9px;">(${item.batch_number})</span>
+                <td style="padding: 8px 4px; font-size: 14px; border-bottom: 1px dashed #000;">
+                    <strong>${index + 1}. ${item.medicine_name}</strong>
+                    <span style="font-size: 12px; margin-left: 8px;">(${item.batch_number})</span>
+                    <br/>
+                    <span style="font-size: 13px;">${units.displayShort} × ${formatCurrency(item.selling_price || item.unit_price || 0)}</span>
                 </td>
-            </tr>
-            <tr>
-                <td style="border-top: none; padding-top: 0;">
-                    ${units.displayShort} × ${formatCurrency(item.unit_price || 0)}
+                <td style="text-align: center; padding: 8px 4px; font-size: 14px; border-bottom: 1px dashed #000;">
+                    ${item.discount_amount > 0 ? `-${formatCurrency(item.discount_amount)}` : '-'}
                 </td>
-                <td style="text-align: center; border-top: none; padding-top: 0;">
-                    ${item.discount_amount > 0 ? `-${formatCurrency(item.discount_amount)}` : ''}
-                </td>
-                <td style="text-align: right; border-top: none; padding-top: 0;">
+                <td style="text-align: right; padding: 8px 4px; font-size: 15px; font-weight: bold; border-bottom: 1px dashed #000;">
                     ${formatCurrency(item.total || item.total_amount || 0)}
                 </td>
             </tr>
@@ -607,60 +604,116 @@ export async function generateThermalBillHTML(bill: Bill, items: BillItem[]): Pr
     <title>Bill ${bill.bill_number}</title>
     <style>
         @page {
-            size: 80mm auto;
-            margin: 2mm;
+            size: 152mm auto;
+            margin: 3mm;
         }
         
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+        * { margin: 0; padding: 0; box-sizing: border-box; color: #000; }
         
         body {
-            font-family: 'Courier New', monospace;
-            font-size: 11px;
-            width: 76mm;
+            font-family: 'Arial', 'Helvetica', sans-serif;
+            font-size: 14px;
+            width: 146mm;
+            max-width: 146mm;
+            line-height: 1.4;
+            background: #fff;
+            color: #000;
         }
         
-        .thermal-bill { padding: 5px; }
+        .thermal-bill { padding: 10px; }
         
-        .header { text-align: center; margin-bottom: 10px; }
-        .shop-name { font-size: 16px; font-weight: bold; }
-        .separator { border-top: 1px dashed #333; margin: 8px 0; }
-        .double-separator { border-top: 2px solid #333; margin: 8px 0; }
+        .header { text-align: center; margin-bottom: 15px; }
+        .shop-name { font-size: 24px; font-weight: bold; margin-bottom: 5px; }
+        .shop-details { font-size: 13px; line-height: 1.5; }
         
-        .info-row { display: flex; justify-content: space-between; margin-bottom: 3px; }
+        .separator { border-top: 2px dashed #000; margin: 12px 0; }
+        .double-separator { border-top: 3px solid #000; margin: 12px 0; }
         
-        .items-table { width: 100%; border-collapse: collapse; margin: 10px 0; }
-        .items-table td { padding: 3px 2px; font-size: 10px; }
+        .info-section { 
+            display: flex; 
+            justify-content: space-between; 
+            margin-bottom: 8px; 
+            font-size: 14px;
+        }
+        .info-label { font-weight: normal; }
+        .info-value { font-weight: bold; }
         
-        .totals { margin-top: 10px; }
-        .total-row { display: flex; justify-content: space-between; margin-bottom: 3px; }
-        .grand-total { font-size: 14px; font-weight: bold; }
+        .items-table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            margin: 15px 0; 
+        }
+        .items-header {
+            font-weight: bold;
+            font-size: 13px;
+        }
+        .items-header td {
+            padding: 10px 4px;
+            border-bottom: 2px solid #000;
+        }
         
-        .footer { text-align: center; margin-top: 15px; font-size: 10px; }
+        .totals { margin-top: 15px; }
+        .total-row { 
+            display: flex; 
+            justify-content: space-between; 
+            margin-bottom: 8px; 
+            font-size: 15px;
+        }
+        .grand-total { 
+            font-size: 20px; 
+            font-weight: bold; 
+            padding: 10px;
+            border: 2px solid #000;
+        }
         
-        @media print { body { -webkit-print-color-adjust: exact; } }
+        .payment-mode {
+            text-align: center;
+            font-size: 15px;
+            padding: 10px;
+            border: 1px solid #000;
+            margin: 15px 0;
+        }
+        
+        .footer { 
+            text-align: center; 
+            margin-top: 20px; 
+            font-size: 13px; 
+        }
+        
+        @media print { 
+            body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } 
+        }
     </style>
 </head>
 <body>
     <div class="thermal-bill">
         <div class="header">
             <div class="shop-name">${shopInfo.shop_name}</div>
-            ${shopInfo.shop_address ? `<div>${shopInfo.shop_address}</div>` : ''}
-            ${shopInfo.shop_phone ? `<div>Ph: ${shopInfo.shop_phone}</div>` : ''}
-            ${shopInfo.shop_gstin ? `<div>GSTIN: ${shopInfo.shop_gstin}</div>` : ''}
+            <div class="shop-details">
+                ${shopInfo.shop_address ? `${shopInfo.shop_address}<br/>` : ''}
+                ${shopInfo.shop_phone ? `Phone: ${shopInfo.shop_phone}<br/>` : ''}
+                ${shopInfo.shop_gstin ? `GSTIN: ${shopInfo.shop_gstin}<br/>` : ''}
+                ${shopInfo.shop_drug_license ? `D.L. No: ${shopInfo.shop_drug_license}` : ''}
+            </div>
         </div>
         
-        <div class="separator"></div>
+        <div class="double-separator"></div>
         
-        <div class="info-row">
-            <span>Bill: ${bill.bill_number}</span>
-            <span>${formatDate(bill.bill_date, 'dd/MM/yy HH:mm')}</span>
+        <div class="info-section">
+            <span><span class="info-label">Bill No:</span> <span class="info-value">${bill.bill_number}</span></span>
+            <span><span class="info-label">Date:</span> <span class="info-value">${formatDate(bill.bill_date, 'dd/MM/yyyy HH:mm')}</span></span>
         </div>
-        ${bill.customer_name ? `<div>Customer: ${bill.customer_name}</div>` : ''}
-        ${bill.doctor_name ? `<div>Doctor: ${bill.doctor_name}</div>` : ''}
+        ${bill.customer_name ? `<div class="info-section"><span class="info-label">Customer:</span> <span class="info-value">${bill.customer_name}</span></div>` : ''}
+        ${bill.doctor_name ? `<div class="info-section"><span class="info-label">Doctor:</span> <span class="info-value">${bill.doctor_name}</span></div>` : ''}
         
         <div class="separator"></div>
         
         <table class="items-table">
+            <tr class="items-header">
+                <td>Item Details</td>
+                <td style="text-align: center;">Disc</td>
+                <td style="text-align: right;">Amount</td>
+            </tr>
             ${itemRows}
         </table>
         
@@ -668,7 +721,7 @@ export async function generateThermalBillHTML(bill: Bill, items: BillItem[]): Pr
         
         <div class="totals">
             <div class="total-row">
-                <span>Sub Total:</span>
+                <span>Sub Total (${items.length} items):</span>
                 <span>${formatCurrency(bill.subtotal || 0)}</span>
             </div>
             ${bill.discount_amount > 0 ? `
@@ -690,19 +743,21 @@ export async function generateThermalBillHTML(bill: Bill, items: BillItem[]): Pr
             <div class="separator"></div>
             <div class="total-row grand-total">
                 <span>GRAND TOTAL:</span>
-                <span>${formatCurrency(bill.grand_total)}</span>
+                <span>₹ ${(bill.grand_total || 0).toFixed(2)}</span>
             </div>
         </div>
         
-        <div class="separator"></div>
-        
-        <div style="text-align: center; margin: 10px 0;">
-            Payment: ${bill.payment_mode}
+        <div class="payment-mode">
+            <strong>Payment Mode:</strong> ${bill.payment_mode}
+            ${bill.cash_amount > 0 ? ` | Cash: ${formatCurrency(bill.cash_amount)}` : ''}
+            ${bill.online_amount > 0 ? ` | Online: ${formatCurrency(bill.online_amount)}` : ''}
+            ${bill.credit_amount > 0 ? ` | Credit: ${formatCurrency(bill.credit_amount)}` : ''}
         </div>
         
         <div class="footer">
-            <div>Thank you for your purchase!</div>
-            <div style="margin-top: 5px;">*** Get well soon ***</div>
+            <div style="font-size: 14px; margin-bottom: 5px;"><strong>Thank you for your purchase!</strong></div>
+            <div>*** Get Well Soon ***</div>
+            <div style="margin-top: 10px; font-size: 11px;">This is a computer generated bill</div>
         </div>
     </div>
 </body>
@@ -745,7 +800,7 @@ export async function printBill(
                 printWindow.document.write(html);
                 printWindow.document.close();
                 printWindow.focus();
-                
+
                 // Use requestAnimationFrame for more reliable timing
                 requestAnimationFrame(() => {
                     setTimeout(() => {
@@ -769,13 +824,13 @@ export async function printBill(
                 iframe.style.height = '0';
                 iframe.style.border = 'none';
                 document.body.appendChild(iframe);
-                
+
                 const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
                 if (iframeDoc) {
                     iframeDoc.open();
                     iframeDoc.write(html);
                     iframeDoc.close();
-                    
+
                     requestAnimationFrame(() => {
                         setTimeout(() => {
                             try {
@@ -873,3 +928,65 @@ export function downloadBillHTML(html: string, billNumber: string): void {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
 }
+
+// =====================================================
+// SILENT PRINT (via Tauri Backend - No Dialogs)
+// =====================================================
+
+/**
+ * Print a bill silently using the Tauri backend.
+ * This sends the bill directly to the default printer without any dialogs.
+ * 
+ * @param bill - The bill to print
+ * @param items - Bill items
+ * @param paperSize - Paper size (default: thermal for receipt printing)
+ */
+export async function silentPrintBill(
+    bill: Bill,
+    items: BillItem[],
+    paperSize: 'thermal' | 'a4' | 'legal' = 'thermal'
+): Promise<void> {
+    // Generate HTML based on paper size
+    let html: string;
+    switch (paperSize) {
+        case 'legal':
+        case 'a4':
+            html = await generateLegalBillHTML(bill, items);
+            break;
+        case 'thermal':
+        default:
+            html = await generateThermalBillHTML(bill, items);
+            break;
+    }
+
+    // Import Tauri invoke dynamically
+    const { invoke } = await import('@tauri-apps/api/core');
+
+    // Send to Tauri backend for silent printing (no dialogs, no popups)
+    try {
+        await invoke('silent_print', { htmlContent: html });
+        console.log('[Print] Silent print initiated successfully');
+    } catch (error) {
+        console.error('[Print] Silent print failed:', error);
+        // No fallback popup - just log the error
+        // The bill is already saved, user can print from Bill History if needed
+        throw new Error(
+            error instanceof Error
+                ? error.message
+                : 'Silent print failed. Please check if a printer is connected.'
+        );
+    }
+}
+
+/**
+ * Check if a printer is available (via Tauri backend)
+ */
+export async function checkPrinterAvailable(): Promise<boolean> {
+    try {
+        const { invoke } = await import('@tauri-apps/api/core');
+        return await invoke<boolean>('check_printer_available');
+    } catch {
+        return false;
+    }
+}
+

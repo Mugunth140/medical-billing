@@ -149,7 +149,6 @@ export async function createBill(
         const billNumber = await generateBillNumber();
 
         // 5. Insert bill
-        console.log('Inserting bill...', { billNumber, userId, totals: billCalc });
         const billResult = await execute(
             `INSERT INTO bills (
         bill_number, customer_id, customer_name, doctor_name, user_id,
@@ -183,14 +182,12 @@ export async function createBill(
         );
 
         const billId = billResult.lastInsertId;
-        console.log('Bill inserted, ID:', billId);
 
         // 6. Insert bill items and update stock
         for (let i = 0; i < batchDetails.length; i++) {
             const { input: itemInput, batch } = batchDetails[i];
             const itemCalc = billCalc.items[i];
 
-            console.log(`Inserting item ${i + 1}/${batchDetails.length}`, { batchId: batch.batch_id, quantity: itemInput.quantity });
             await execute(
                 `INSERT INTO bill_items (
           bill_id, batch_id, medicine_id, medicine_name, hsn_code,
@@ -288,10 +285,8 @@ export async function createBill(
         }
 
         // 8. Return created bill
-        console.log('Fetching created bill:', billId);
         const bill = await getBillById(billId);
         if (!bill) {
-            console.error('Failed to fetch created bill', billId);
             throw new Error('Failed to create bill - could not fetch after insert');
         }
         return bill;

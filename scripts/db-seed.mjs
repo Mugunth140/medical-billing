@@ -11,8 +11,11 @@ import { existsSync, mkdirSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 
-// Database path - same as Tauri uses (.config on Linux in dev mode)
-const DATA_DIR = join(homedir(), '.config/com.medicalbilling.app');
+// Database path - same as Tauri uses
+// Windows uses AppData/Local, Linux/Mac use .config
+const DATA_DIR = process.platform === 'win32'
+    ? join(homedir(), 'AppData/Local/com.velanmedicals.app')
+    : join(homedir(), '.config/com.velanmedicals.app');
 const DB_PATH = join(DATA_DIR, 'medbill.db');
 
 // Ensure data directory exists
@@ -225,6 +228,7 @@ function createTables() {
             clinic_hospital_name TEXT,
             prescription_number TEXT,
             prescription_date TEXT,
+            doctor_prescription TEXT,
             quantity INTEGER NOT NULL,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )`,

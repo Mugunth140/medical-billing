@@ -51,13 +51,13 @@ export function Settings() {
     const [isSaving, setIsSaving] = useState(false);
     const [saveSuccess, setSaveSuccess] = useState(false);
     const [users, setUsers] = useState<User[]>([]);
-    
+
     // User management state
     const [showUserModal, setShowUserModal] = useState(false);
     const [editingUser, setEditingUser] = useState<User | null>(null);
     const [userForm, setUserForm] = useState<UserFormData>(initialUserForm);
     const [userFormError, setUserFormError] = useState<string>('');
-    
+
     // Backup state
     const [isBackingUp, setIsBackingUp] = useState(false);
     const [isRestoring, setIsRestoring] = useState(false);
@@ -156,14 +156,14 @@ export function Settings() {
         try {
             // Get the database content as JSON
             const backupData = await exportDatabase();
-            
+
             // Show save dialog
             const filePath = await save({
                 title: 'Save Database Backup',
                 defaultPath: `medbill_backup_${new Date().toISOString().split('T')[0]}.json`,
                 filters: [{ name: 'JSON Backup', extensions: ['json'] }]
             });
-            
+
             if (filePath) {
                 // Write the backup file
                 const encoder = new TextEncoder();
@@ -181,7 +181,7 @@ export function Settings() {
         if (!confirm('⚠️ WARNING: This will replace ALL current data with the backup data.\n\nAre you sure you want to continue?')) {
             return;
         }
-        
+
         setIsRestoring(true);
         try {
             // Show open dialog
@@ -190,14 +190,14 @@ export function Settings() {
                 filters: [{ name: 'JSON Backup', extensions: ['json'] }],
                 multiple: false
             });
-            
+
             if (filePath && typeof filePath === 'string') {
                 // Read the backup file
                 const fileData = await readFile(filePath);
                 const decoder = new TextDecoder();
                 const jsonString = decoder.decode(fileData);
                 const backupData = JSON.parse(jsonString);
-                
+
                 // Import the data
                 await importDatabase(backupData);
                 alert('Database restored successfully! The app will now reload.');
@@ -250,7 +250,7 @@ export function Settings() {
             setUserFormError('Username must be at least 3 characters');
             return;
         }
-        
+
         if (!editingUser) {
             // New user - password required
             if (!userForm.password) {
@@ -301,7 +301,7 @@ export function Settings() {
                     userForm.role
                 );
             }
-            
+
             handleCloseUserModal();
             await loadUsers();
             setSaveSuccess(true);
@@ -323,18 +323,18 @@ export function Settings() {
             alert('You cannot delete your own account!');
             return;
         }
-        
+
         // Prevent deleting the last admin
         const adminCount = users.filter(u => u.role === 'admin').length;
         if (userToDelete.role === 'admin' && adminCount <= 1) {
             alert('Cannot delete the last admin user!');
             return;
         }
-        
+
         if (!confirm(`Are you sure you want to delete user "${userToDelete.full_name}"?`)) {
             return;
         }
-        
+
         try {
             await deactivateUser(userToDelete.id);
             await loadUsers();
@@ -917,8 +917,10 @@ export function Settings() {
                         {/* About */}
                         {activeTab === 'about' && (
                             <div className="about-info">
-                                <div className="about-logo">💊</div>
-                                <h2 className="about-title">Medical Billing</h2>
+                                <div className="about-logo">
+                                    <img src="/logo.png" alt="Velan Medicals" style={{ width: '60px', height: '60px', objectFit: 'contain' }} />
+                                </div>
+                                <h2 className="about-title">Velan Medicals</h2>
                                 <p className="about-version">Version 1.0.0</p>
                                 <p className="text-secondary">
                                     Offline Billing & Inventory Management Software<br />
@@ -988,7 +990,7 @@ export function Settings() {
                                     {userFormError}
                                 </div>
                             )}
-                            
+
                             <div className="form-group">
                                 <label className="form-label">Full Name *</label>
                                 <input
@@ -999,7 +1001,7 @@ export function Settings() {
                                     placeholder="Enter full name"
                                 />
                             </div>
-                            
+
                             <div className="form-group">
                                 <label className="form-label">Username *</label>
                                 <input
@@ -1014,7 +1016,7 @@ export function Settings() {
                                     <span className="form-hint">Username cannot be changed</span>
                                 )}
                             </div>
-                            
+
                             <div className="form-group">
                                 <label className="form-label">
                                     {editingUser ? 'New Password (leave blank to keep current)' : 'Password *'}
@@ -1027,7 +1029,7 @@ export function Settings() {
                                     placeholder={editingUser ? 'Enter new password' : 'Enter password'}
                                 />
                             </div>
-                            
+
                             <div className="form-group">
                                 <label className="form-label">Confirm Password</label>
                                 <input
@@ -1038,7 +1040,7 @@ export function Settings() {
                                     placeholder="Confirm password"
                                 />
                             </div>
-                            
+
                             <div className="form-group">
                                 <label className="form-label">Role *</label>
                                 <select
@@ -1058,8 +1060,8 @@ export function Settings() {
                             <button className="btn btn-secondary" onClick={handleCloseUserModal}>
                                 Cancel
                             </button>
-                            <button 
-                                className="btn btn-primary" 
+                            <button
+                                className="btn btn-primary"
                                 onClick={handleSaveUser}
                                 disabled={isSaving}
                             >

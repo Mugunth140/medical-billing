@@ -7,10 +7,8 @@
 import {
     AlertCircle,
     Banknote,
-    Check,
     CreditCard,
     Percent,
-    Printer,
     Search,
     Smartphone,
     Trash2,
@@ -23,9 +21,9 @@ import { createBill } from '../services/billing.service';
 import { query } from '../services/database';
 import { calculateBill, formatCurrency } from '../services/gst.service';
 import { searchMedicinesForBilling } from '../services/inventory.service';
-import { printBill } from '../services/print.service';
+import { silentPrintBill } from '../services/print.service';
 import { useAuthStore, useBillingStore } from '../stores';
-import type { Bill, Customer, ScheduledMedicineInput, StockItem } from '../types';
+import type { Customer, ScheduledMedicineInput, StockItem } from '../types';
 import { debounce, formatDate } from '../utils';
 
 export function Billing() {
@@ -60,8 +58,6 @@ export function Billing() {
     const [activeIndex, setActiveIndex] = useState(-1); // For keyboard navigation
     const [customers, setCustomers] = useState<Customer[]>([]);
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const [lastBill, setLastBill] = useState<Bill | null>(null);
-    const [showSuccessModal, setShowSuccessModal] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [showPatientModal, setShowPatientModal] = useState(false);
     const [doctorName, setDoctorName] = useState(''); // Optional doctor name for all bills
@@ -123,6 +119,25 @@ export function Billing() {
         loadCustomers();
         return () => { mounted = false; };
     }, []);
+
+    // Sync tempPatientInfo with patientInfo when modal opens
+    useEffect(() => {
+        if (showPatientModal && patientInfo) {
+            setTempPatientInfo({
+                patient_name: patientInfo.patient_name || '',
+                patient_age: patientInfo.patient_age,
+                patient_gender: patientInfo.patient_gender,
+                patient_phone: patientInfo.patient_phone || '',
+                patient_address: patientInfo.patient_address || '',
+                doctor_name: patientInfo.doctor_name || '',
+                doctor_registration_number: patientInfo.doctor_registration_number || '',
+                clinic_hospital_name: patientInfo.clinic_hospital_name || '',
+                prescription_number: patientInfo.prescription_number || '',
+                prescription_date: patientInfo.prescription_date || '',
+                doctor_prescription: patientInfo.doctor_prescription || ''
+            });
+        }
+    }, [showPatientModal, patientInfo]);
 
     // Memoize debounced search to prevent recreation on every render
     const debouncedSearch = useMemo(
@@ -252,6 +267,7 @@ export function Billing() {
         setError(null);
 
         try {
+            // 1. Save bill to database
             const bill = await createBill(
                 {
                     customer_id: customerId ?? undefined,
@@ -276,12 +292,24 @@ export function Billing() {
                 user!.id
             );
 
-            setLastBill(bill);
-            setShowSuccessModal(true);
-            showToast('success', `Bill ${bill.bill_number} created!`);
+            // 2. Auto-print (non-blocking - doesn't rollback bill on failure)
+            let printSuccess = true;
+            try {
+                await silentPrintBill(bill, bill.items ?? []);
+            } catch (printErr) {
+                printSuccess = false;
+                console.warn('[Billing] Print failed:', printErr);
+                showToast('warning', 'Bill saved! Printing failed - please print manually from Bill History.');
+            }
+
+            // 3. Success feedback
+            if (printSuccess) {
+                showToast('success', `Bill ${bill.bill_number} saved & printed!`);
+            }
+
+            // 4. Clear bill and reset form
             clearBill();
-            setDoctorName(''); // Reset doctor name
-            // Reset patient info form
+            setDoctorName('');
             setTempPatientInfo({
                 patient_name: '',
                 patient_age: undefined,
@@ -302,20 +330,6 @@ export function Billing() {
             showToast('error', errorMessage);
         }
         setIsSubmitting(false);
-    };
-
-    const handlePrint = async () => {
-        if (!lastBill || !lastBill.items) {
-            showToast('warning', 'No bill to print');
-            return;
-        }
-        try {
-            await printBill(lastBill, lastBill.items, { paperSize: 'thermal' });
-            showToast('info', 'Print dialog opened');
-        } catch (err) {
-            console.error('Print error:', err);
-            showToast('warning', 'Could not open print dialog. Bill was saved successfully.');
-        }
     };
 
     const styles = `
@@ -995,34 +1009,6 @@ export function Billing() {
                     </div>
                 </div>
             </div>
-
-            {/* Success Modal */}
-            {showSuccessModal && lastBill && (
-                <div className="modal-overlay" onClick={() => setShowSuccessModal(false)}>
-                    <div className="modal modal-sm" onClick={(e) => e.stopPropagation()}>
-                        <div className="modal-body" style={{ textAlign: 'center', padding: 32 }}>
-                            <div style={{
-                                width: 72, height: 72, background: 'var(--color-success-100)', color: 'var(--color-success-600)',
-                                borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px'
-                            }}>
-                                <Check size={40} />
-                            </div>
-                            <h3 style={{ fontSize: 24, fontWeight: 700, marginBottom: 8 }}>Sale Completed!</h3>
-                            <div style={{ fontSize: 18, fontFamily: 'var(--font-mono)', color: 'var(--color-primary-600)', marginBottom: 24 }}>
-                                {lastBill.bill_number}
-                            </div>
-                            <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
-                                <button className="btn btn-secondary btn-lg" onClick={handlePrint}>
-                                    <Printer size={18} /> Print Bill
-                                </button>
-                                <button className="btn btn-primary btn-lg" onClick={() => setShowSuccessModal(false)}>
-                                    New Sale
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
 
             {/* Patient Details Modal */}
             {showPatientModal && (

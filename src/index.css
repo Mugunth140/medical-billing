@@ -651,7 +651,7 @@ a:hover {
 .sidebar-logo {
   width: 42px;
   height: 42px;
-  background: linear-gradient(135deg, var(--color-primary-500) 0%, var(--color-primary-600) 100%);
+  /* background: linear-gradient(135deg, var(--color-primary-500) 0%, var(--color-primary-600) 100%); */
   border-radius: var(--radius-lg);
   display: flex;
   align-items: center;
@@ -659,7 +659,7 @@ a:hover {
   font-weight: var(--font-bold);
   font-size: var(--text-xl);
   flex-shrink: 0;
-  box-shadow: 0 4px 12px rgba(30, 142, 180, 0.3);
+  /* box-shadow: 0 4px 12px rgba(30, 142, 180, 0.3); */
 }
 
 .sidebar-title {
