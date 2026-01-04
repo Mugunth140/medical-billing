@@ -117,12 +117,10 @@ export function Layout({ children }: LayoutProps) {
                         <div className="brand-logo">
                             <img src="./logo.png" alt="Logo" />
                         </div>
-                        {sidebarOpen && (
-                            <div className="brand-text">
-                                <span className="brand-name">Velan</span>
-                                <span className="brand-suffix">Medicals</span>
-                            </div>
-                        )}
+                        <div className="brand-text">
+                            <span className="brand-name">Velan</span>
+                            <span className="brand-suffix">Medicals</span>
+                        </div>
                     </div>
                 </div>
 

@@ -566,8 +566,8 @@ export function Settings() {
           }
           
           .about-logo {
-            width: 80px;
-            height: 80px;
+            width: 60px;
+            height: 60px;
             background: linear-gradient(135deg, var(--color-primary-500), var(--color-primary-700));
             color: var(--text-inverse);
             border-radius: var(--radius-xl);
@@ -998,56 +998,353 @@ export function Settings() {
                             </>
                         )}
 
-                        {/* About */}
+                        <style>{`
+                          @keyframes fadeIn {
+                            from { opacity: 0; transform: translateY(10px); }
+                            to { opacity: 1; transform: translateY(0); }
+                          }
+
+                          @keyframes slideIn {
+                            from { opacity: 0; transform: translateX(-10px); }
+                            to { opacity: 1; transform: translateX(0); }
+                          }
+
+                          .about-container {
+                            animation: fadeIn 0.4s ease-out;
+                            color: var(--text-primary);
+                          }
+
+                          .about-hero {
+                            background: linear-gradient(135deg, var(--color-primary-600), var(--color-primary-800));
+                            border-radius: var(--radius-xl);
+                            padding: var(--space-8);
+                            color: white;
+                            text-align: center;
+                            margin-bottom: var(--space-8);
+                            position: relative;
+                            overflow: hidden;
+                            box-shadow: 0 10px 30px -10px rgba(59, 130, 246, 0.3);
+                          }
+
+                          .about-hero::before {
+                            content: '';
+                            position: absolute;
+                            top: 0;
+                            left: 0;
+                            right: 0;
+                            bottom: 0;
+                            background: radial-gradient(circle at top right, rgba(255,255,255,0.1) 0%, transparent 60%);
+                            pointer-events: none;
+                          }
+
+                          .about-logo-wrapper {
+                            background: white;
+                            width: 80px;
+                            height: 80px;
+                            border-radius: 20px;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            margin: 0 auto cubic-bezier(0.34, 1.56, 0.64, 1);
+                            box-shadow: 0 8px 16px rgba(0,0,0,0.1);
+                            margin-bottom: var(--space-4);
+                            position: relative;
+                            z-index: 1;
+                          }
+
+                          .about-logo-wrapper img {
+                             width: 60px;
+                             height: 60px;
+                             object-fit: contain;
+                          }
+
+                          .about-app-name {
+                            font-size: 2rem;
+                            font-weight: 800;
+                            letter-spacing: -0.02em;
+                            margin-bottom: var(--space-1);
+                            position: relative;
+                            z-index: 1;
+                          }
+
+                          .about-version-badge {
+                            display: inline-flex;
+                            align-items: center;
+                            gap: var(--space-1);
+                            background: rgba(255,255,255,0.2);
+                            backdrop-filter: blur(4px);
+                            padding: 4px 12px;
+                            border-radius: 20px;
+                            font-size: var(--text-sm);
+                            font-weight: 500;
+                            margin-bottom: var(--space-4);
+                          }
+
+                          .about-tagline {
+                            font-size: var(--text-lg);
+                            opacity: 0.9;
+                            max-width: 400px;
+                            margin: 0 auto;
+                            line-height: 1.5;
+                          }
+
+                          .features-grid {
+                            display: grid;
+                            grid-template-columns: repeat(2, 1fr);
+                            gap: var(--space-4);
+                            margin-bottom: var(--space-8);
+                          }
+
+                          .feature-card {
+                            background: var(--bg-primary);
+                            padding: var(--space-4);
+                            border-radius: var(--radius-lg);
+                            border: 1px solid var(--border-light);
+                            transition: all 0.2s ease;
+                            display: flex;
+                            align-items: flex-start;
+                            gap: var(--space-3);
+                          }
+
+                          .about-hero {
+                            background: linear-gradient(135deg, var(--color-primary-600), var(--color-primary-800));
+                            border-radius: var(--radius-xl);
+                            padding: var(--space-10) var(--space-8);
+                            color: white;
+                            text-align: center;
+                            margin-bottom: var(--space-8);
+                            position: relative;
+                            overflow: hidden;
+                            box-shadow: 0 20px 40px -15px rgba(59, 130, 246, 0.4);
+                            display: flex;
+                            flex-direction: column;
+                            align-items: center;
+                            justify-content: center;
+                          }
+
+                          .about-hero::before {
+                            content: '';
+                            position: absolute;
+                            top: 0;
+                            left: 0;
+                            right: 0;
+                            bottom: 0;
+                            background: radial-gradient(circle at 15% 15%, rgba(255,255,255,0.15) 0%, transparent 50%),
+                                        radial-gradient(circle at 85% 85%, rgba(0,0,0,0.1) 0%, transparent 50%);
+                            pointer-events: none;
+                          }
+
+                          .about-brand-row {
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            gap: var(--space-6);
+                            margin-bottom: var(--space-6);
+                            position: relative;
+                            z-index: 1;
+                          }
+
+                          .about-logo-wrapper {
+                            background: rgba(255, 255, 255, 1);
+                            width: 100px;
+                            height: 100px;
+                            border-radius: 28px;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            box-shadow: 0 12px 24px rgba(0,0,0,0.15);
+                            flex-shrink: 0;
+                            border: 4px solid rgba(255,255,255,0.2);
+                          }
+
+                          .about-logo-wrapper img {
+                             width: 75px;
+                             height: 75px;
+                             object-fit: contain;
+                          }
+
+                          .about-title-group {
+                            text-align: left;
+                          }
+
+                          .about-app-name {
+                            font-size: 2.75rem;
+                            font-weight: 900;
+                            letter-spacing: -0.03em;
+                            margin: 0;
+                            line-height: 1;
+                            text-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                          }
+
+                          .about-software-badge {
+                            font-size: 1.25rem;
+                            font-weight: 500;
+                            opacity: 0.9;
+                            margin-top: 4px;
+                            letter-spacing: 0.02em;
+                          }
+
+                          .about-status-row {
+                            display: flex;
+                            align-items: center;
+                            gap: var(--space-4);
+                            margin-top: var(--space-2);
+                            position: relative;
+                            z-index: 1;
+                          }
+
+                          .about-version-badge {
+                            display: inline-flex;
+                            align-items: center;
+                            gap: 8px;
+                            background: rgba(255,255,255,0.15);
+                            backdrop-filter: blur(10px);
+                            padding: 6px 16px;
+                            border-radius: 100px;
+                            font-size: var(--text-sm);
+                            font-weight: 600;
+                            border: 1px solid rgba(255,255,255,0.1);
+                          }
+
+                          .about-tagline {
+                            font-size: var(--text-lg);
+                            opacity: 0.85;
+                            max-width: 500px;
+                            margin: var(--space-6) auto 0;
+                            line-height: 1.6;
+                            font-weight: 400;
+                            position: relative;
+                            z-index: 1;
+                          }
+
+                          .features-grid {
+                            display: grid;
+                            grid-template-columns: repeat(2, 1fr);
+                            gap: var(--space-6);
+                            margin-bottom: var(--space-8);
+                          }
+
+                          .feature-card {
+                            background: rgba(255, 255, 255, 0.7);
+                            backdrop-filter: blur(10px);
+                            padding: var(--space-6);
+                            border-radius: var(--radius-xl);
+                            border: 1px solid rgba(255, 255, 255, 0.8);
+                            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                            display: flex;
+                            align-items: center;
+                            gap: var(--space-4);
+                            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+                          }
+
+                          .feature-card:hover {
+                            transform: translateY(-4px);
+                            box-shadow: 0 15px 30px -10px rgba(0, 0, 0, 0.1);
+                            border-color: var(--color-primary-200);
+                            background: white;
+                          }
+
+                          .feature-icon-box {
+                            background: linear-gradient(135deg, var(--color-primary-50), var(--color-primary-100));
+                            color: var(--color-primary-600);
+                            width: 48px;
+                            height: 48px;
+                            border-radius: 14px;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            flex-shrink: 0;
+                            box-shadow: inset 0 2px 4px rgba(255,255,255,0.5);
+                          }
+
+                          .feature-content h4 {
+                            font-size: var(--text-lg);
+                            font-weight: 700;
+                            margin-bottom: 4px;
+                            color: var(--text-primary);
+                          }
+
+                          .feature-content p {
+                            font-size: var(--text-sm);
+                            color: var(--text-secondary);
+                            line-height: 1.5;
+                          }
+
+                          .about-footer {
+                            text-align: center;
+                            padding-top: var(--space-4);
+                          }
+                        `}</style>
+
                         {activeTab === 'about' && (
-                            <div className="about-info">
-                                <div className="about-logo">
-                                    <img src="/logo.png" alt="Velan Medicals" style={{ width: '60px', height: '60px', objectFit: 'contain' }} />
-                                </div>
-                                <h2 className="about-title">Velan Medicals</h2>
-                                <p className="about-version">Version 1.0.0</p>
-                                <p className="text-secondary">
-                                    Offline Billing & Inventory Management Software<br />
-                                    Designed for Indian Medical Retail Shops
-                                </p>
+                            <div className="about-container">
+                                <div className="about-hero">
+                                    <div className="about-brand-row">
+                                        <div className="about-logo-wrapper">
+                                            <img src="/logo.png" alt="Logo" />
+                                        </div>
+                                        <div className="about-title-group">
+                                            <h1 className="about-app-name">Velan Medicals</h1>
+                                            <div className="about-software-badge">Billing Software</div>
+                                        </div>
+                                    </div>
 
-                                <div className="about-features">
-                                    <div className="feature-item">
-                                        <Check size={16} className="text-success" />
-                                        GST Compliant with HSN Codes
+                                    <div className="about-status-row">
+                                        <div className="about-version-badge">
+                                            <span className="w-2.5 h-2.5 rounded-full bg-green-400 animate-pulse"></span>
+                                            Version 1.0.0 Stable
+                                        </div>
                                     </div>
-                                    <div className="feature-item">
-                                        <Check size={16} className="text-success" />
-                                        Offline First Architecture
-                                    </div>
-                                    <div className="feature-item">
-                                        <Check size={16} className="text-success" />
-                                        Batch & Expiry Tracking
-                                    </div>
-                                    <div className="feature-item">
-                                        <Check size={16} className="text-success" />
-                                        Credit (Udhar) Management
-                                    </div>
-                                    <div className="feature-item">
-                                        <Check size={16} className="text-success" />
-                                        Multi-payment Modes
-                                    </div>
-                                    <div className="feature-item">
-                                        <Check size={16} className="text-success" />
-                                        Thermal Printer Support
-                                    </div>
-                                    <div className="feature-item">
-                                        <Check size={16} className="text-success" />
-                                        Keyboard Shortcuts
-                                    </div>
-                                    <div className="feature-item">
-                                        <Check size={16} className="text-success" />
-                                        Local Data Backup
-                                    </div>
+
+                                    <p className="about-tagline">
+                                        Empowering medical retail stores with intelligent billing,
+                                        seamless inventory management, and reliable offline-first technology.
+                                    </p>
                                 </div>
 
-                                <div className="mt-8 text-sm text-tertiary">
-                                    Built with ❤️ using React, Tauri & SQLite
+                                <div className="features-grid">
+                                    <div className="feature-card">
+                                        <div className="feature-icon-box">
+                                            <Database size={24} />
+                                        </div>
+                                        <div className="feature-content">
+                                            <h4>Offline Intelligence</h4>
+                                            <p>Fully functional without internet. Your data is encrypted and saved locally.</p>
+                                        </div>
+                                    </div>
+                                    <div className="feature-card">
+                                        <div className="feature-icon-box">
+                                            <Check size={24} />
+                                        </div>
+                                        <div className="feature-content">
+                                            <h4>GST Precision</h4>
+                                            <p>Hassle-free compliance with automatic GST splitting and HSN tracking.</p>
+                                        </div>
+                                    </div>
+                                    <div className="feature-card">
+                                        <div className="feature-icon-box">
+                                            <RefreshCw size={24} />
+                                        </div>
+                                        <div className="feature-content">
+                                            <h4>Smart Stocks</h4>
+                                            <p>Automated expiry warnings and low-stock alerts to keep your shop running.</p>
+                                        </div>
+                                    </div>
+                                    <div className="feature-card">
+                                        <div className="feature-icon-box">
+                                            <Users size={24} />
+                                        </div>
+                                        <div className="feature-content">
+                                            <h4>Secure access</h4>
+                                            <p>Role-based permissions to ensure your business data remains safe.</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="about-footer">
+                                    <div className="text-xs text-tertiary font-medium">
+                                        Designed and Developed for Velan Medicals © {new Date().getFullYear()}
+                                    </div>
                                 </div>
                             </div>
                         )}

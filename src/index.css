@@ -655,34 +655,35 @@ a:hover {
 .sidebar-brand {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
+  gap: var(--space-4);
   transition: all var(--transition-base);
+  overflow: hidden;
+  padding-left: var(--space-1);
 }
 
 .brand-logo {
   width: 44px;
   height: 44px;
   min-width: 44px;
-  background: linear-gradient(135deg, rgba(30, 142, 180, 0.15) 0%, rgba(30, 142, 180, 0.05) 100%);
-  border-radius: var(--radius-lg);
+  background: white;
+  border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid rgba(30, 142, 180, 0.2);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15),
-    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
   transition: all var(--transition-base);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  flex-shrink: 0;
 }
 
 .brand-logo:hover {
-  transform: scale(1.05);
-  box-shadow: 0 6px 16px rgba(30, 142, 180, 0.25),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  transform: scale(1.05) rotate(2deg);
+  box-shadow: 0 10px 20px rgba(30, 142, 180, 0.3);
 }
 
 .brand-logo img {
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   object-fit: contain;
 }
 
@@ -690,35 +691,48 @@ a:hover {
   width: 40px;
   height: 40px;
   min-width: 40px;
+  border-radius: 10px;
 }
 
 .sidebar.collapsed .brand-logo img {
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
 }
 
 .brand-text {
   display: flex;
   flex-direction: column;
-  line-height: 1.2;
-  animation: fadeIn 0.2s ease-out;
+  line-height: 1.1;
+  transition: all var(--transition-base);
+  opacity: 1;
+  transform: translateX(0);
+  white-space: nowrap;
+}
+
+.sidebar.collapsed .brand-text {
+  opacity: 0;
+  transform: translateX(-10px);
+  pointer-events: none;
+  width: 0;
 }
 
 .brand-name {
-  font-size: var(--text-lg);
-  font-weight: var(--font-bold);
+  font-size: 1.25rem;
+  font-weight: 800;
   background: linear-gradient(135deg, #ffffff 0%, #a8d8ea 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
   letter-spacing: -0.02em;
+  margin-bottom: -2px;
 }
 
 .brand-suffix {
-  font-size: var(--text-sm);
-  font-weight: var(--font-medium);
+  font-size: 0.75rem;
+  font-weight: 600;
   color: rgba(255, 255, 255, 0.5);
-  letter-spacing: 0.02em;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
 }
 
 .sidebar-nav {
