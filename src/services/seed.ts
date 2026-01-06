@@ -12,7 +12,7 @@ import { execute, initDatabase, query } from './database';
 async function safeDelete(tableName: string): Promise<void> {
     try {
         await execute(`DELETE FROM ${tableName}`, []);
-    } catch (error) {
+    } catch {
         console.log(`Skipped clearing ${tableName} (may not exist)`);
     }
 }
@@ -46,7 +46,7 @@ export async function clearDatabase(): Promise<void> {
     // Reset bill sequence
     try {
         await execute('UPDATE bill_sequence SET current_number = 0', []);
-    } catch (error) {
+    } catch {
         console.log('Bill sequence reset skipped');
     }
 
@@ -54,7 +54,7 @@ export async function clearDatabase(): Promise<void> {
     try {
         await execute('DELETE FROM sqlite_sequence', []);
         console.log('Auto-increment counters reset');
-    } catch (error) {
+    } catch {
         console.log('Sequence reset skipped');
     }
 
@@ -64,7 +64,7 @@ export async function clearDatabase(): Promise<void> {
             `INSERT OR REPLACE INTO settings (key, value, category, description) VALUES ('tablets_migration_done', 'true', 'system', 'Quantity stored in tablets')`,
             []
         );
-    } catch (error) {
+    } catch {
         console.log('Settings update skipped');
     }
 
@@ -131,7 +131,7 @@ export async function seedDatabase(): Promise<void> {
         // All quantities in TABLETS (not strips)
         // =========================================
         console.log('Seeding batches (quantity in tablets)...');
-        
+
         // Expiry date scenarios
         const expiry1Year = formatDate(addDays(365));      // Normal
         const expiry6Months = formatDate(addDays(180));    // OK

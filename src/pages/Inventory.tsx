@@ -15,7 +15,7 @@ import {
     Trash2,
     X
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Pagination } from '../components/common/Pagination';
 import { useToast } from '../components/common/Toast';
@@ -95,7 +95,7 @@ export function Inventory() {
         box: ''
     });
 
-    const loadData = async () => {
+    const loadData = useCallback(async () => {
         setIsLoading(true);
         try {
             let items: StockItem[];
@@ -130,11 +130,11 @@ export function Inventory() {
             console.error('Failed to load inventory:', error);
         }
         setIsLoading(false);
-    };
+    }, [activeFilter]);
 
     useEffect(() => {
         loadData();
-    }, [activeFilter]);
+    }, [loadData]);
 
     useEffect(() => {
         if (!searchQuery) {
@@ -165,6 +165,7 @@ export function Inventory() {
     );
 
     // Reset page when search changes
+
     useEffect(() => {
         setCurrentPage(1);
     }, [searchQuery]);

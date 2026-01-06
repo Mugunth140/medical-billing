@@ -1,4 +1,5 @@
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // =====================================================
 // MedBill - Reports Page
 // Business Reports and Analytics
@@ -20,7 +21,7 @@ import {
     TrendingUp,
     Users
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
     Bar,
     BarChart,
@@ -34,18 +35,54 @@ import { useToast } from '../components/common/Toast';
 import { getBills, getPaymentModeBreakdown, getSalesTrend, getTopSellingMedicines } from '../services/billing.service';
 import { query } from '../services/database';
 import { getExpiringItems, getStockValue } from '../services/inventory.service';
-import type { ScheduledMedicineRecord } from '../types';
+import type { Bill, ScheduledMedicineRecord, StockItem } from '../types';
 import { formatCurrency, formatDate, toISODate } from '../utils';
 
 type ReportType = 'sales' | 'gst' | 'inventory' | 'expiry' | 'credit' | 'scheduled';
 
+interface SalesReportData {
+    bills: Bill[];
+    trend: { date: string; amount: number }[];
+    topMeds: { medicine_id: number; medicine_name: string; quantity_sold: number; total_revenue: number }[];
+    payments: { mode: string; amount: number; count: number }[];
+    summary: { totalBills: number; totalSales: number; totalGst: number; avgBillValue: number };
+}
+
+interface GstReportData {
+    breakdown: { gst_rate: number; taxable_value: number; cgst: number; sgst: number; total_gst: number }[];
+    total: number;
+}
+
+interface InventoryReportData {
+    totalPurchaseValue: number;
+    totalSaleValue: number;
+    totalItems: number;
+}
+
+interface ExpiryReportData {
+    expired: StockItem[];
+    expiringSoon: StockItem[];
+    totalValue: number;
+}
+
+interface CreditReportData {
+    customers: { id: number; name: string; phone: string; current_balance: number; credit_limit: number; last_transaction: string }[];
+    total: number;
+}
+
+interface ScheduledReportData {
+    records: ScheduledMedicineRecord[];
+    totalRecords: number;
+    totalQuantity: number;
+}
+
 interface ReportData {
-    sales: any;
-    gst: any;
-    inventory: any;
-    expiry: any;
-    credit: any;
-    scheduled: any;
+    sales: SalesReportData | undefined;
+    gst: GstReportData | undefined;
+    inventory: InventoryReportData | undefined;
+    expiry: ExpiryReportData | undefined;
+    credit: CreditReportData | undefined;
+    scheduled: ScheduledReportData | undefined;
 }
 
 export function Reports() {
@@ -59,7 +96,7 @@ export function Reports() {
     const [reportData, setReportData] = useState<Partial<ReportData>>({});
     const [expandedRows, setExpandedRows] = useState<number[]>([]);
 
-    const loadReport = async () => {
+    const loadReport = useCallback(async () => {
         setIsLoading(true);
         try {
             switch (activeReport) {
@@ -213,11 +250,12 @@ c.id,
             console.error('Failed to load report:', error);
         }
         setIsLoading(false);
-    };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeReport, dateRange.start, dateRange.end]);
 
     useEffect(() => {
         loadReport();
-    }, [activeReport, dateRange]);
+    }, [loadReport]);
 
     const handlePrint = () => {
         window.print();
@@ -301,16 +339,10 @@ c.id,
                         { header: 'Value', key: 'value', width: 15 },
                     ];
                     if (reportData.inventory) {
-                        data = reportData.inventory.items.map((i: any) => ({
-                            name: i.name,
-                            batch: i.batch_number,
-                            stock: i.stock,
-                            mrp: i.mrp,
-                            rate: i.purchase_rate,
-                            value: i.stock * i.purchase_rate
-                        }));
+                        // Inventory report only shows summary, not item details
                         summary = [
-                            { label: 'Total Stock Value', value: reportData.inventory.totalValue },
+                            { label: 'Total Purchase Value', value: reportData.inventory.totalPurchaseValue },
+                            { label: 'Total Sale Value', value: reportData.inventory.totalSaleValue },
                             { label: 'Total Items', value: reportData.inventory.totalItems }
                         ];
                     }

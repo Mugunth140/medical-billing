@@ -1,7 +1,7 @@
 
 import { getNewCustomersCount, getProfitSummary, getTopSellingMedicines } from '../src/services/billing.service';
 
-async function testAnalytics() {
+export async function testAnalytics() {
     try {
         console.log('Testing Analytics...');
 

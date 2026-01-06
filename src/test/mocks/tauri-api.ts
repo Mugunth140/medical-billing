@@ -1,7 +1,7 @@
 // Mock for @tauri-apps/api
 import { vi } from 'vitest'
 
-export const invoke = vi.fn().mockImplementation(async (command: string, args?: any) => {
+export const invoke = vi.fn().mockImplementation(async (command: string, args?: unknown) => {
     console.log('[MockTauri] invoke:', command, args)
     return null
 })

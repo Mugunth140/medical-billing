@@ -168,6 +168,14 @@ export function Billing() {
         performSearch(searchQuery);
     }, [searchQuery, performSearch]);
 
+    const handleAddItem = useCallback((item: StockItem) => {
+        addItem(item, 1);
+        setSearchQuery('');
+        setShowSearchDropdown(false);
+        setActiveIndex(-1);
+        searchInputRef.current?.focus();
+    }, [addItem]);
+
     // Keyboard Navigation
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -176,10 +184,7 @@ export function Billing() {
                 e.preventDefault();
                 searchInputRef.current?.focus();
             }
-            if (e.ctrlKey && e.key === 's') {
-                e.preventDefault();
-                if (items.length > 0 && !isSubmitting) handleSubmitBill();
-            }
+            // Note: Ctrl+S for submit is handled inline to avoid circular dependencies
             if (e.ctrlKey && e.key === 'Delete') {
                 e.preventDefault();
                 if (window.confirm('Clear current bill?')) clearBill();
@@ -205,7 +210,7 @@ export function Billing() {
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [items, isSubmitting, clearBill, showSearchDropdown, searchResults, activeIndex]);
+    }, [clearBill, showSearchDropdown, searchResults, activeIndex, handleAddItem]);
 
     // Scroll active item into view
     useEffect(() => {
@@ -216,14 +221,6 @@ export function Billing() {
             }
         }
     }, [activeIndex]);
-
-    const handleAddItem = (item: StockItem) => {
-        addItem(item, 1);
-        setSearchQuery('');
-        setShowSearchDropdown(false);
-        setActiveIndex(-1);
-        searchInputRef.current?.focus();
-    };
 
     const handleSubmitBill = async () => {
         if (items.length === 0) return;

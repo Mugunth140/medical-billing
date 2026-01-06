@@ -174,6 +174,7 @@ export function SupplierManagement() {
         loadData();
     }, []);
 
+     
     useEffect(() => {
         if (selectedSupplier) {
             loadSupplierBatches(selectedSupplier.id);
@@ -195,6 +196,7 @@ export function SupplierManagement() {
     );
 
     // Reset page on search
+     
     useEffect(() => {
         setCurrentPage(1);
     }, [searchQuery, selectedSupplier]);

@@ -736,8 +736,8 @@ export async function generateInventoryReportHTML(
 
 export async function generateExpiryReportHTML(
     data: {
-        expired: any[];
-        expiringSoon: any[];
+        expired: { medicine_name: string; batch_number: string; expiry_date: string; quantity: number; selling_price: number }[];
+        expiringSoon: { medicine_name: string; batch_number: string; expiry_date: string; quantity: number; selling_price: number }[];
         totalValue: number;
     },
     options: ReportExportOptions

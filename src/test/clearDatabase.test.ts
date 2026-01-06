@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 
 // Create a mock database class
 class MockDatabase {
-    private tables: Map<string, any[]> = new Map()
+    private tables: Map<string, Record<string, unknown>[]> = new Map()
 
     execute(sql: string): Promise<{ rowsAffected: number }> {
         // Simulate DELETE operations
@@ -37,7 +37,7 @@ describe('Clear Database Feature', () => {
                 try {
                     await mockDb.execute(`DELETE FROM ${tableName}`)
                     return { success: true, table: tableName }
-                } catch (error) {
+                } catch {
                     console.warn(`Table ${tableName} may not exist, skipping...`)
                     return { success: false, table: tableName }
                 }
@@ -52,7 +52,7 @@ describe('Clear Database Feature', () => {
                 try {
                     await mockDb.execute(`DELETE FROM ${tableName}`)
                     return { success: true, table: tableName }
-                } catch (error) {
+                } catch {
                     console.warn(`Table ${tableName} may not exist, skipping...`)
                     return { success: false, table: tableName }
                 }
@@ -67,7 +67,7 @@ describe('Clear Database Feature', () => {
                 try {
                     await mockDb.execute(`DELETE FROM ${tableName}`)
                     return { success: true, table: tableName }
-                } catch (error) {
+                } catch {
                     return { success: false, table: tableName }
                 }
             }
@@ -82,15 +82,15 @@ describe('Clear Database Feature', () => {
             ]
 
             const results = await Promise.all(tables.map(safeDelete))
-            
+
             // All operations should complete
             expect(results.length).toBe(6)
-            
+
             // Check which ones failed
             const failedTables = results.filter(r => !r.success).map(r => r.table)
             expect(failedTables).toContain('sales_returns')
             expect(failedTables).toContain('purchase_returns')
-            
+
             // Check which ones succeeded
             const successTables = results.filter(r => r.success).map(r => r.table)
             expect(successTables).toContain('medicines')

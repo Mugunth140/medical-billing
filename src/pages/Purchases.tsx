@@ -14,7 +14,7 @@ import {
     Truck,
     X
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { Pagination } from '../components/common/Pagination';
 import { useToast } from '../components/common/Toast';
 import { execute, query } from '../services/database';
@@ -73,6 +73,7 @@ export function Purchases() {
     const [editingPurchase, setEditingPurchase] = useState<Purchase | null>(null);
     const [currentPage, setCurrentPage] = useState(1);
     const [currentSuppliersPage, setCurrentSuppliersPage] = useState(1);
+    const itemIdPrefix = useId();
 
     // Pagination constants
     const ITEMS_PER_PAGE = 50;
@@ -147,6 +148,7 @@ export function Purchases() {
         setIsLoading(false);
     };
 
+     
     useEffect(() => {
         loadData();
     }, []);
@@ -332,7 +334,7 @@ export function Purchases() {
         }
 
         const newItem: PurchaseItemEntry = {
-            id: `item-${Date.now()}`,
+            id: `${itemIdPrefix}-${purchaseItems.length}`,
             medicine_id: medicine.id,
             medicine_name: medicine.name,
             hsn_code: medicine.hsn_code,
@@ -431,7 +433,7 @@ export function Purchases() {
     };
 
     // Update purchase item
-    const updatePurchaseItem = (id: string, field: keyof PurchaseItemEntry, value: any) => {
+    const updatePurchaseItem = (id: string, field: keyof PurchaseItemEntry, value: PurchaseItemEntry[keyof PurchaseItemEntry]) => {
         setPurchaseItems(items =>
             items.map(item => {
                 if (item.id !== id) return item;
@@ -933,7 +935,7 @@ export function Purchases() {
                                         <div className="purchase-meta">
                                             <span className="purchase-meta-item">
                                                 <Truck size={14} />
-                                                {(purchase as any).supplier_name || 'Unknown Supplier'}
+                                                {(purchase as Purchase & { supplier_name?: string }).supplier_name || 'Unknown Supplier'}
                                             </span>
                                             <span className="purchase-meta-item">
                                                 <Calendar size={14} />
@@ -1234,7 +1236,7 @@ export function Purchases() {
                                         <select
                                             className="form-input"
                                             value={purchaseForm.payment_status}
-                                            onChange={(e) => setPurchaseForm({ ...purchaseForm, payment_status: e.target.value as any })}
+                                            onChange={(e) => setPurchaseForm({ ...purchaseForm, payment_status: e.target.value as 'PENDING' | 'PARTIAL' | 'PAID' })}
                                         >
                                             <option value="PENDING">Pending</option>
                                             <option value="PARTIAL">Partial</option>
@@ -1688,7 +1690,7 @@ export function Purchases() {
                                     <select
                                         className="form-input"
                                         value={purchaseForm.payment_status}
-                                        onChange={(e) => setPurchaseForm({ ...purchaseForm, payment_status: e.target.value as any })}
+                                        onChange={(e) => setPurchaseForm({ ...purchaseForm, payment_status: e.target.value as 'PENDING' | 'PARTIAL' | 'PAID' })}
                                     >
                                         <option value="PENDING">Pending</option>
                                         <option value="PARTIAL">Partial</option>

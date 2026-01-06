@@ -8,7 +8,7 @@ interface MockResult {
 }
 
 // Mock database state
-let mockData: Record<string, any[]> = {
+let mockData: Record<string, Record<string, unknown>[]> = {
     medicines: [],
     batches: [],
     customers: [],
@@ -29,11 +29,12 @@ let autoIncrementIds: Record<string, number> = {
 }
 
 class MockDatabase {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     constructor(_path: string) {
         // Path stored for reference but not used in mock
     }
 
-    async select<T>(sql: string, _params: unknown[] = []): Promise<T> {
+    async select<T>(sql: string, _params: unknown[] = []): Promise<T> { // eslint-disable-line @typescript-eslint/no-unused-vars
         console.log('[MockDB] SELECT:', sql.substring(0, 100))
 
         // Parse table name from SQL
@@ -116,7 +117,7 @@ export function resetMockDatabase() {
 }
 
 // Export helper to add mock data
-export function addMockData(table: string, data: any[]) {
+export function addMockData(table: string, data: Record<string, unknown>[]) {
     if (!mockData[table]) {
         mockData[table] = []
     }

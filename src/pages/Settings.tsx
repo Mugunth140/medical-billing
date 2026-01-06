@@ -3,6 +3,8 @@
 // Application Settings and Configuration
 // =====================================================
 
+import { open, save } from '@tauri-apps/plugin-dialog';
+import { readFile, writeFile } from '@tauri-apps/plugin-fs';
 import {
     AlertCircle,
     Calendar,
@@ -22,18 +24,16 @@ import {
     Users,
     X
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { createUser, deactivateUser, updateUser } from '../services/auth.service';
 import type { BackupInfo } from '../services/backup.service';
 import {
-    createBackup,
     deleteBackup,
     formatFileSize,
     getBackupFolderPath,
-    listBackups,
-    restoreFromBackup
+    listBackups
 } from '../services/backup.service';
-import { execute, query } from '../services/database';
+import { execute, exportDatabase, importDatabase, query } from '../services/database';
 import { useAuthStore, useSettingsStore } from '../stores';
 import type { User, UserRole } from '../types';
 
@@ -106,16 +106,9 @@ export function Settings() {
         staff_discount_limit: settings.staff_discount_limit || '10'
     });
 
-    useEffect(() => {
-        if (activeTab === 'users') {
-            loadUsers();
-        }
-        if (activeTab === 'backup') {
-            loadBackups();
-        }
-    }, [activeTab]);
 
-    const loadUsers = async () => {
+
+    const loadUsers = useCallback(async () => {
         try {
             const data = await query<User>(
                 'SELECT * FROM users WHERE is_active = 1 ORDER BY full_name',
@@ -125,7 +118,29 @@ export function Settings() {
         } catch (error) {
             console.error('Failed to load users:', error);
         }
-    };
+    }, []);
+
+    const loadBackups = useCallback(async () => {
+        setIsLoadingBackups(true);
+        try {
+            const backupList = await listBackups();
+            setBackups(backupList);
+            const folder = await getBackupFolderPath();
+            setBackupFolder(folder);
+        } catch (error) {
+            console.error('Failed to load backups:', error);
+        }
+        setIsLoadingBackups(false);
+    }, []);
+
+    useEffect(() => {
+        if (activeTab === 'users') {
+            loadUsers();
+        }
+        if (activeTab === 'backup') {
+            loadBackups();
+        }
+    }, [activeTab, loadUsers, loadBackups]);
 
     const handleSaveShopSettings = async () => {
         setIsSaving(true);
@@ -172,9 +187,22 @@ export function Settings() {
     const handleBackup = async () => {
         setIsBackingUp(true);
         try {
-            await createBackup();
-            await loadBackups();
-            alert('Backup created successfully!');
+            // Get the database content as JSON
+            const backupData = await exportDatabase();
+
+            // Show save dialog
+            const filePath = await save({
+                title: 'Save Database Backup',
+                defaultPath: `medbill_backup_${new Date().toISOString().split('T')[0]}.json`,
+                filters: [{ name: 'JSON Backup', extensions: ['json'] }]
+            });
+
+            if (filePath) {
+                // Write the backup file
+                const encoder = new TextEncoder();
+                await writeFile(filePath, encoder.encode(JSON.stringify(backupData, null, 2)));
+                alert('Backup created successfully!');
+            }
         } catch (error) {
             console.error('Backup failed:', error);
             alert('Failed to create backup. Check console for details.');
@@ -189,9 +217,25 @@ export function Settings() {
 
         setIsRestoring(true);
         try {
-            await restoreFromBackup(filename);
-            alert('Database restored successfully! The app will now reload.');
-            window.location.reload();
+            // Show open dialog
+            const filePath = await open({
+                title: 'Select Backup File',
+                filters: [{ name: 'JSON Backup', extensions: ['json'] }],
+                multiple: false
+            });
+
+            if (filePath && typeof filePath === 'string') {
+                // Read the backup file
+                const fileData = await readFile(filePath);
+                const decoder = new TextDecoder();
+                const jsonString = decoder.decode(fileData);
+                const backupData = JSON.parse(jsonString);
+
+                // Import the data
+                await importDatabase(backupData);
+                alert('Database restored successfully! The app will now reload.');
+                window.location.reload();
+            }
         } catch (error) {
             console.error('Restore failed:', error);
             alert('Failed to restore backup. The file may be corrupted.');
@@ -215,18 +259,7 @@ export function Settings() {
         setDeletingBackup(null);
     };
 
-    const loadBackups = async () => {
-        setIsLoadingBackups(true);
-        try {
-            const backupList = await listBackups();
-            setBackups(backupList);
-            const folder = await getBackupFolderPath();
-            setBackupFolder(folder);
-        } catch (error) {
-            console.error('Failed to load backups:', error);
-        }
-        setIsLoadingBackups(false);
-    };
+
 
     // User management functions
     const handleOpenUserModal = (userToEdit?: User) => {
@@ -324,9 +357,9 @@ export function Settings() {
             await loadUsers();
             setSaveSuccess(true);
             setTimeout(() => setSaveSuccess(false), 3000);
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('Failed to save user:', error);
-            if (error.message?.includes('UNIQUE constraint')) {
+            if (error instanceof Error && error.message?.includes('UNIQUE constraint')) {
                 setUserFormError('Username already exists');
             } else {
                 setUserFormError('Failed to save user. Please try again.');

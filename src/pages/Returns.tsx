@@ -15,7 +15,7 @@ import {
     User,
     X
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Pagination } from '../components/common/Pagination';
 import { useToast } from '../components/common/Toast';
@@ -92,6 +92,7 @@ export function Returns() {
     };
 
     // Sync with URL params
+
     useEffect(() => {
         const tabParam = searchParams.get('tab') as TabType;
         if (tabParam && (tabParam === 'sales' || tabParam === 'supplier')) {
@@ -178,7 +179,7 @@ export function Returns() {
         }
     };
 
-    const loadData = async () => {
+    const loadData = useCallback(async () => {
         setIsLoading(true);
         await Promise.all([
             loadSalesReturns(),
@@ -186,11 +187,11 @@ export function Returns() {
             loadSuppliers()
         ]);
         setIsLoading(false);
-    };
+    }, []);
 
     useEffect(() => {
         loadData();
-    }, []);
+    }, [loadData]);
 
     // Search bill by number for sales return
     const searchBill = async () => {
@@ -253,6 +254,7 @@ export function Returns() {
             setSupplierBatches([]);
         }
     };
+
 
     useEffect(() => {
         if (selectedSupplier) {
@@ -967,7 +969,7 @@ export function Returns() {
                                             <select
                                                 className="form-select"
                                                 value={salesRefundMode}
-                                                onChange={(e) => setSalesRefundMode(e.target.value as any)}
+                                                onChange={(e) => setSalesRefundMode(e.target.value as 'CASH' | 'CREDIT_NOTE' | 'ADJUSTMENT')}
                                             >
                                                 <option value="CASH">Cash Refund</option>
                                                 <option value="CREDIT_NOTE">Credit Note</option>
@@ -1099,7 +1101,7 @@ export function Returns() {
                                             <select
                                                 className="form-select"
                                                 value={supplierReturnReason}
-                                                onChange={(e) => setSupplierReturnReason(e.target.value as any)}
+                                                onChange={(e) => setSupplierReturnReason(e.target.value as 'EXPIRY' | 'DAMAGE' | 'OVERSTOCK' | 'OTHER')}
                                             >
                                                 <option value="EXPIRY">Expired / Near Expiry</option>
                                                 <option value="DAMAGE">Damaged</option>

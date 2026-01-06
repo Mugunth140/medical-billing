@@ -19,7 +19,7 @@ import { Pagination } from '../components/common/Pagination';
 import { useToast } from '../components/common/Toast';
 import { execute, query, queryOne } from '../services/database';
 import { useAuthStore } from '../stores';
-import type { RunningBill, StockItem } from '../types';
+import type { Bill, RunningBill, StockItem } from '../types';
 import { formatCurrency, formatDate } from '../utils';
 
 // GST calculation helper
@@ -366,7 +366,7 @@ export function RunningBills() {
     const handlePrintBill = async (billId: number, billNumber: string) => {
         try {
             // Get the bill details
-            const bill = await queryOne<any>(
+            const bill = await queryOne<Bill>(
                 `SELECT b.*, u.full_name as user_name 
                  FROM bills b 
                  LEFT JOIN users u ON b.user_id = u.id 
@@ -409,6 +409,7 @@ export function RunningBills() {
 
             // Dynamic import to avoid circular dependencies
             const { printBill } = await import('../services/print.service');
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             await printBill(bill, items as any, { paperSize: 'thermal' });
             showToast('success', `Opening print preview for ${billNumber}`);
         } catch (error) {

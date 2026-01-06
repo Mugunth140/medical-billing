@@ -4,7 +4,7 @@
 // =====================================================
 
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
-import { useEffect } from 'react';
+import { useCallback, useEffect } from 'react';
 
 interface PaginationProps {
     currentPage: number;
@@ -25,16 +25,13 @@ export function Pagination({
     const startItem = (currentPage - 1) * itemsPerPage + 1;
     const endItem = Math.min(currentPage * itemsPerPage, totalItems);
 
-    // Don't render if only one page
-    if (totalPages <= 1) return null;
-
-    const goToPage = (page: number) => {
+    const goToPage = useCallback((page: number) => {
         if (page >= 1 && page <= totalPages && page !== currentPage) {
             onPageChange(page);
         }
-    };
+    }, [totalPages, currentPage, onPageChange]);
 
-    // Keyboard navigation
+    // Keyboard navigation - must be before any conditional returns
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             // Only if not typing in an input
@@ -53,7 +50,10 @@ export function Pagination({
 
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [currentPage, totalPages]);
+    }, [currentPage, goToPage]);
+
+    // Don't render if only one page
+    if (totalPages <= 1) return null;
 
     return (
         <>

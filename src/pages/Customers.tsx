@@ -82,10 +82,12 @@ export function Customers() {
         }
     };
 
+     
     useEffect(() => {
         loadCustomers();
     }, []);
 
+     
     useEffect(() => {
         if (selectedCustomer) {
             loadCreditHistory(selectedCustomer.id);
@@ -106,6 +108,7 @@ export function Customers() {
     );
 
     // Reset page when search changes
+     
     useEffect(() => {
         setCurrentPage(1);
     }, [searchQuery]);

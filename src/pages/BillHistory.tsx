@@ -3,8 +3,8 @@
 // View and manage past bills
 // =====================================================
 
-import { Calendar, Eye, Printer, Search, X, Pill } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { Calendar, Eye, Pill, Printer, Search, X } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
 import { Pagination } from '../components/common/Pagination';
 import { query } from '../services/database';
 import { formatCurrency } from '../services/gst.service';
@@ -33,15 +33,7 @@ export function BillHistory() {
     // Pagination constants
     const ITEMS_PER_PAGE = 50;
 
-    useEffect(() => {
-        if (viewMode === 'all') {
-            loadBills();
-        } else {
-            loadScheduleRecords();
-        }
-    }, [viewMode]);
-
-    const loadBills = async () => {
+    const loadBills = useCallback(async () => {
         setLoading(true);
         try {
             let sql = `
@@ -75,9 +67,9 @@ export function BillHistory() {
             console.error('Failed to load bills:', err);
         }
         setLoading(false);
-    };
+    }, [searchQuery, dateFrom, dateTo]);
 
-    const loadScheduleRecords = async () => {
+    const loadScheduleRecords = useCallback(async () => {
         setLoading(true);
         try {
             let sql = `
@@ -119,7 +111,16 @@ export function BillHistory() {
             console.error('Failed to load schedule records:', err);
         }
         setLoading(false);
-    };
+    }, [searchQuery, dateFrom, dateTo]);
+
+     
+    useEffect(() => {
+        if (viewMode === 'all') {
+            loadBills();
+        } else {
+            loadScheduleRecords();
+        }
+    }, [viewMode, loadBills, loadScheduleRecords]);
 
     const handleViewBill = async (bill: Bill) => {
         try {

@@ -7,7 +7,7 @@ vi.mock('../services/database', () => ({
     execute: vi.fn().mockResolvedValue({ rowsAffected: 1, lastInsertId: 1 }),
     query: vi.fn().mockResolvedValue([]),
     queryOne: vi.fn().mockResolvedValue(null),
-    transaction: vi.fn().mockImplementation(async (cb: () => Promise<any>) => cb()),
+    transaction: vi.fn().mockImplementation(async (cb: () => Promise<unknown>) => cb()),
     getDatabase: vi.fn().mockReturnValue({})
 }))
 
