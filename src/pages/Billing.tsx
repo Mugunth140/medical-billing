@@ -22,12 +22,14 @@ import { query } from '../services/database';
 import { calculateBill, formatCurrency } from '../services/gst.service';
 import { searchMedicinesForBilling } from '../services/inventory.service';
 import { silentPrintBill } from '../services/print.service';
-import { useAuthStore, useBillingStore } from '../stores';
+import { useAuthStore, useBillingStore, useSettingsStore } from '../stores';
 import type { Customer, ScheduledMedicineInput, StockItem } from '../types';
 import { debounce, formatDate } from '../utils';
 
 export function Billing() {
     const { user } = useAuthStore();
+    const { settings } = useSettingsStore();
+    const printerType = (settings.printer_type as 'thermal' | 'dotmatrix' | 'a4' | 'legal') || 'thermal';
     const {
         items,
         customerId,
@@ -292,7 +294,7 @@ export function Billing() {
             // 2. Auto-print (non-blocking - doesn't rollback bill on failure)
             let printSuccess = true;
             try {
-                await silentPrintBill(bill, bill.items ?? []);
+                await silentPrintBill(bill, bill.items ?? [], printerType);
             } catch (printErr) {
                 printSuccess = false;
                 console.warn('[Billing] Print failed:', printErr);

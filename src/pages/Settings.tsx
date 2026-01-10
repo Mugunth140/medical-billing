@@ -96,6 +96,7 @@ export function Settings() {
         enable_discounts: boolean;
         require_customer: boolean;
         staff_discount_limit: string;
+        printer_type: 'thermal' | 'dotmatrix' | 'a4' | 'legal';
     }>({
         bill_prefix: settings.bill_prefix || 'INV',
         default_gst_rate: settings.default_gst_rate || '12',
@@ -103,7 +104,8 @@ export function Settings() {
         expiry_warning_days: settings.expiry_warning_days || '30',
         enable_discounts: settings.enable_discounts !== 'false',
         require_customer: settings.require_customer === 'true',
-        staff_discount_limit: settings.staff_discount_limit || '10'
+        staff_discount_limit: settings.staff_discount_limit || '10',
+        printer_type: (settings.printer_type as 'thermal' | 'dotmatrix' | 'a4' | 'legal') || 'thermal'
     });
 
 
@@ -771,6 +773,33 @@ export function Settings() {
                                                 <option value="12">12%</option>
                                                 <option value="18">18%</option>
                                             </select>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="settings-section">
+                                    <h2 className="settings-section-title">Printer Settings</h2>
+                                    <div className="settings-grid">
+                                        <div className="form-group" style={{ gridColumn: 'span 2' }}>
+                                            <label className="form-label">Printer Type</label>
+                                            <select
+                                                className="form-select"
+                                                value={billingForm.printer_type}
+                                                onChange={(e) => setBillingForm({ ...billingForm, printer_type: e.target.value as 'thermal' | 'dotmatrix' | 'a4' | 'legal' })}
+                                            >
+                                                <option value="thermal">Thermal Printer (80mm / 3-inch)</option>
+                                                <option value="dotmatrix">Dot Matrix (TVS MSP 250, Epson LQ)</option>
+                                                <option value="a4">A4 / Letter (Inkjet/Laser)</option>
+                                                <option value="legal">Legal Size (Inkjet/Laser)</option>
+                                            </select>
+                                            <span className="form-hint">
+                                                {billingForm.printer_type === 'dotmatrix' 
+                                                    ? 'Optimized for dot matrix printers like TVS MSP 250 Champion - uses monospace text format'
+                                                    : billingForm.printer_type === 'thermal'
+                                                    ? 'For 80mm thermal receipt printers'
+                                                    : 'For standard inkjet/laser printers'
+                                                }
+                                            </span>
                                         </div>
                                     </div>
                                 </div>

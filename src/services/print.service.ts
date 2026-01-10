@@ -22,7 +22,7 @@ interface ShopInfo {
 }
 
 interface PrintOptions {
-    paperSize: 'thermal' | 'a4' | 'legal';
+    paperSize: 'thermal' | 'a4' | 'legal' | 'dotmatrix';
     showGstBreakdown?: boolean;
     showPatientDetails?: boolean;
     copies?: number;
@@ -766,6 +766,188 @@ export async function generateThermalBillHTML(bill: Bill, items: BillItem[]): Pr
 }
 
 // =====================================================
+// DOT MATRIX BILL (TVS MSP 250 Champion - 80 column)
+// =====================================================
+
+/**
+ * Generate bill HTML optimized for dot matrix printers like TVS MSP 250 Champion.
+ * Uses monospace font, simple table structure, and no CSS flexbox.
+ * Paper width: ~80 characters (standard dot matrix)
+ */
+export async function generateDotMatrixBillHTML(bill: Bill, items: BillItem[]): Promise<string> {
+    const shopInfo = await getShopInfo();
+    const LINE_WIDTH = 42; // Characters per line for narrow receipts
+    
+    // Helper to center text
+    const center = (text: string, width: number = LINE_WIDTH): string => {
+        const padding = Math.max(0, width - text.length);
+        const left = Math.floor(padding / 2);
+        return ' '.repeat(left) + text;
+    };
+    
+    // Helper to create a line separator
+    const separator = (char: string = '-'): string => char.repeat(LINE_WIDTH);
+    
+    // Helper to create left-right aligned text
+    const leftRight = (left: string, right: string, width: number = LINE_WIDTH): string => {
+        const space = Math.max(1, width - left.length - right.length);
+        return left + ' '.repeat(space) + right;
+    };
+    
+    // Format currency without symbol for cleaner display
+    const fmtAmt = (amt: number): string => amt.toFixed(2);
+    
+    // Build the receipt content as plain text
+    let receipt = '';
+    
+    // Header
+    receipt += center(shopInfo.shop_name) + '\n';
+    if (shopInfo.shop_address) {
+        // Split address if too long
+        const addr = shopInfo.shop_address;
+        if (addr.length > LINE_WIDTH) {
+            const mid = Math.floor(addr.length / 2);
+            const breakPoint = addr.lastIndexOf(',', mid) + 1 || mid;
+            receipt += center(addr.substring(0, breakPoint).trim()) + '\n';
+            receipt += center(addr.substring(breakPoint).trim()) + '\n';
+        } else {
+            receipt += center(addr) + '\n';
+        }
+    }
+    if (shopInfo.shop_phone) {
+        receipt += center('Ph: ' + shopInfo.shop_phone) + '\n';
+    }
+    if (shopInfo.shop_gstin) {
+        receipt += center('GSTIN: ' + shopInfo.shop_gstin) + '\n';
+    }
+    if (shopInfo.shop_drug_license) {
+        receipt += center('D.L: ' + shopInfo.shop_drug_license) + '\n';
+    }
+    
+    receipt += separator('=') + '\n';
+    
+    // Bill info
+    receipt += leftRight('Bill: ' + bill.bill_number, formatDate(bill.bill_date, 'dd/MM/yy HH:mm')) + '\n';
+    receipt += leftRight('Customer:', bill.customer_name || 'Walk-in Customer') + '\n';
+    if (bill.doctor_name) {
+        receipt += leftRight('Doctor:', bill.doctor_name) + '\n';
+    }
+    
+    receipt += separator('-') + '\n';
+    
+    // Items header
+    receipt += 'Item                           Qty    Amt\n';
+    receipt += separator('-') + '\n';
+    
+    // Items
+    items.forEach((item, index) => {
+        const qty = item.quantity || 0;
+        const tps = item.tablets_per_strip || 10;
+        const units = convertToUnits(qty, tps);
+        const amt = item.total || item.total_amount || 0;
+        
+        // First line: item number and name (truncated if needed)
+        const itemNum = `${index + 1}. `;
+        const maxNameLen = LINE_WIDTH - 15; // Leave space for qty and amt
+        let name = item.medicine_name || '';
+        if (name.length > maxNameLen) {
+            name = name.substring(0, maxNameLen - 2) + '..';
+        }
+        
+        // Format: Name padded, then qty right-aligned, then amount right-aligned
+        const qtyStr = units.displayShort.padStart(6);
+        const amtStr = fmtAmt(amt).padStart(8);
+        const nameWithNum = (itemNum + name).padEnd(LINE_WIDTH - 14);
+        receipt += nameWithNum + qtyStr + amtStr + '\n';
+        
+        // Second line: batch and SP (optional, for detailed receipts)
+        const sp = item.selling_price || item.unit_price || 0;
+        const batchInfo = `   ${item.batch_number} @ ${fmtAmt(sp)}`;
+        if (item.discount_amount > 0) {
+            receipt += batchInfo.padEnd(LINE_WIDTH - 10) + `-${fmtAmt(item.discount_amount).padStart(8)}\n`;
+        }
+    });
+    
+    receipt += separator('-') + '\n';
+    
+    // Totals
+    receipt += leftRight(`Sub Total (${items.length} items):`, fmtAmt(bill.subtotal || 0)) + '\n';
+    
+    if (bill.discount_amount > 0) {
+        receipt += leftRight('Discount:', '-' + fmtAmt(bill.discount_amount)) + '\n';
+    }
+    
+    receipt += leftRight('GST:', fmtAmt(bill.total_gst || 0)) + '\n';
+    
+    if (bill.round_off) {
+        receipt += leftRight('Round Off:', fmtAmt(bill.round_off)) + '\n';
+    }
+    
+    receipt += separator('=') + '\n';
+    receipt += leftRight('TOTAL:', 'Rs.' + fmtAmt(bill.grand_total || 0)) + '\n';
+    receipt += separator('=') + '\n';
+    
+    // Payment info
+    let paymentLine = bill.payment_mode.toUpperCase();
+    if (bill.payment_mode === 'CASH' && bill.cash_amount > 0) {
+        paymentLine = `CASH | Cash: ${fmtAmt(bill.cash_amount)}`;
+    } else if (bill.payment_mode === 'SPLIT') {
+        const parts = [];
+        if (bill.cash_amount > 0) parts.push(`Cash:${fmtAmt(bill.cash_amount)}`);
+        if (bill.online_amount > 0) parts.push(`Online:${fmtAmt(bill.online_amount)}`);
+        if (bill.credit_amount > 0) parts.push(`Credit:${fmtAmt(bill.credit_amount)}`);
+        paymentLine = parts.join(' | ');
+    }
+    receipt += center(paymentLine) + '\n';
+    
+    receipt += '\n';
+    receipt += center('Thank you!') + '\n';
+    receipt += center('*** Get Well Soon ***') + '\n';
+    receipt += '\n';
+    receipt += center('Computer generated bill') + '\n';
+
+    // Wrap in minimal HTML for dot matrix printer
+    return `<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Bill ${bill.bill_number}</title>
+    <style>
+        @page {
+            size: auto;
+            margin: 5mm;
+        }
+        @media print {
+            body { margin: 0; padding: 0; }
+            .no-print { display: none; }
+        }
+        body {
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 12pt;
+            line-height: 1.2;
+            margin: 0;
+            padding: 10px;
+            background: #fff;
+            color: #000;
+        }
+        pre {
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 12pt;
+            line-height: 1.3;
+            margin: 0;
+            padding: 0;
+            white-space: pre;
+            overflow: visible;
+        }
+    </style>
+</head>
+<body>
+<pre>${receipt}</pre>
+</body>
+</html>`;
+}
+
+// =====================================================
 // PRINT FUNCTIONS
 // =====================================================
 
@@ -783,6 +965,9 @@ export async function printBill(
         case 'legal':
         case 'a4':
             html = await generateLegalBillHTML(bill, items);
+            break;
+        case 'dotmatrix':
+            html = await generateDotMatrixBillHTML(bill, items);
             break;
         case 'thermal':
         default:
@@ -868,12 +1053,14 @@ export async function printBill(
 export async function generateBillHTML(
     bill: Bill,
     items: BillItem[],
-    paperSize: 'thermal' | 'a4' | 'legal' = 'legal'
+    paperSize: 'thermal' | 'a4' | 'legal' | 'dotmatrix' = 'legal'
 ): Promise<string> {
     switch (paperSize) {
         case 'legal':
         case 'a4':
             return await generateLegalBillHTML(bill, items);
+        case 'dotmatrix':
+            return await generateDotMatrixBillHTML(bill, items);
         case 'thermal':
         default:
             return await generateThermalBillHTML(bill, items);
@@ -886,7 +1073,7 @@ export async function generateBillHTML(
 export async function previewBill(
     bill: Bill,
     items: BillItem[],
-    paperSize: 'thermal' | 'a4' | 'legal' = 'legal'
+    paperSize: 'thermal' | 'a4' | 'legal' | 'dotmatrix' = 'legal'
 ): Promise<void> {
     const html = await generateBillHTML(bill, items, paperSize);
     const previewWindow = window.open('', '_blank', 'width=900,height=700');
@@ -944,7 +1131,7 @@ export function downloadBillHTML(html: string, billNumber: string): void {
 export async function silentPrintBill(
     bill: Bill,
     items: BillItem[],
-    paperSize: 'thermal' | 'a4' | 'legal' = 'thermal'
+    paperSize: 'thermal' | 'a4' | 'legal' | 'dotmatrix' = 'thermal'
 ): Promise<void> {
     // Generate HTML based on paper size
     let html: string;
@@ -952,6 +1139,9 @@ export async function silentPrintBill(
         case 'legal':
         case 'a4':
             html = await generateLegalBillHTML(bill, items);
+            break;
+        case 'dotmatrix':
+            html = await generateDotMatrixBillHTML(bill, items);
             break;
         case 'thermal':
         default:

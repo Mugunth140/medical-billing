@@ -18,7 +18,7 @@ import { useEffect, useState } from 'react';
 import { Pagination } from '../components/common/Pagination';
 import { useToast } from '../components/common/Toast';
 import { execute, query, queryOne } from '../services/database';
-import { useAuthStore } from '../stores';
+import { useAuthStore, useSettingsStore } from '../stores';
 import type { Bill, RunningBill, StockItem } from '../types';
 import { formatCurrency, formatDate } from '../utils';
 
@@ -52,6 +52,7 @@ function calculateGstBreakdown(amount: number, gstRate: number, priceType: 'INCL
 export function RunningBills() {
     const { showToast } = useToast();
     const { user } = useAuthStore();
+    const { settings } = useSettingsStore();
     const [runningBills, setRunningBills] = useState<RunningBill[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [showAddModal, setShowAddModal] = useState(false);
@@ -409,8 +410,9 @@ export function RunningBills() {
 
             // Dynamic import to avoid circular dependencies
             const { printBill } = await import('../services/print.service');
+            const printerType = (settings.printer_type as 'thermal' | 'dotmatrix' | 'a4' | 'legal') || 'thermal';
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            await printBill(bill, items as any, { paperSize: 'thermal' });
+            await printBill(bill, items as any, { paperSize: printerType });
             showToast('success', `Opening print preview for ${billNumber}`);
         } catch (error) {
             console.error('Print failed:', error);

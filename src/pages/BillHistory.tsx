@@ -9,6 +9,7 @@ import { Pagination } from '../components/common/Pagination';
 import { query } from '../services/database';
 import { formatCurrency } from '../services/gst.service';
 import { printBill } from '../services/print.service';
+import { useSettingsStore } from '../stores';
 import type { Bill, BillItem, ScheduledMedicineRecord } from '../types';
 import { formatDate } from '../utils';
 
@@ -19,6 +20,8 @@ interface BillWithItems extends Bill {
 type ViewMode = 'all' | 'schedule';
 
 export function BillHistory() {
+    const { settings } = useSettingsStore();
+    const printerType = (settings.printer_type as 'thermal' | 'dotmatrix' | 'a4' | 'legal') || 'thermal';
     const [viewMode, setViewMode] = useState<ViewMode>('all');
     const [bills, setBills] = useState<Bill[]>([]);
     const [scheduleRecords, setScheduleRecords] = useState<ScheduledMedicineRecord[]>([]);
@@ -610,7 +613,7 @@ export function BillHistory() {
                                 className="btn btn-secondary"
                                 onClick={() => {
                                     if (selectedBill?.items) {
-                                        printBill(selectedBill, selectedBill.items, { paperSize: 'thermal' });
+                                        printBill(selectedBill, selectedBill.items, { paperSize: printerType });
                                     }
                                 }}
                             >
@@ -756,7 +759,7 @@ export function BillHistory() {
                                     className="btn btn-secondary"
                                     onClick={() => {
                                         if (selectedBill?.items) {
-                                            printBill(selectedBill, selectedBill.items, { paperSize: 'thermal' });
+                                            printBill(selectedBill, selectedBill.items, { paperSize: printerType });
                                         }
                                     }}
                                 >
