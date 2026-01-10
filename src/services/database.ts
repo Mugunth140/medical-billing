@@ -22,26 +22,24 @@ const TABLE_STATEMENTS = [
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`,
 
-    // Medicines Table
+    // Medicines Table - Master data only (GST/schedule set per batch)
     `CREATE TABLE IF NOT EXISTS medicines (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
         generic_name TEXT,
         manufacturer TEXT,
         hsn_code TEXT NOT NULL DEFAULT '3004',
-        gst_rate DECIMAL(5,2) NOT NULL CHECK (gst_rate IN (0, 5, 12, 18)),
-        taxability TEXT NOT NULL DEFAULT 'TAXABLE' CHECK (taxability IN ('TAXABLE', 'EXEMPT')),
         category TEXT,
         drug_type TEXT,
+        pack_size TEXT,
         unit TEXT DEFAULT 'PCS',
         reorder_level INTEGER DEFAULT 10,
-        is_schedule INTEGER DEFAULT 0,
         is_active INTEGER DEFAULT 1,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`,
 
-    // Batches Table
+    // Batches Table - GST rate and schedule stored per batch
     `CREATE TABLE IF NOT EXISTS batches (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         medicine_id INTEGER NOT NULL REFERENCES medicines(id),
@@ -51,6 +49,8 @@ const TABLE_STATEMENTS = [
         mrp DECIMAL(10,2) NOT NULL,
         selling_price DECIMAL(10,2) NOT NULL,
         price_type TEXT NOT NULL DEFAULT 'INCLUSIVE' CHECK (price_type IN ('INCLUSIVE', 'EXCLUSIVE')),
+        gst_rate DECIMAL(5,2) NOT NULL DEFAULT 12 CHECK (gst_rate IN (0, 5, 12, 18)),
+        is_schedule INTEGER DEFAULT 0,
         quantity INTEGER NOT NULL DEFAULT 0,
         tablets_per_strip INTEGER DEFAULT 10,
         rack TEXT,
@@ -358,11 +358,13 @@ const INDEX_STATEMENTS = [
     `CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)`,
     `CREATE INDEX IF NOT EXISTS idx_medicines_name ON medicines(name)`,
     `CREATE INDEX IF NOT EXISTS idx_medicines_hsn ON medicines(hsn_code)`,
-    `CREATE INDEX IF NOT EXISTS idx_medicines_schedule ON medicines(is_schedule)`,
+    `CREATE INDEX IF NOT EXISTS idx_medicines_manufacturer ON medicines(manufacturer)`,
     `CREATE INDEX IF NOT EXISTS idx_batches_medicine ON batches(medicine_id)`,
     `CREATE INDEX IF NOT EXISTS idx_batches_expiry ON batches(expiry_date)`,
     `CREATE INDEX IF NOT EXISTS idx_batches_location ON batches(rack, box)`,
     `CREATE INDEX IF NOT EXISTS idx_batches_quantity ON batches(quantity)`,
+    `CREATE INDEX IF NOT EXISTS idx_batches_gst ON batches(gst_rate)`,
+    `CREATE INDEX IF NOT EXISTS idx_batches_schedule ON batches(is_schedule)`,
     `CREATE INDEX IF NOT EXISTS idx_bills_number ON bills(bill_number)`,
     `CREATE INDEX IF NOT EXISTS idx_bills_date ON bills(bill_date)`,
     `CREATE INDEX IF NOT EXISTS idx_bills_customer ON bills(customer_id)`,
@@ -386,6 +388,7 @@ const INDEX_STATEMENTS = [
     `CREATE INDEX IF NOT EXISTS idx_purchase_returns_supplier ON purchase_returns(supplier_id)`,
     `CREATE INDEX IF NOT EXISTS idx_purchase_return_items_return ON purchase_return_items(return_id)`
 ];
+
 
 // Default data statements
 const DEFAULT_DATA_STATEMENTS = [
@@ -489,15 +492,18 @@ export async function initDatabase(): Promise<Database> {
             `ALTER TABLE bills ADD COLUMN total_items INTEGER DEFAULT 0`,
             // Add doctor_name to bills for prescription tracking
             `ALTER TABLE bills ADD COLUMN doctor_name TEXT`,
-            // Add is_schedule column to medicines for scheduled drug tracking
-            `ALTER TABLE medicines ADD COLUMN is_schedule INTEGER DEFAULT 0`,
             // Add missing columns to scheduled_medicine_records for older databases
             `ALTER TABLE scheduled_medicine_records ADD COLUMN doctor_registration_number TEXT`,
             `ALTER TABLE scheduled_medicine_records ADD COLUMN clinic_hospital_name TEXT`,
             `ALTER TABLE scheduled_medicine_records ADD COLUMN prescription_date TEXT`,
             `ALTER TABLE scheduled_medicine_records ADD COLUMN doctor_prescription TEXT`,
             // Add supplier_id to batches for direct supplier tracking
-            `ALTER TABLE batches ADD COLUMN supplier_id INTEGER REFERENCES suppliers(id)`
+            `ALTER TABLE batches ADD COLUMN supplier_id INTEGER REFERENCES suppliers(id)`,
+            // Add gst_rate and is_schedule to batches (moved from medicines)
+            `ALTER TABLE batches ADD COLUMN gst_rate DECIMAL(5,2) DEFAULT 12`,
+            `ALTER TABLE batches ADD COLUMN is_schedule INTEGER DEFAULT 0`,
+            // Add pack_size to medicines for dataset import
+            `ALTER TABLE medicines ADD COLUMN pack_size TEXT`
         ];
         for (const migration of migrations) {
             try {
@@ -506,6 +512,7 @@ export async function initDatabase(): Promise<Database> {
                 // Column probably already exists, ignore
             }
         }
+
 
         // Migrate existing batch quantities from strips to tablets (one-time)
         try {

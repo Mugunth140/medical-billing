@@ -62,7 +62,6 @@ export function Purchases() {
     const { user } = useAuthStore();
     const [purchases, setPurchases] = useState<Purchase[]>([]);
     const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-    const [medicines, setMedicines] = useState<Medicine[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [activeTab, setActiveTab] = useState<'purchases' | 'suppliers'>('purchases');
     const [showAddSupplierModal, setShowAddSupplierModal] = useState(false);
@@ -121,7 +120,7 @@ export function Purchases() {
     const loadData = async () => {
         setIsLoading(true);
         try {
-            const [purchasesData, suppliersData, medicinesData] = await Promise.all([
+            const [purchasesData, suppliersData] = await Promise.all([
                 query<Purchase>(
                     `SELECT p.*, s.name as supplier_name 
              FROM purchases p 
@@ -132,41 +131,52 @@ export function Purchases() {
                 query<Supplier>(
                     'SELECT * FROM suppliers WHERE is_active = 1 ORDER BY name',
                     []
-                ),
-                query<Medicine>(
-                    'SELECT * FROM medicines WHERE is_active = 1 ORDER BY name',
-                    []
                 )
+                // Don't load all medicines - use search instead
             ]);
 
             setPurchases(purchasesData);
             setSuppliers(suppliersData);
-            setMedicines(medicinesData);
         } catch (error) {
             console.error('Failed to load purchases:', error);
         }
         setIsLoading(false);
     };
 
-     
+
     useEffect(() => {
         loadData();
     }, []);
 
-    // Filter medicines based on search
+    // Search medicines from database on-demand (debounced)
     useEffect(() => {
-        if (medicineSearch.length > 0) {
-            const filtered = medicines.filter(m =>
-                m.name.toLowerCase().includes(medicineSearch.toLowerCase()) ||
-                (m.generic_name && m.generic_name.toLowerCase().includes(medicineSearch.toLowerCase()))
-            ).slice(0, 10);
-            setFilteredMedicines(filtered);
-            setShowMedicineDropdown(true);
-        } else {
+        if (medicineSearch.length < 2) {
             setFilteredMedicines([]);
             setShowMedicineDropdown(false);
+            return;
         }
-    }, [medicineSearch, medicines]);
+
+        const searchMedicines = async () => {
+            try {
+                const term = `%${medicineSearch}%`;
+                const results = await query<Medicine>(
+                    `SELECT * FROM medicines 
+                     WHERE is_active = 1 
+                       AND (name LIKE ? OR generic_name LIKE ? OR manufacturer LIKE ?)
+                     ORDER BY name ASC
+                     LIMIT 15`,
+                    [term, term, term]
+                );
+                setFilteredMedicines(results);
+                setShowMedicineDropdown(results.length > 0);
+            } catch (error) {
+                console.error('Medicine search failed:', error);
+            }
+        };
+
+        const debounceTimer = setTimeout(searchMedicines, 200);
+        return () => clearTimeout(debounceTimer);
+    }, [medicineSearch]);
 
     const getPaymentStatusBadge = (status: string) => {
         switch (status) {
@@ -319,10 +329,15 @@ export function Purchases() {
         }
 
         // Fetch last batch info to pre-fill values (all prices are per strip)
-        let lastBatch: { mrp: number; selling_price: number; rack: string; box: string; purchase_price: number; tablets_per_strip: number } | null = null;
+        // Now includes gst_rate and is_schedule from batch
+        let lastBatch: { mrp: number; selling_price: number; rack: string; box: string; purchase_price: number; tablets_per_strip: number; gst_rate: number; is_schedule: number } | null = null;
         try {
-            const batches = await query<{ mrp: number; selling_price: number; rack: string; box: string; purchase_price: number; tablets_per_strip: number }>(
-                `SELECT mrp, selling_price, rack, box, purchase_price, COALESCE(tablets_per_strip, 10) as tablets_per_strip FROM batches 
+            const batches = await query<{ mrp: number; selling_price: number; rack: string; box: string; purchase_price: number; tablets_per_strip: number; gst_rate: number; is_schedule: number }>(
+                `SELECT mrp, selling_price, rack, box, purchase_price, 
+                        COALESCE(tablets_per_strip, 10) as tablets_per_strip,
+                        COALESCE(gst_rate, 12) as gst_rate,
+                        COALESCE(is_schedule, 0) as is_schedule
+                 FROM batches 
                  WHERE medicine_id = ? ORDER BY created_at DESC LIMIT 1`,
                 [medicine.id]
             );
@@ -338,7 +353,7 @@ export function Purchases() {
             medicine_id: medicine.id,
             medicine_name: medicine.name,
             hsn_code: medicine.hsn_code,
-            gst_rate: medicine.gst_rate,
+            gst_rate: (lastBatch?.gst_rate || 12) as GstRate, // Get from batch or default to 12%
             batch_number: '',
             expiry_date: '',
             quantity: 1,
@@ -368,17 +383,16 @@ export function Purchases() {
         }
 
         try {
+            // Insert medicine without gst_rate (now per-batch)
             const result = await execute(
-                `INSERT INTO medicines (name, generic_name, manufacturer, hsn_code, gst_rate, category, is_schedule)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                `INSERT INTO medicines (name, generic_name, manufacturer, hsn_code, category)
+                 VALUES (?, ?, ?, ?, ?)`,
                 [
                     quickMedicineForm.name,
                     quickMedicineForm.generic_name || null,
                     quickMedicineForm.manufacturer || null,
                     quickMedicineForm.hsn_code || '3004',
-                    quickMedicineForm.gst_rate,
-                    quickMedicineForm.category || null,
-                    quickMedicineForm.is_schedule ? 1 : 0
+                    quickMedicineForm.category || null
                 ]
             );
 
@@ -388,21 +402,15 @@ export function Purchases() {
                 generic_name: quickMedicineForm.generic_name || undefined,
                 manufacturer: quickMedicineForm.manufacturer || undefined,
                 hsn_code: quickMedicineForm.hsn_code || '3004',
-                gst_rate: quickMedicineForm.gst_rate,
-                taxability: 'TAXABLE',
                 category: quickMedicineForm.category || undefined,
                 unit: 'PCS',
                 reorder_level: 10,
-                is_schedule: quickMedicineForm.is_schedule,
                 is_active: true,
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString()
             };
 
-            // Add to medicines list
-            setMedicines([...medicines, newMedicine]);
-
-            // Add to purchase items
+            // Add to purchase items (GST will be set per-batch)
             handleAddMedicine(newMedicine);
 
             showToast('success', `Medicine "${quickMedicineForm.name}" added`);
@@ -1287,7 +1295,7 @@ export function Purchases() {
                                                     >
                                                         <div style={{ fontWeight: 500 }}>{m.name}</div>
                                                         <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
-                                                            {m.manufacturer && `${m.manufacturer} | `}GST: {m.gst_rate}% | HSN: {m.hsn_code}
+                                                            {m.manufacturer && `${m.manufacturer} | `}{m.generic_name && `${m.generic_name.substring(0, 50)}... | `}HSN: {m.hsn_code}
                                                         </div>
                                                     </div>
                                                 ))}

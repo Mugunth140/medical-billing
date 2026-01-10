@@ -44,7 +44,6 @@ interface SupplierBatch {
 export function SupplierManagement() {
     const { showToast } = useToast();
     const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-    const [medicines, setMedicines] = useState<Medicine[]>([]);
     const [supplierBatches, setSupplierBatches] = useState<SupplierBatch[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null);
@@ -80,12 +79,9 @@ export function SupplierManagement() {
         generic_name: '',
         manufacturer: '',
         hsn_code: '3004',
-        gst_rate: 12,
-        taxability: 'TAXABLE',
         category: '',
         unit: 'PCS',
-        reorder_level: 10,
-        is_schedule: false
+        reorder_level: 10
     });
 
     const [batchForm, setBatchForm] = useState<CreateBatchInput & { supplier_id?: number }>({
@@ -96,6 +92,8 @@ export function SupplierManagement() {
         mrp: 0,
         selling_price: 0,
         price_type: 'INCLUSIVE',
+        gst_rate: 12,
+        is_schedule: false,
         quantity: 0,
         tablets_per_strip: 10,
         rack: '',
@@ -116,15 +114,26 @@ export function SupplierManagement() {
         }
     };
 
-    const loadMedicines = async () => {
+    // Search medicines on demand instead of loading all
+    const [medicineSearch, setMedicineSearch] = useState('');
+    const [searchResults, setSearchResults] = useState<Medicine[]>([]);
+
+    const searchMedicines = async (term: string) => {
+        if (term.length < 2) {
+            setSearchResults([]);
+            return;
+        }
         try {
+            const searchTerm = `%${term}%`;
             const data = await query<Medicine>(
-                'SELECT * FROM medicines WHERE is_active = 1 ORDER BY name',
-                []
+                `SELECT * FROM medicines WHERE is_active = 1 
+                 AND (name LIKE ? OR generic_name LIKE ? OR manufacturer LIKE ?)
+                 ORDER BY name LIMIT 20`,
+                [searchTerm, searchTerm, searchTerm]
             );
-            setMedicines(data);
+            setSearchResults(data);
         } catch (error) {
-            console.error('Failed to load medicines:', error);
+            console.error('Failed to search medicines:', error);
         }
     };
 
@@ -147,7 +156,7 @@ export function SupplierManagement() {
                     m.id as medicine_id,
                     m.name as medicine_name,
                     m.manufacturer,
-                    m.gst_rate,
+                    COALESCE(b.gst_rate, 12) as gst_rate,
                     m.hsn_code,
                     p.invoice_date as purchase_date
                 FROM batches b
@@ -168,13 +177,13 @@ export function SupplierManagement() {
     useEffect(() => {
         const loadData = async () => {
             setIsLoading(true);
-            await Promise.all([loadSuppliers(), loadMedicines()]);
+            await loadSuppliers();
             setIsLoading(false);
         };
         loadData();
     }, []);
 
-     
+
     useEffect(() => {
         if (selectedSupplier) {
             loadSupplierBatches(selectedSupplier.id);
@@ -196,7 +205,7 @@ export function SupplierManagement() {
     );
 
     // Reset page on search
-     
+
     useEffect(() => {
         setCurrentPage(1);
     }, [searchQuery, selectedSupplier]);
@@ -318,33 +327,30 @@ export function SupplierManagement() {
         if (!selectedSupplier) return;
 
         try {
-            // Insert medicine first
+            // Insert medicine (without gst_rate - now per-batch)
             const medicineResult = await execute(
-                `INSERT INTO medicines (name, generic_name, manufacturer, hsn_code, gst_rate, taxability, category, unit, reorder_level, is_schedule)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                `INSERT INTO medicines (name, generic_name, manufacturer, hsn_code, category, unit, reorder_level)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)`,
                 [
                     medicineForm.name,
                     medicineForm.generic_name || null,
                     medicineForm.manufacturer || null,
                     medicineForm.hsn_code || '3004',
-                    medicineForm.gst_rate,
-                    medicineForm.taxability,
                     medicineForm.category || null,
                     medicineForm.unit || 'PCS',
-                    medicineForm.reorder_level || 10,
-                    medicineForm.is_schedule ? 1 : 0
+                    medicineForm.reorder_level || 10
                 ]
             );
 
             const medicineId = medicineResult.lastInsertId;
 
-            // Insert batch with supplier_id
+            // Insert batch with supplier_id, gst_rate, is_schedule
             const tabletsPerStrip = batchForm.tablets_per_strip || 10;
             const totalPieces = batchForm.quantity * tabletsPerStrip;
 
             await execute(
-                `INSERT INTO batches (medicine_id, batch_number, expiry_date, purchase_price, mrp, selling_price, price_type, quantity, tablets_per_strip, rack, box, supplier_id)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                `INSERT INTO batches (medicine_id, batch_number, expiry_date, purchase_price, mrp, selling_price, price_type, gst_rate, is_schedule, quantity, tablets_per_strip, rack, box, supplier_id)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     medicineId,
                     batchForm.batch_number,
@@ -353,6 +359,8 @@ export function SupplierManagement() {
                     batchForm.mrp,
                     batchForm.selling_price,
                     batchForm.price_type,
+                    batchForm.gst_rate,
+                    batchForm.is_schedule ? 1 : 0,
                     totalPieces,
                     tabletsPerStrip,
                     batchForm.rack || null,
@@ -365,7 +373,6 @@ export function SupplierManagement() {
             setShowAddMedicineModal(false);
             resetMedicineForm();
             resetBatchForm();
-            loadMedicines();
             loadSupplierBatches(selectedSupplier.id);
         } catch (error) {
             console.error('Failed to add medicine with batch:', error);
@@ -417,12 +424,9 @@ export function SupplierManagement() {
             generic_name: '',
             manufacturer: '',
             hsn_code: '3004',
-            gst_rate: 12,
-            taxability: 'TAXABLE',
             category: '',
             unit: 'PCS',
-            reorder_level: 10,
-            is_schedule: false
+            reorder_level: 10
         });
     };
 
@@ -435,6 +439,8 @@ export function SupplierManagement() {
             mrp: 0,
             selling_price: 0,
             price_type: 'INCLUSIVE',
+            gst_rate: 12,
+            is_schedule: false,
             quantity: 0,
             tablets_per_strip: 10,
             rack: '',
@@ -1235,14 +1241,24 @@ export function SupplierManagement() {
                                     <select
                                         className="form-select"
                                         value={selectedMedicineForBatch?.id || ''}
-                                        onChange={(e) => setSelectedMedicineForBatch(medicines.find(m => m.id === parseInt(e.target.value)) || null)}
+                                        onChange={(e) => setSelectedMedicineForBatch(searchResults.find(m => m.id === parseInt(e.target.value)) || null)}
                                         required
                                     >
-                                        <option value="">Choose a medicine...</option>
-                                        {medicines.map(m => (
-                                            <option key={m.id} value={m.id}>{m.name} ({m.gst_rate}% GST)</option>
+                                        <option value="">Search and select a medicine...</option>
+                                        {searchResults.map(m => (
+                                            <option key={m.id} value={m.id}>{m.name} | {m.manufacturer || 'Unknown'}</option>
                                         ))}
                                     </select>
+                                    <input
+                                        type="text"
+                                        className="form-input mt-2"
+                                        placeholder="Type to search medicines..."
+                                        value={medicineSearch}
+                                        onChange={(e) => {
+                                            setMedicineSearch(e.target.value);
+                                            searchMedicines(e.target.value);
+                                        }}
+                                    />
                                 </div>
 
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)', marginTop: 'var(--space-4)' }}>

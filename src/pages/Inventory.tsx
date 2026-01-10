@@ -27,7 +27,6 @@ import {
     getAllStock,
     getExpiringItems,
     getLowStockItems,
-    getMedicines,
     getNonMovingItems,
     getScheduledMedicines,
     updateMedicine
@@ -66,21 +65,18 @@ export function Inventory() {
     const [invoiceNumber, setInvoiceNumber] = useState('');
     const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().split('T')[0]);
 
-    // Form state for new medicine
+    // Form state for new medicine (simplified - GST now per-batch)
     const [medicineForm, setMedicineForm] = useState<CreateMedicineInput>({
         name: '',
         generic_name: '',
         manufacturer: '',
         hsn_code: '3004',
-        gst_rate: 12,
-        taxability: 'TAXABLE',
         category: '',
         unit: 'PCS',
-        reorder_level: 10,
-        is_schedule: false
+        reorder_level: 10
     });
 
-    // Form state for new batch
+    // Form state for new batch (includes gst_rate and is_schedule)
     const [batchForm, setBatchForm] = useState<CreateBatchInput>({
         medicine_id: 0,
         batch_number: '',
@@ -89,6 +85,8 @@ export function Inventory() {
         mrp: 0,
         selling_price: 0,
         price_type: 'INCLUSIVE',
+        gst_rate: 12,
+        is_schedule: false,
         quantity: 0,
         tablets_per_strip: 10,
         rack: '',
@@ -120,11 +118,8 @@ export function Inventory() {
             setStockItems(items);
             setFilteredItems(items);
 
-            const [meds, suppliersData] = await Promise.all([
-                getMedicines(),
-                query<Supplier>('SELECT * FROM suppliers WHERE is_active = 1 ORDER BY name', [])
-            ]);
-            setMedicines(meds);
+            // Only load suppliers, not all medicines (too many)
+            const suppliersData = await query<Supplier>('SELECT * FROM suppliers WHERE is_active = 1 ORDER BY name', []);
             setSuppliers(suppliersData);
         } catch (error) {
             console.error('Failed to load inventory:', error);
@@ -183,12 +178,9 @@ export function Inventory() {
                 generic_name: '',
                 manufacturer: '',
                 hsn_code: '3004',
-                gst_rate: 12,
-                taxability: 'TAXABLE',
                 category: '',
                 unit: 'PCS',
-                reorder_level: 10,
-                is_schedule: false
+                reorder_level: 10
             });
             showToast('success', `Medicine "${medicineForm.name}" added successfully!`);
             loadData();
@@ -245,12 +237,9 @@ export function Inventory() {
             generic_name: medicine.generic_name || '',
             manufacturer: medicine.manufacturer || '',
             hsn_code: medicine.hsn_code,
-            gst_rate: medicine.gst_rate,
-            taxability: medicine.taxability,
             category: medicine.category || '',
             unit: medicine.unit,
-            reorder_level: medicine.reorder_level,
-            is_schedule: medicine.is_schedule || false
+            reorder_level: medicine.reorder_level
         });
         setShowEditMedicineModal(true);
     };
@@ -280,7 +269,7 @@ export function Inventory() {
             // If supplier is selected, create purchase entry automatically
             if (selectedSupplierId > 0) {
                 const subtotal = batchForm.quantity * batchForm.purchase_price;
-                const gstRate = selectedMedicine.gst_rate;
+                const gstRate = batchForm.gst_rate; // GST now comes from batch
                 const halfGstRate = gstRate / 2;
                 const cgst = (subtotal * halfGstRate) / 100;
                 const sgst = (subtotal * halfGstRate) / 100;
@@ -355,6 +344,8 @@ export function Inventory() {
                 mrp: 0,
                 selling_price: 0,
                 price_type: 'INCLUSIVE',
+                gst_rate: 12,
+                is_schedule: false,
                 quantity: 0,
                 tablets_per_strip: 10,
                 rack: '',
@@ -730,19 +721,6 @@ export function Inventory() {
                                         />
                                     </div>
                                     <div className="form-group">
-                                        <label className="form-label">GST Rate *</label>
-                                        <select
-                                            className="form-select"
-                                            value={medicineForm.gst_rate}
-                                            onChange={(e) => setMedicineForm({ ...medicineForm, gst_rate: parseInt(e.target.value) as GstRate })}
-                                        >
-                                            <option value={0}>0% (Exempt)</option>
-                                            <option value={5}>5%</option>
-                                            <option value={12}>12%</option>
-                                            <option value={18}>18%</option>
-                                        </select>
-                                    </div>
-                                    <div className="form-group">
                                         <label className="form-label">Unit</label>
                                         <select
                                             className="form-select"
@@ -777,18 +755,9 @@ export function Inventory() {
                                         />
                                     </div>
                                     <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-                                        <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', cursor: 'pointer' }}>
-                                            <input
-                                                type="checkbox"
-                                                checked={medicineForm.is_schedule || false}
-                                                onChange={(e) => setMedicineForm({ ...medicineForm, is_schedule: e.target.checked })}
-                                                style={{ width: '18px', height: '18px' }}
-                                            />
-                                            <span style={{ fontWeight: 500 }}>Schedule H/H1 Drug</span>
-                                            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
-                                                (Requires patient details when billing)
-                                            </span>
-                                        </label>
+                                        <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', margin: 0 }}>
+                                            <strong>Note:</strong> GST Rate and Schedule status will be set per-batch when adding stock.
+                                        </p>
                                     </div>
                                 </div>
                             </div>

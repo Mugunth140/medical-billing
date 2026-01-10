@@ -57,13 +57,11 @@ export interface Medicine {
     generic_name?: string;
     manufacturer?: string;
     hsn_code: string;
-    gst_rate: GstRate;
-    taxability: Taxability;
     category?: string;
     drug_type?: string;
+    pack_size?: string;
     unit: string;
     reorder_level: number;
-    is_schedule: boolean;
     is_active: boolean;
     created_at: string;
     updated_at: string;
@@ -78,12 +76,15 @@ export interface Batch {
     mrp: number;
     selling_price: number;
     price_type: PriceType;
+    gst_rate: GstRate;
+    is_schedule: boolean;
     quantity: number;
     tablets_per_strip: number;
     rack?: string;
     box?: string;
     last_sold_date?: string;
     purchase_id?: number;
+    supplier_id?: number;
     is_active: boolean;
     created_at: string;
     updated_at: string;
@@ -404,23 +405,24 @@ export interface StockItem {
     mrp: number;
     selling_price: number;
     price_type: PriceType;
+    gst_rate: GstRate;
+    is_schedule: boolean;
     quantity: number;
     tablets_per_strip: number;
     rack?: string;
     box?: string;
     last_sold_date?: string;
+    supplier_id?: number;
 
     medicine_id: number;
     medicine_name: string;
     generic_name?: string;
     manufacturer?: string;
     hsn_code: string;
-    gst_rate: GstRate;
-    taxability: Taxability;
     category?: string;
+    pack_size?: string;
     unit: string;
     reorder_level: number;
-    is_schedule: boolean;
 
     stock_status: StockStatus;
     expiry_status: ExpiryStatus;
@@ -494,14 +496,12 @@ export interface CreateMedicineInput {
     name: string;
     generic_name?: string;
     manufacturer?: string;
-    hsn_code: string;
-    gst_rate: GstRate;
-    taxability: Taxability;
+    hsn_code?: string;
     category?: string;
     drug_type?: string;
+    pack_size?: string;
     unit?: string;
     reorder_level?: number;
-    is_schedule?: boolean;
 }
 
 export interface CreateBatchInput {
@@ -512,10 +512,13 @@ export interface CreateBatchInput {
     mrp: number;
     selling_price: number;
     price_type: PriceType;
+    gst_rate: GstRate;
+    is_schedule?: boolean;
     quantity: number;
     tablets_per_strip?: number;
     rack?: string;
     box?: string;
+    supplier_id?: number;
 }
 
 export interface CreateSupplierInput {

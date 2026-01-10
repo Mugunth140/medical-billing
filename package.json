@@ -17,7 +17,8 @@
     "test:ui": "vitest --ui",
     "db:seed": "node scripts/db-seed.mjs --seed",
     "db:clear": "node scripts/db-seed.mjs --clear",
-    "db:reset": "node scripts/db-seed.mjs --reset"
+    "db:reset": "node scripts/db-seed.mjs --reset",
+    "import:medicines": "node scripts/import-medicines.mjs"
   },
   "dependencies": {
     "@react-pdf/renderer": "^4.1.6",

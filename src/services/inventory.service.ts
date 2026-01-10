@@ -45,6 +45,34 @@ export async function getMedicineById(id: number): Promise<Medicine | null> {
 }
 
 /**
+ * Search medicines from master list (for adding stock)
+ * Unlike searchMedicinesForBilling, this returns medicines without requiring batches
+ */
+export async function searchMedicinesMaster(searchTerm: string, limit: number = 20): Promise<Medicine[]> {
+  const sql = `
+    SELECT * FROM medicines 
+    WHERE is_active = 1 
+      AND (name LIKE ? OR generic_name LIKE ? OR manufacturer LIKE ?)
+    ORDER BY name ASC
+    LIMIT ?
+  `;
+
+  const term = `%${searchTerm}%`;
+  return await query<Medicine>(sql, [term, term, term, limit]);
+}
+
+/**
+ * Get medicine count (to check if import is needed)
+ */
+export async function getMedicineCount(): Promise<number> {
+  const result = await queryOne<{ count: number }>(
+    `SELECT COUNT(*) as count FROM medicines WHERE is_active = 1`,
+    []
+  );
+  return result?.count ?? 0;
+}
+
+/**
  * Search medicines with stock info for billing
  */
 export async function searchMedicinesForBilling(searchTerm: string): Promise<StockItem[]> {
@@ -57,22 +85,23 @@ export async function searchMedicinesForBilling(searchTerm: string): Promise<Sto
       b.mrp,
       b.selling_price,
       b.price_type,
+      COALESCE(b.gst_rate, 12) AS gst_rate,
+      COALESCE(b.is_schedule, 0) AS is_schedule,
       b.quantity,
       COALESCE(b.tablets_per_strip, 10) AS tablets_per_strip,
       b.rack,
       b.box,
       b.last_sold_date,
+      b.supplier_id,
       m.id AS medicine_id,
       m.name AS medicine_name,
       m.generic_name,
       m.manufacturer,
       m.hsn_code,
-      m.gst_rate,
-      m.taxability,
       m.category,
+      m.pack_size,
       m.unit,
       m.reorder_level,
-      COALESCE(m.is_schedule, 0) AS is_schedule,
       CASE 
         WHEN b.quantity <= 0 THEN 'OUT_OF_STOCK'
         WHEN b.quantity <= m.reorder_level THEN 'LOW_STOCK'
@@ -95,6 +124,7 @@ export async function searchMedicinesForBilling(searchTerm: string): Promise<Sto
     LIMIT 50
   `;
 
+
   const term = `%${searchTerm}%`;
   return await query<StockItem>(sql, [term, term, term]);
 }
@@ -105,21 +135,19 @@ export async function searchMedicinesForBilling(searchTerm: string): Promise<Sto
 export async function createMedicine(input: CreateMedicineInput): Promise<number> {
   const result = await execute(
     `INSERT INTO medicines (
-      name, generic_name, manufacturer, hsn_code, gst_rate, 
-      taxability, category, drug_type, unit, reorder_level, is_schedule
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      name, generic_name, manufacturer, hsn_code,
+      category, drug_type, pack_size, unit, reorder_level
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       input.name,
       input.generic_name ?? null,
       input.manufacturer ?? null,
-      input.hsn_code,
-      input.gst_rate,
-      input.taxability,
+      input.hsn_code ?? '3004',
       input.category ?? null,
       input.drug_type ?? null,
+      input.pack_size ?? null,
       input.unit ?? 'PCS',
-      input.reorder_level ?? 10,
-      input.is_schedule ? 1 : 0
+      input.reorder_level ?? 10
     ]
   );
 
@@ -149,14 +177,6 @@ export async function updateMedicine(id: number, input: Partial<CreateMedicineIn
     sets.push('hsn_code = ?');
     params.push(input.hsn_code);
   }
-  if (input.gst_rate !== undefined) {
-    sets.push('gst_rate = ?');
-    params.push(input.gst_rate);
-  }
-  if (input.taxability !== undefined) {
-    sets.push('taxability = ?');
-    params.push(input.taxability);
-  }
   if (input.category !== undefined) {
     sets.push('category = ?');
     params.push(input.category);
@@ -165,6 +185,10 @@ export async function updateMedicine(id: number, input: Partial<CreateMedicineIn
     sets.push('drug_type = ?');
     params.push(input.drug_type);
   }
+  if (input.pack_size !== undefined) {
+    sets.push('pack_size = ?');
+    params.push(input.pack_size);
+  }
   if (input.unit !== undefined) {
     sets.push('unit = ?');
     params.push(input.unit);
@@ -172,10 +196,6 @@ export async function updateMedicine(id: number, input: Partial<CreateMedicineIn
   if (input.reorder_level !== undefined) {
     sets.push('reorder_level = ?');
     params.push(input.reorder_level);
-  }
-  if (input.is_schedule !== undefined) {
-    sets.push('is_schedule = ?');
-    params.push(input.is_schedule ? 1 : 0);
   }
 
   if (sets.length === 0) return;
@@ -238,22 +258,23 @@ export async function getBatchWithMedicine(batchId: number): Promise<StockItem |
       b.mrp,
       b.selling_price,
       b.price_type,
+      COALESCE(b.gst_rate, 12) AS gst_rate,
+      COALESCE(b.is_schedule, 0) AS is_schedule,
       b.quantity,
       COALESCE(b.tablets_per_strip, 10) AS tablets_per_strip,
       b.rack,
       b.box,
       b.last_sold_date,
+      b.supplier_id,
       m.id AS medicine_id,
       m.name AS medicine_name,
       m.generic_name,
       m.manufacturer,
       m.hsn_code,
-      m.gst_rate,
-      m.taxability,
       m.category,
+      m.pack_size,
       m.unit,
       m.reorder_level,
-      COALESCE(m.is_schedule, 0) AS is_schedule,
       CASE 
         WHEN b.quantity <= 0 THEN 'OUT_OF_STOCK'
         WHEN b.quantity <= m.reorder_level THEN 'LOW_STOCK'
@@ -285,8 +306,9 @@ export async function createBatch(input: CreateBatchInput): Promise<number> {
   const result = await execute(
     `INSERT INTO batches (
       medicine_id, batch_number, expiry_date, purchase_price,
-      mrp, selling_price, price_type, quantity, tablets_per_strip, rack, box
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      mrp, selling_price, price_type, gst_rate, is_schedule,
+      quantity, tablets_per_strip, rack, box, supplier_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       input.medicine_id,
       input.batch_number,
@@ -295,10 +317,13 @@ export async function createBatch(input: CreateBatchInput): Promise<number> {
       input.mrp,
       input.selling_price,
       input.price_type,
+      input.gst_rate,
+      input.is_schedule ? 1 : 0,
       totalTablets, // Store in tablets
       tabletsPerStrip,
       input.rack ?? null,
-      input.box ?? null
+      input.box ?? null,
+      input.supplier_id ?? null
     ]
   );
 
@@ -412,19 +437,21 @@ export async function getAllStock(): Promise<StockItem[]> {
       b.mrp,
       b.selling_price,
       b.price_type,
+      COALESCE(b.gst_rate, 12) AS gst_rate,
+      COALESCE(b.is_schedule, 0) AS is_schedule,
       b.quantity,
       COALESCE(b.tablets_per_strip, 10) AS tablets_per_strip,
       b.rack,
       b.box,
       b.last_sold_date,
+      b.supplier_id,
       m.id AS medicine_id,
       m.name AS medicine_name,
       m.generic_name,
       m.manufacturer,
       m.hsn_code,
-      m.gst_rate,
-      m.taxability,
       m.category,
+      m.pack_size,
       m.unit,
       m.reorder_level,
       CASE 
@@ -460,19 +487,21 @@ export async function getExpiringItems(days: number = 30): Promise<StockItem[]> 
       b.mrp,
       b.selling_price,
       b.price_type,
+      COALESCE(b.gst_rate, 12) AS gst_rate,
+      COALESCE(b.is_schedule, 0) AS is_schedule,
       b.quantity,
       COALESCE(b.tablets_per_strip, 10) AS tablets_per_strip,
       b.rack,
       b.box,
       b.last_sold_date,
+      b.supplier_id,
       m.id AS medicine_id,
       m.name AS medicine_name,
       m.generic_name,
       m.manufacturer,
       m.hsn_code,
-      m.gst_rate,
-      m.taxability,
       m.category,
+      m.pack_size,
       m.unit,
       m.reorder_level,
       'EXPIRING_SOON' AS stock_status,
@@ -506,19 +535,21 @@ export async function getLowStockItems(): Promise<StockItem[]> {
       b.mrp,
       b.selling_price,
       b.price_type,
+      COALESCE(b.gst_rate, 12) AS gst_rate,
+      COALESCE(b.is_schedule, 0) AS is_schedule,
       b.quantity,
       COALESCE(b.tablets_per_strip, 10) AS tablets_per_strip,
       b.rack,
       b.box,
       b.last_sold_date,
+      b.supplier_id,
       m.id AS medicine_id,
       m.name AS medicine_name,
       m.generic_name,
       m.manufacturer,
       m.hsn_code,
-      m.gst_rate,
-      m.taxability,
       m.category,
+      m.pack_size,
       m.unit,
       m.reorder_level,
       CASE 
@@ -551,19 +582,21 @@ export async function getNonMovingItems(days: number = 30): Promise<StockItem[]>
       b.mrp,
       b.selling_price,
       b.price_type,
+      COALESCE(b.gst_rate, 12) AS gst_rate,
+      COALESCE(b.is_schedule, 0) AS is_schedule,
       b.quantity,
       COALESCE(b.tablets_per_strip, 10) AS tablets_per_strip,
       b.rack,
       b.box,
       b.last_sold_date,
+      b.supplier_id,
       m.id AS medicine_id,
       m.name AS medicine_name,
       m.generic_name,
       m.manufacturer,
       m.hsn_code,
-      m.gst_rate,
-      m.taxability,
       m.category,
+      m.pack_size,
       m.unit,
       m.reorder_level,
       'IN_STOCK' AS stock_status,
@@ -597,19 +630,21 @@ export async function getStockByLocation(rack?: string, box?: string): Promise<S
       b.mrp,
       b.selling_price,
       b.price_type,
+      COALESCE(b.gst_rate, 12) AS gst_rate,
+      COALESCE(b.is_schedule, 0) AS is_schedule,
       b.quantity,
       COALESCE(b.tablets_per_strip, 10) AS tablets_per_strip,
       b.rack,
       b.box,
       b.last_sold_date,
+      b.supplier_id,
       m.id AS medicine_id,
       m.name AS medicine_name,
       m.generic_name,
       m.manufacturer,
       m.hsn_code,
-      m.gst_rate,
-      m.taxability,
       m.category,
+      m.pack_size,
       m.unit,
       m.reorder_level,
       CASE 
@@ -687,22 +722,23 @@ export async function getScheduledMedicines(): Promise<StockItem[]> {
       b.mrp,
       b.selling_price,
       b.price_type,
+      COALESCE(b.gst_rate, 12) AS gst_rate,
+      COALESCE(b.is_schedule, 0) AS is_schedule,
       b.quantity,
       COALESCE(b.tablets_per_strip, 10) AS tablets_per_strip,
       b.rack,
       b.box,
       b.last_sold_date,
+      b.supplier_id,
       m.id AS medicine_id,
       m.name AS medicine_name,
       m.generic_name,
       m.manufacturer,
       m.hsn_code,
-      m.gst_rate,
-      m.taxability,
       m.category,
+      m.pack_size,
       m.unit,
       m.reorder_level,
-      COALESCE(m.is_schedule, 0) AS is_schedule,
       CASE 
         WHEN b.quantity <= 0 THEN 'OUT_OF_STOCK'
         WHEN b.quantity <= m.reorder_level THEN 'LOW_STOCK'
@@ -718,9 +754,10 @@ export async function getScheduledMedicines(): Promise<StockItem[]> {
     JOIN medicines m ON b.medicine_id = m.id
     WHERE b.is_active = 1 
       AND m.is_active = 1
-      AND m.is_schedule = 1
+      AND b.is_schedule = 1
     ORDER BY m.name ASC, b.expiry_date ASC
   `;
+
 
   return await query<StockItem>(sql, []);
 }
@@ -733,6 +770,8 @@ export default {
   createMedicine,
   updateMedicine,
   deleteMedicine,
+  searchMedicinesMaster,
+  getMedicineCount,
 
   // Batch operations
   getBatchesByMedicine,
