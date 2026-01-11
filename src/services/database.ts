@@ -534,6 +534,19 @@ export async function initDatabase(): Promise<Database> {
         }
 
         console.log('Migrations complete');
+
+        // Import bundled medicines if table is empty
+        try {
+            const { invoke } = await import('@tauri-apps/api/core');
+            console.log('Checking for bundled medicines...');
+            const importCount = await invoke<number>('import_bundled_medicines');
+            if (importCount > 0) {
+                console.log(`Medicines imported/loaded: ${importCount.toLocaleString()}`);
+            }
+        } catch (importErr) {
+            console.warn('Medicine import skipped (may already exist or bundle not found):', importErr);
+        }
+
         console.log('Database initialized successfully');
         return db;
     } catch (error) {

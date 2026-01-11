@@ -3,7 +3,7 @@
 // SQLite Database Backup & Restore Operations
 // =====================================================
 
-import { appDataDir } from '@tauri-apps/api/path';
+import { appConfigDir } from '@tauri-apps/api/path';
 import { copyFile, exists, mkdir, readDir, remove, stat } from '@tauri-apps/plugin-fs';
 import { closeDatabase, initDatabase } from './database';
 
@@ -19,19 +19,19 @@ export interface BackupInfo {
 }
 
 /**
- * Get the backup folder path
+ * Get the backup folder path (uses config dir where DB is stored)
  */
 export async function getBackupFolderPath(): Promise<string> {
-    const appData = await appDataDir();
-    return `${appData}\\backups`;
+    const appConfig = await appConfigDir();
+    return `${appConfig}/backups`;
 }
 
 /**
- * Get the database file path
+ * Get the database file path (config dir - where Tauri SQL plugin stores it)
  */
 export async function getDatabasePath(): Promise<string> {
-    const appData = await appDataDir();
-    return `${appData}\\medbill.db`;
+    const appConfig = await appConfigDir();
+    return `${appConfig}/medbill.db`;
 }
 
 /**
@@ -120,7 +120,7 @@ export async function createBackup(): Promise<BackupInfo> {
     const dbPath = await getDatabasePath();
     const now = new Date();
     const filename = `Backup_${formatDateTimestamp(now)}.db`;
-    const backupPath = `${backupFolder}\\${filename}`;
+    const backupPath = `${backupFolder}/${filename}`;
 
     console.log('[Backup] Creating manual backup:', filename);
     console.log('[Backup] Source:', dbPath);
@@ -164,7 +164,7 @@ export async function createDailyBackup(): Promise<BackupInfo | null> {
     const dbPath = await getDatabasePath();
     const now = new Date();
     const filename = `Backup_${formatDateDDMMYYYY(now)}.db`;
-    const backupPath = `${backupFolder}\\${filename}`;
+    const backupPath = `${backupFolder}/${filename}`;
 
     console.log('[Backup] Checking daily backup:', filename);
 
@@ -224,7 +224,7 @@ export async function listBackups(): Promise<BackupInfo[]> {
                 const parsed = parseBackupFilename(entry.name);
                 if (parsed) {
                     try {
-                        const filepath = `${backupFolder}\\${entry.name}`;
+                        const filepath = `${backupFolder}/${entry.name}`;
                         const fileInfo = await stat(filepath);
 
                         backups.push({
@@ -257,7 +257,7 @@ export async function listBackups(): Promise<BackupInfo[]> {
 export async function restoreFromBackup(filename: string): Promise<void> {
     const backupFolder = await getBackupFolderPath();
     const dbPath = await getDatabasePath();
-    const backupPath = `${backupFolder}\\${filename}`;
+    const backupPath = `${backupFolder}/${filename}`;
 
     console.log('[Backup] Restoring from backup:', filename);
     console.log('[Backup] Source:', backupPath);
@@ -297,7 +297,7 @@ export async function restoreFromBackup(filename: string): Promise<void> {
  */
 export async function deleteBackup(filename: string): Promise<void> {
     const backupFolder = await getBackupFolderPath();
-    const backupPath = `${backupFolder}\\${filename}`;
+    const backupPath = `${backupFolder}/${filename}`;
 
     console.log('[Backup] Deleting backup:', filename);
 

@@ -43,7 +43,8 @@ export function Inventory() {
     const [searchParams, setSearchParams] = useSearchParams();
     const [stockItems, setStockItems] = useState<StockItem[]>([]);
     const [filteredItems, setFilteredItems] = useState<StockItem[]>([]);
-    const [medicines, setMedicines] = useState<Medicine[]>([]);
+    const [medicineSearchResults, setMedicineSearchResults] = useState<Medicine[]>([]);
+    const [medicineSearchQuery, setMedicineSearchQuery] = useState('');
     const [suppliers, setSuppliers] = useState<Supplier[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -64,6 +65,23 @@ export function Inventory() {
     const [selectedSupplierId, setSelectedSupplierId] = useState<number>(0);
     const [invoiceNumber, setInvoiceNumber] = useState('');
     const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().split('T')[0]);
+
+    // Multi-item stock cart
+    interface StockCartItem {
+        medicine: Medicine;
+        batch_number: string;
+        expiry_date: string;
+        purchase_price: number;
+        mrp: number;
+        selling_price: number;
+        gst_rate: GstRate;
+        is_schedule: boolean;
+        quantity: number;
+        tablets_per_strip: number;
+        rack: string;
+        box: string;
+    }
+    const [stockCart, setStockCart] = useState<StockCartItem[]>([]);
 
     // Form state for new medicine (simplified - GST now per-batch)
     const [medicineForm, setMedicineForm] = useState<CreateMedicineInput>({
@@ -130,6 +148,27 @@ export function Inventory() {
     useEffect(() => {
         loadData();
     }, [loadData]);
+
+    // Search medicines for Add Batch modal
+    const searchMedicinesForBatch = async (term: string) => {
+        setMedicineSearchQuery(term);
+        if (term.length < 2) {
+            setMedicineSearchResults([]);
+            return;
+        }
+        try {
+            const searchTerm = `%${term}%`;
+            const results = await query<Medicine>(
+                `SELECT * FROM medicines WHERE is_active = 1 
+                 AND (name LIKE ? OR generic_name LIKE ? OR manufacturer LIKE ?)
+                 ORDER BY name LIMIT 20`,
+                [searchTerm, searchTerm, searchTerm]
+            );
+            setMedicineSearchResults(results);
+        } catch (error) {
+            console.error('Failed to search medicines:', error);
+        }
+    };
 
     useEffect(() => {
         if (!searchQuery) {
@@ -249,120 +288,6 @@ export function Inventory() {
         setShowDeleteConfirm(true);
     };
 
-    const handleAddBatch = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!selectedMedicine || isSubmitting) return;
-
-        // Validate supplier if provided
-        if (selectedSupplierId > 0 && !invoiceNumber) {
-            showToast('error', 'Please enter invoice number when supplier is selected');
-            return;
-        }
-
-        setIsSubmitting(true);
-        try {
-            // Quantity is stored directly, tablets_per_strip is used for display
-
-            // Create batch first
-            const batchId = await createBatch({ ...batchForm, medicine_id: selectedMedicine.id });
-
-            // If supplier is selected, create purchase entry automatically
-            if (selectedSupplierId > 0) {
-                const subtotal = batchForm.quantity * batchForm.purchase_price;
-                const gstRate = batchForm.gst_rate; // GST now comes from batch
-                const halfGstRate = gstRate / 2;
-                const cgst = (subtotal * halfGstRate) / 100;
-                const sgst = (subtotal * halfGstRate) / 100;
-                const totalGst = cgst + sgst;
-                const grandTotal = subtotal + totalGst;
-
-                // Create purchase entry
-                const purchaseResult = await execute(
-                    `INSERT INTO purchases (
-                        invoice_number, invoice_date, supplier_id, user_id,
-                        subtotal, cgst_amount, sgst_amount, total_gst, grand_total,
-                        payment_status, paid_amount
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', 0)`,
-                    [
-                        invoiceNumber,
-                        invoiceDate,
-                        selectedSupplierId,
-                        user?.id || 1,
-                        subtotal,
-                        cgst,
-                        sgst,
-                        totalGst,
-                        grandTotal
-                    ]
-                );
-
-                const purchaseId = purchaseResult.lastInsertId;
-
-                // Link batch to purchase
-                await execute(
-                    `UPDATE batches SET purchase_id = ?, supplier_id = ? WHERE id = ?`,
-                    [purchaseId, selectedSupplierId, batchId]
-                );
-
-                // Create purchase item
-                await execute(
-                    `INSERT INTO purchase_items (
-                        purchase_id, medicine_id, batch_id,
-                        medicine_name, batch_number, expiry_date,
-                        quantity, free_quantity,
-                        purchase_price, mrp, discount_percent,
-                        gst_rate, cgst_amount, sgst_amount, total_amount
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, 0, ?, ?, ?, ?)`,
-                    [
-                        purchaseId,
-                        selectedMedicine.id,
-                        batchId,
-                        selectedMedicine.name,
-                        batchForm.batch_number,
-                        batchForm.expiry_date,
-                        batchForm.quantity,
-                        batchForm.purchase_price,
-                        batchForm.mrp,
-                        gstRate,
-                        cgst,
-                        sgst,
-                        grandTotal
-                    ]
-                );
-
-                showToast('success', `Stock added and purchase entry created for "${selectedMedicine.name}" (Batch: ${batchForm.batch_number})`);
-            } else {
-                showToast('success', `Stock added for "${selectedMedicine.name}" (Batch: ${batchForm.batch_number})`);
-            }
-
-            setShowAddBatchModal(false);
-            setBatchForm({
-                medicine_id: 0,
-                batch_number: '',
-                expiry_date: '',
-                purchase_price: 0,
-                mrp: 0,
-                selling_price: 0,
-                price_type: 'INCLUSIVE',
-                gst_rate: 12,
-                is_schedule: false,
-                quantity: 0,
-                tablets_per_strip: 10,
-                rack: '',
-                box: ''
-            });
-            setSelectedMedicine(null);
-            setSelectedSupplierId(0);
-            setInvoiceNumber('');
-            setInvoiceDate(new Date().toISOString().split('T')[0]);
-            loadData();
-        } catch (error) {
-            console.error('Failed to add batch:', error);
-            showToast('error', 'Failed to add stock. Please check your inputs.');
-        } finally {
-            setIsSubmitting(false);
-        }
-    };
 
     return (
         <>
@@ -599,7 +524,6 @@ export function Inventory() {
                         paginatedItems.map((item) => {
                             const stockInfo = getStockStatusInfo(item.stock_status);
                             const expiryInfo = getExpiryStatusInfo(item.expiry_status);
-                            const medicine = medicines.find(m => m.id === item.medicine_id);
 
                             return (
                                 <div key={item.batch_id} className="stock-row">
@@ -630,24 +554,27 @@ export function Inventory() {
                                         </span>
                                     </span>
                                     <div className="action-btns">
-                                        {medicine && (
-                                            <>
-                                                <button
-                                                    className="action-btn"
-                                                    onClick={() => openEditMedicineModal(medicine)}
-                                                    title="Edit Medicine"
-                                                >
-                                                    <Edit size={16} />
-                                                </button>
-                                                <button
-                                                    className="action-btn delete"
-                                                    onClick={() => openDeleteConfirm(medicine)}
-                                                    title="Delete Medicine"
-                                                >
-                                                    <Trash2 size={16} />
-                                                </button>
-                                            </>
-                                        )}
+                                        <button
+                                            className="action-btn"
+                                            onClick={async () => {
+                                                // Fetch medicine on demand
+                                                const [med] = await query<Medicine>('SELECT * FROM medicines WHERE id = ?', [item.medicine_id]);
+                                                if (med) openEditMedicineModal(med);
+                                            }}
+                                            title="Edit Medicine"
+                                        >
+                                            <Edit size={16} />
+                                        </button>
+                                        <button
+                                            className="action-btn delete"
+                                            onClick={async () => {
+                                                const [med] = await query<Medicine>('SELECT * FROM medicines WHERE id = ?', [item.medicine_id]);
+                                                if (med) openDeleteConfirm(med);
+                                            }}
+                                            title="Delete Medicine"
+                                        >
+                                            <Trash2 size={16} />
+                                        </button>
                                     </div>
                                 </div>
                             );
@@ -826,19 +753,6 @@ export function Inventory() {
                                         />
                                     </div>
                                     <div className="form-group">
-                                        <label className="form-label">GST Rate *</label>
-                                        <select
-                                            className="form-select"
-                                            value={medicineForm.gst_rate}
-                                            onChange={(e) => setMedicineForm({ ...medicineForm, gst_rate: parseInt(e.target.value) as GstRate })}
-                                        >
-                                            <option value={0}>0% (Exempt)</option>
-                                            <option value={5}>5%</option>
-                                            <option value={12}>12%</option>
-                                            <option value={18}>18%</option>
-                                        </select>
-                                    </div>
-                                    <div className="form-group">
                                         <label className="form-label">Unit</label>
                                         <select
                                             className="form-select"
@@ -873,18 +787,9 @@ export function Inventory() {
                                         />
                                     </div>
                                     <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-                                        <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', cursor: 'pointer' }}>
-                                            <input
-                                                type="checkbox"
-                                                checked={medicineForm.is_schedule || false}
-                                                onChange={(e) => setMedicineForm({ ...medicineForm, is_schedule: e.target.checked })}
-                                                style={{ width: '18px', height: '18px' }}
-                                            />
-                                            <span style={{ fontWeight: 500 }}>Schedule H/H1 Drug</span>
-                                            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
-                                                (Requires patient details when billing)
-                                            </span>
-                                        </label>
+                                        <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', margin: 0 }}>
+                                            <strong>Note:</strong> GST Rate and Schedule status are set per-batch.
+                                        </p>
                                     </div>
                                 </div>
                             </div>
@@ -927,304 +832,452 @@ export function Inventory() {
                 </div>
             )}
 
-            {/* Add Batch Modal */}
+            {/* Add Stock Modal - Multi-Item Support */}
             {showAddBatchModal && (
                 <div className="modal-overlay" onClick={() => {
                     setShowAddBatchModal(false);
                     setSelectedSupplierId(0);
                     setInvoiceNumber('');
                     setInvoiceDate(new Date().toISOString().split('T')[0]);
+                    setMedicineSearchQuery('');
+                    setMedicineSearchResults([]);
+                    setSelectedMedicine(null);
+                    setStockCart([]);
+                    setBatchForm({
+                        medicine_id: 0, batch_number: '', expiry_date: '',
+                        purchase_price: 0, mrp: 0, selling_price: 0, price_type: 'INCLUSIVE',
+                        gst_rate: 12, is_schedule: false, quantity: 0, tablets_per_strip: 10, rack: '', box: ''
+                    });
                 }}>
-                    <div className="modal modal-lg" onClick={(e) => e.stopPropagation()}>
-                        <div className="modal-header">
+                    <div className="modal" style={{ maxWidth: '1100px', width: '95vw', maxHeight: '90vh' }} onClick={(e) => e.stopPropagation()}>
+                        <div className="modal-header" style={{ borderBottom: '1px solid var(--border-color)' }}>
                             <div>
-                                <h3 className="modal-title">Add Stock / New Batch</h3>
+                                <h3 className="modal-title">Add Stock</h3>
                                 <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', marginTop: 4 }}>
-                                    Add new stock for existing medicines. For new medicines, use "New Medicine" first.
+                                    Add medicines to cart, then save all at once
                                 </div>
                             </div>
                             <button className="btn btn-ghost btn-icon" onClick={() => {
                                 setShowAddBatchModal(false);
-                                setSelectedSupplierId(0);
-                                setInvoiceNumber('');
-                                setInvoiceDate(new Date().toISOString().split('T')[0]);
+                                setStockCart([]);
                             }}>
                                 <X size={20} />
                             </button>
                         </div>
-                        <form onSubmit={handleAddBatch} style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
-                            <div className="modal-body">
-                                {/* Section 1: Purchase Source */}
-                                <div style={{ marginBottom: 'var(--space-6)' }}>
-                                    <div style={{
-                                        padding: 'var(--space-4)',
-                                        background: 'var(--color-primary-50)',
-                                        borderRadius: 'var(--radius-lg)',
-                                        border: '1px solid var(--color-primary-100)'
-                                    }}>
+
+                        <div className="modal-body" style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 'var(--space-5)', padding: 'var(--space-4)' }}>
+                            {/* Left: Form & Cart Items */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+                                {/* Medicine Search with Autocomplete */}
+                                <div style={{ position: 'relative' }}>
+                                    <label className="form-label" style={{ fontWeight: 600, fontSize: 'var(--text-sm)', marginBottom: 'var(--space-2)', display: 'block' }}>
+                                        <Pill size={14} style={{ marginRight: 6, verticalAlign: '-2px' }} />
+                                        Search & Add Medicine
+                                    </label>
+                                    <div style={{ position: 'relative' }}>
+                                        <Search size={16} style={{ position: 'absolute', left: 12, top: 12, color: 'var(--text-tertiary)' }} />
+                                        <input
+                                            type="text"
+                                            className="form-input"
+                                            style={{ paddingLeft: 40, fontSize: 'var(--text-base)' }}
+                                            placeholder="Type medicine name to search..."
+                                            value={medicineSearchQuery}
+                                            onChange={(e) => searchMedicinesForBatch(e.target.value)}
+                                        />
+                                    </div>
+                                    {/* Autocomplete Dropdown */}
+                                    {medicineSearchResults.length > 0 && (
                                         <div style={{
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: 'var(--space-2)',
-                                            marginBottom: 'var(--space-3)',
-                                            color: 'var(--color-primary-700)',
-                                            fontWeight: 600,
-                                            fontSize: 'var(--text-sm)'
+                                            position: 'absolute',
+                                            top: '100%',
+                                            left: 0,
+                                            right: 0,
+                                            background: 'var(--bg-primary)',
+                                            border: '1px solid var(--border-color)',
+                                            borderRadius: 'var(--radius-md)',
+                                            boxShadow: 'var(--shadow-lg)',
+                                            maxHeight: '200px',
+                                            overflowY: 'auto',
+                                            zIndex: 100
                                         }}>
-                                            <Package size={16} />
-                                            Purchase Source (Optional)
-                                        </div>
-                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 'var(--space-3)' }}>
-                                            <div className="form-group" style={{ marginBottom: 0 }}>
-                                                <label className="form-label">Supplier</label>
-                                                <select
-                                                    className="form-select"
-                                                    value={selectedSupplierId}
-                                                    onChange={(e) => {
-                                                        const supplierId = parseInt(e.target.value);
-                                                        setSelectedSupplierId(supplierId);
-                                                        if (supplierId === 0) {
-                                                            setInvoiceNumber('');
-                                                        }
+                                            {medicineSearchResults.map((m: Medicine) => (
+                                                <div
+                                                    key={m.id}
+                                                    onClick={() => {
+                                                        setSelectedMedicine(m);
+                                                        setMedicineSearchQuery('');
+                                                        setMedicineSearchResults([]);
                                                     }}
+                                                    style={{
+                                                        padding: 'var(--space-2) var(--space-3)',
+                                                        cursor: 'pointer',
+                                                        borderBottom: '1px solid var(--border-color)',
+                                                        transition: 'background 0.1s'
+                                                    }}
+                                                    onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-secondary)'}
+                                                    onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                                                 >
-                                                    <option value={0}>No Supplier (Direct Entry)</option>
-                                                    {suppliers.map(s => (
-                                                        <option key={s.id} value={s.id}>{s.name}</option>
-                                                    ))}
+                                                    <div style={{ fontWeight: 500, fontSize: 'var(--text-sm)' }}>{m.name}</div>
+                                                    <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
+                                                        {m.manufacturer || 'Unknown'} • {m.category || 'General'}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Selected Medicine Form */}
+                                {selectedMedicine && (
+                                    <div style={{
+                                        background: 'var(--bg-secondary)',
+                                        borderRadius: 'var(--radius-lg)',
+                                        padding: 'var(--space-4)',
+                                        border: '1px solid var(--color-primary-200)'
+                                    }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-3)' }}>
+                                            <div>
+                                                <div style={{ fontWeight: 600, color: 'var(--color-primary-700)' }}>{selectedMedicine.name}</div>
+                                                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)' }}>{selectedMedicine.manufacturer}</div>
+                                            </div>
+                                            <button type="button" onClick={() => setSelectedMedicine(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}>
+                                                <X size={16} style={{ color: 'var(--text-tertiary)' }} />
+                                            </button>
+                                        </div>
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--space-2)' }}>
+                                            <div className="form-group" style={{ marginBottom: 0 }}>
+                                                <label className="form-label" style={{ fontSize: 'var(--text-xs)' }}>Batch No *</label>
+                                                <input type="text" className="form-input" style={{ padding: '6px 8px', fontSize: 'var(--text-sm)' }}
+                                                    value={batchForm.batch_number} placeholder="B-123"
+                                                    onChange={(e) => setBatchForm({ ...batchForm, batch_number: e.target.value })} />
+                                            </div>
+                                            <div className="form-group" style={{ marginBottom: 0 }}>
+                                                <label className="form-label" style={{ fontSize: 'var(--text-xs)' }}>Expiry *</label>
+                                                <input type="date" className="form-input" style={{ padding: '6px 8px', fontSize: 'var(--text-sm)' }}
+                                                    value={batchForm.expiry_date}
+                                                    onChange={(e) => setBatchForm({ ...batchForm, expiry_date: e.target.value })} />
+                                            </div>
+                                            <div className="form-group" style={{ marginBottom: 0 }}>
+                                                <label className="form-label" style={{ fontSize: 'var(--text-xs)' }}>GST %</label>
+                                                <select className="form-select" style={{ padding: '6px 8px', fontSize: 'var(--text-sm)' }}
+                                                    value={batchForm.gst_rate}
+                                                    onChange={(e) => setBatchForm({ ...batchForm, gst_rate: parseInt(e.target.value) as GstRate })}>
+                                                    <option value={0}>0%</option>
+                                                    <option value={5}>5%</option>
+                                                    <option value={12}>12%</option>
+                                                    <option value={18}>18%</option>
                                                 </select>
                                             </div>
-                                            {selectedSupplierId > 0 && (
-                                                <>
-                                                    <div className="form-group" style={{ marginBottom: 0 }}>
-                                                        <label className="form-label">Invoice Number *</label>
-                                                        <input
-                                                            type="text"
-                                                            className="form-input"
-                                                            value={invoiceNumber}
-                                                            onChange={(e) => setInvoiceNumber(e.target.value)}
-                                                            required={selectedSupplierId > 0}
-                                                            placeholder="INV-001"
-                                                        />
-                                                    </div>
-                                                    <div className="form-group" style={{ marginBottom: 0 }}>
-                                                        <label className="form-label">Invoice Date *</label>
-                                                        <input
-                                                            type="date"
-                                                            className="form-input"
-                                                            value={invoiceDate}
-                                                            onChange={(e) => setInvoiceDate(e.target.value)}
-                                                            required={selectedSupplierId > 0}
-                                                        />
-                                                    </div>
-                                                </>
-                                            )}
+                                            <div className="form-group" style={{ marginBottom: 0, display: 'flex', alignItems: 'flex-end', paddingBottom: 6 }}>
+                                                <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 'var(--text-xs)' }}>
+                                                    <input type="checkbox" checked={batchForm.is_schedule || false}
+                                                        onChange={(e) => setBatchForm({ ...batchForm, is_schedule: e.target.checked })} />
+                                                    Sch.H
+                                                </label>
+                                            </div>
+                                            <div className="form-group" style={{ marginBottom: 0 }}>
+                                                <label className="form-label" style={{ fontSize: 'var(--text-xs)' }}>Purchase ₹ *</label>
+                                                <input type="number" step="0.01" min="0" className="form-input" style={{ padding: '6px 8px', fontSize: 'var(--text-sm)' }}
+                                                    value={batchForm.purchase_price || ''}
+                                                    onChange={(e) => setBatchForm({ ...batchForm, purchase_price: Math.max(0, parseFloat(e.target.value) || 0) })} />
+                                            </div>
+                                            <div className="form-group" style={{ marginBottom: 0 }}>
+                                                <label className="form-label" style={{ fontSize: 'var(--text-xs)' }}>MRP ₹ *</label>
+                                                <input type="number" step="0.01" min="0" className="form-input" style={{ padding: '6px 8px', fontSize: 'var(--text-sm)' }}
+                                                    value={batchForm.mrp || ''}
+                                                    onChange={(e) => {
+                                                        const mrp = Math.max(0, parseFloat(e.target.value) || 0);
+                                                        setBatchForm({ ...batchForm, mrp, selling_price: mrp });
+                                                    }} />
+                                            </div>
+                                            <div className="form-group" style={{ marginBottom: 0 }}>
+                                                <label className="form-label" style={{ fontSize: 'var(--text-xs)' }}>Qty (Strips) *</label>
+                                                <input type="number" min="1" className="form-input" style={{ padding: '6px 8px', fontSize: 'var(--text-sm)' }}
+                                                    value={batchForm.quantity || ''}
+                                                    onChange={(e) => setBatchForm({ ...batchForm, quantity: Math.max(0, parseInt(e.target.value) || 0) })} />
+                                            </div>
+                                            <div className="form-group" style={{ marginBottom: 0 }}>
+                                                <label className="form-label" style={{ fontSize: 'var(--text-xs)' }}>Tabs/Strip</label>
+                                                <input type="number" min="1" className="form-input" style={{ padding: '6px 8px', fontSize: 'var(--text-sm)' }}
+                                                    value={batchForm.tablets_per_strip} placeholder="10"
+                                                    onChange={(e) => setBatchForm({ ...batchForm, tablets_per_strip: Math.max(1, parseInt(e.target.value) || 10) })} />
+                                            </div>
                                         </div>
+                                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 'var(--space-3)', gap: 'var(--space-2)' }}>
+                                            <button type="button" className="btn btn-secondary btn-sm" onClick={() => setSelectedMedicine(null)}>
+                                                Cancel
+                                            </button>
+                                            <button type="button" className="btn btn-primary btn-sm"
+                                                disabled={!batchForm.batch_number || !batchForm.expiry_date || !batchForm.quantity || batchForm.mrp <= 0}
+                                                onClick={() => {
+                                                    // Validate required fields
+                                                    if (!selectedMedicine || !batchForm.batch_number || !batchForm.expiry_date || batchForm.quantity <= 0) return;
+                                                    if (batchForm.mrp <= 0) {
+                                                        showToast('error', 'MRP is required');
+                                                        return;
+                                                    }
+                                                    // Check for duplicate medicine + batch combo
+                                                    const isDuplicate = stockCart.some(item =>
+                                                        item.medicine.id === selectedMedicine.id && item.batch_number === batchForm.batch_number
+                                                    );
+                                                    if (isDuplicate) {
+                                                        showToast('error', 'This medicine with same batch already in cart');
+                                                        return;
+                                                    }
+                                                    if (selectedMedicine && batchForm.batch_number && batchForm.expiry_date && batchForm.quantity > 0) {
+                                                        setStockCart([...stockCart, {
+                                                            medicine: selectedMedicine,
+                                                            batch_number: batchForm.batch_number,
+                                                            expiry_date: batchForm.expiry_date,
+                                                            purchase_price: batchForm.purchase_price,
+                                                            mrp: batchForm.mrp,
+                                                            selling_price: batchForm.selling_price,
+                                                            gst_rate: batchForm.gst_rate,
+                                                            is_schedule: batchForm.is_schedule || false,
+                                                            quantity: batchForm.quantity,
+                                                            tablets_per_strip: batchForm.tablets_per_strip || 10,
+                                                            rack: batchForm.rack || '',
+                                                            box: batchForm.box || ''
+                                                        }]);
+                                                        setSelectedMedicine(null);
+                                                        setBatchForm({
+                                                            medicine_id: 0, batch_number: '', expiry_date: '',
+                                                            purchase_price: 0, mrp: 0, selling_price: 0, price_type: 'INCLUSIVE',
+                                                            gst_rate: 12, is_schedule: false, quantity: 0, tablets_per_strip: 10, rack: '', box: ''
+                                                        });
+                                                    }
+                                                }}>
+                                                <Plus size={14} /> Add to Cart
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Cart Items List */}
+                                <div style={{ flex: 1, overflowY: 'auto' }}>
+                                    <div style={{ fontSize: 'var(--text-sm)', fontWeight: 600, marginBottom: 'var(--space-2)', color: 'var(--text-secondary)' }}>
+                                        Cart Items ({stockCart.length})
+                                    </div>
+                                    {stockCart.length === 0 ? (
+                                        <div style={{
+                                            textAlign: 'center',
+                                            padding: 'var(--space-6)',
+                                            color: 'var(--text-tertiary)',
+                                            background: 'var(--bg-secondary)',
+                                            borderRadius: 'var(--radius-md)',
+                                            border: '2px dashed var(--border-color)'
+                                        }}>
+                                            <Package size={32} style={{ marginBottom: 'var(--space-2)', opacity: 0.5 }} />
+                                            <div>No items added yet</div>
+                                            <div style={{ fontSize: 'var(--text-xs)', marginTop: 4 }}>Search and add medicines above</div>
+                                        </div>
+                                    ) : (
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+                                            {stockCart.map((item, idx) => (
+                                                <div key={idx} style={{
+                                                    display: 'grid',
+                                                    gridTemplateColumns: '1fr auto auto auto auto',
+                                                    gap: 'var(--space-3)',
+                                                    alignItems: 'center',
+                                                    padding: 'var(--space-2) var(--space-3)',
+                                                    background: 'var(--bg-primary)',
+                                                    borderRadius: 'var(--radius-md)',
+                                                    border: '1px solid var(--border-color)',
+                                                    fontSize: 'var(--text-sm)'
+                                                }}>
+                                                    <div>
+                                                        <div style={{ fontWeight: 500 }}>{item.medicine.name}</div>
+                                                        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
+                                                            Batch: {item.batch_number} • Exp: {item.expiry_date}
+                                                        </div>
+                                                    </div>
+                                                    <div style={{ textAlign: 'center' }}>
+                                                        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>Qty</div>
+                                                        <div style={{ fontWeight: 600 }}>{item.quantity}</div>
+                                                    </div>
+                                                    <div style={{ textAlign: 'center' }}>
+                                                        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>MRP</div>
+                                                        <div>₹{item.mrp}</div>
+                                                    </div>
+                                                    <div style={{ textAlign: 'center' }}>
+                                                        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>Total</div>
+                                                        <div style={{ fontWeight: 600 }}>₹{(item.quantity * item.mrp).toFixed(0)}</div>
+                                                    </div>
+                                                    <button type="button" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}
+                                                        onClick={() => setStockCart(stockCart.filter((_, i) => i !== idx))}>
+                                                        <Trash2 size={14} style={{ color: 'var(--color-error-500)' }} />
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Right: Summary Panel */}
+                            <div style={{
+                                background: 'var(--bg-secondary)',
+                                borderRadius: 'var(--radius-lg)',
+                                padding: 'var(--space-4)',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                height: 'fit-content',
+                                position: 'sticky',
+                                top: 0
+                            }}>
+                                <h4 style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 'var(--space-4)' }}>
+                                    Summary
+                                </h4>
+
+                                {/* Totals Box */}
+                                <div style={{
+                                    background: 'var(--color-primary-600)',
+                                    color: 'white',
+                                    borderRadius: 'var(--radius-md)',
+                                    padding: 'var(--space-4)',
+                                    textAlign: 'center',
+                                    marginBottom: 'var(--space-4)'
+                                }}>
+                                    <div style={{ fontSize: 'var(--text-xs)', opacity: 0.9 }}>Total Items</div>
+                                    <div style={{ fontSize: 'var(--text-3xl)', fontWeight: 'bold' }}>{stockCart.length}</div>
+                                    <div style={{ fontSize: 'var(--text-xs)', opacity: 0.8, marginTop: 'var(--space-2)' }}>
+                                        {stockCart.reduce((sum, item) => sum + item.quantity * item.tablets_per_strip, 0).toLocaleString()} tablets
                                     </div>
                                 </div>
 
-                                {/* Section 2: Medicine Selection */}
-                                <div style={{ marginBottom: 'var(--space-6)' }}>
-                                    <h4 style={{
-                                        fontSize: 'var(--text-xs)',
-                                        textTransform: 'uppercase',
-                                        letterSpacing: '0.05em',
-                                        color: 'var(--text-tertiary)',
-                                        marginBottom: 'var(--space-3)',
-                                        fontWeight: 600
-                                    }}>
-                                        Medicine Details
-                                    </h4>
-                                    <div className="form-group">
-                                        <label className="form-label">Select Medicine *</label>
-                                        <select
-                                            className="form-select form-input-lg"
-                                            value={selectedMedicine?.id ?? ''}
-                                            onChange={(e) => setSelectedMedicine(medicines.find(m => m.id === parseInt(e.target.value)) ?? null)}
-                                            required
-                                            style={{ fontWeight: 500 }}
-                                        >
-                                            <option value="">Select a medicine...</option>
-                                            {medicines.map(m => (
-                                                <option key={m.id} value={m.id}>{m.name} ({m.gst_rate}% GST)</option>
-                                            ))}
+                                {/* Value Summary */}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', marginBottom: 'var(--space-4)' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--text-sm)' }}>
+                                        <span style={{ color: 'var(--text-secondary)' }}>Purchase Value</span>
+                                        <span style={{ fontWeight: 500 }}>₹{stockCart.reduce((sum, item) => sum + item.quantity * item.purchase_price, 0).toFixed(2)}</span>
+                                    </div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--text-sm)' }}>
+                                        <span style={{ color: 'var(--text-secondary)' }}>MRP Value</span>
+                                        <span style={{ fontWeight: 500 }}>₹{stockCart.reduce((sum, item) => sum + item.quantity * item.mrp, 0).toFixed(2)}</span>
+                                    </div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--text-sm)', borderTop: '1px solid var(--border-color)', paddingTop: 'var(--space-2)' }}>
+                                        <span style={{ color: 'var(--text-secondary)' }}>Profit Margin</span>
+                                        <span style={{ fontWeight: 600, color: 'var(--color-success-600)' }}>
+                                            {(() => {
+                                                const purchase = stockCart.reduce((sum, item) => sum + item.quantity * item.purchase_price, 0);
+                                                const mrp = stockCart.reduce((sum, item) => sum + item.quantity * item.mrp, 0);
+                                                return purchase > 0 ? (((mrp - purchase) / purchase) * 100).toFixed(1) : '0';
+                                            })()}%
+                                        </span>
+                                    </div>
+                                </div>
+
+                                {/* Supplier Section */}
+                                <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: 'var(--space-3)', marginBottom: 'var(--space-4)' }}>
+                                    <div className="form-group" style={{ marginBottom: 'var(--space-2)' }}>
+                                        <label className="form-label" style={{ fontSize: 'var(--text-xs)' }}>Supplier (Optional)</label>
+                                        <select className="form-select" style={{ fontSize: 'var(--text-sm)' }}
+                                            value={selectedSupplierId}
+                                            onChange={(e) => {
+                                                const id = parseInt(e.target.value);
+                                                setSelectedSupplierId(id);
+                                                if (id === 0) setInvoiceNumber('');
+                                            }}>
+                                            <option value={0}>No Supplier</option>
+                                            {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                                         </select>
                                     </div>
+                                    {selectedSupplierId > 0 && (
+                                        <>
+                                            <div className="form-group" style={{ marginBottom: 'var(--space-2)' }}>
+                                                <label className="form-label" style={{ fontSize: 'var(--text-xs)' }}>Invoice No *</label>
+                                                <input type="text" className="form-input" style={{ fontSize: 'var(--text-sm)' }}
+                                                    value={invoiceNumber} placeholder="INV-001"
+                                                    onChange={(e) => setInvoiceNumber(e.target.value)} />
+                                            </div>
+                                            <div className="form-group" style={{ marginBottom: 0 }}>
+                                                <label className="form-label" style={{ fontSize: 'var(--text-xs)' }}>Invoice Date</label>
+                                                <input type="date" className="form-input" style={{ fontSize: 'var(--text-sm)' }}
+                                                    value={invoiceDate}
+                                                    onChange={(e) => setInvoiceDate(e.target.value)} />
+                                            </div>
+                                        </>
+                                    )}
                                 </div>
 
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-6)' }}>
-                                    {/* Left Column: Batch & Pricing */}
-                                    <div>
-                                        <h4 style={{
-                                            fontSize: 'var(--text-xs)',
-                                            textTransform: 'uppercase',
-                                            letterSpacing: '0.05em',
-                                            color: 'var(--text-tertiary)',
-                                            marginBottom: 'var(--space-3)',
-                                            fontWeight: 600
-                                        }}>
-                                            Batch & Pricing
-                                        </h4>
-                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)' }}>
-                                            <div className="form-group">
-                                                <label className="form-label">Batch Number *</label>
-                                                <input
-                                                    type="text"
-                                                    className="form-input"
-                                                    value={batchForm.batch_number}
-                                                    onChange={(e) => setBatchForm({ ...batchForm, batch_number: e.target.value })}
-                                                    required
-                                                    placeholder="e.g. B-123"
-                                                />
-                                            </div>
-                                            <div className="form-group">
-                                                <label className="form-label">Expiry Date *</label>
-                                                <input
-                                                    type="date"
-                                                    className="form-input"
-                                                    value={batchForm.expiry_date}
-                                                    onChange={(e) => setBatchForm({ ...batchForm, expiry_date: e.target.value })}
-                                                    required
-                                                />
-                                            </div>
-                                            <div className="form-group">
-                                                <label className="form-label">Purchase Price / Strip *</label>
-                                                <div style={{ position: 'relative' }}>
-                                                    <span style={{ position: 'absolute', left: 10, top: 9, color: 'var(--text-tertiary)' }}>₹</span>
-                                                    <input
-                                                        type="number"
-                                                        step="0.01"
-                                                        className="form-input"
-                                                        style={{ paddingLeft: 25 }}
-                                                        value={batchForm.purchase_price || ''}
-                                                        onChange={(e) => setBatchForm({ ...batchForm, purchase_price: e.target.value === '' ? 0 : parseFloat(e.target.value) })}
-                                                        required
-                                                    />
-                                                </div>
-                                            </div>
-                                            <div className="form-group">
-                                                <label className="form-label">MRP / Strip *</label>
-                                                <div style={{ position: 'relative' }}>
-                                                    <span style={{ position: 'absolute', left: 10, top: 9, color: 'var(--text-tertiary)' }}>₹</span>
-                                                    <input
-                                                        type="number"
-                                                        step="0.01"
-                                                        className="form-input"
-                                                        style={{ paddingLeft: 25 }}
-                                                        value={batchForm.mrp || ''}
-                                                        onChange={(e) => {
-                                                            const mrp = e.target.value === '' ? 0 : parseFloat(e.target.value);
-                                                            setBatchForm({ ...batchForm, mrp, selling_price: mrp });
-                                                        }}
-                                                        required
-                                                    />
-                                                </div>
-                                            </div>
-                                            <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-                                                <label className="form-label">Selling Price / Strip *</label>
-                                                <div style={{ position: 'relative' }}>
-                                                    <span style={{ position: 'absolute', left: 10, top: 9, color: 'var(--text-tertiary)' }}>₹</span>
-                                                    <input
-                                                        type="number"
-                                                        step="0.01"
-                                                        className="form-input"
-                                                        style={{ paddingLeft: 25, fontWeight: 'bold', color: 'var(--color-primary-600)' }}
-                                                        value={batchForm.selling_price || ''}
-                                                        onChange={(e) => setBatchForm({ ...batchForm, selling_price: e.target.value === '' ? 0 : parseFloat(e.target.value) })}
-                                                        required
-                                                    />
-                                                </div>
-                                                <div className="form-hint">Usually same as MRP</div>
-                                            </div>
-                                        </div>
-                                    </div>
+                                {/* Save All Button */}
+                                <button
+                                    type="button"
+                                    className="btn btn-primary"
+                                    style={{ width: '100%', padding: 'var(--space-3)' }}
+                                    disabled={stockCart.length === 0 || isSubmitting || (selectedSupplierId > 0 && !invoiceNumber)}
+                                    onClick={async () => {
+                                        if (stockCart.length === 0 || isSubmitting) return;
+                                        if (selectedSupplierId > 0 && !invoiceNumber) {
+                                            showToast('error', 'Invoice number required');
+                                            return;
+                                        }
+                                        setIsSubmitting(true);
+                                        try {
+                                            // Create purchase entry first if supplier selected
+                                            let purchaseId: number | null = null;
+                                            if (selectedSupplierId > 0) {
+                                                const subtotal = stockCart.reduce((sum, item) => sum + item.quantity * item.purchase_price, 0);
+                                                const totalGst = stockCart.reduce((sum, item) => {
+                                                    const itemTotal = item.quantity * item.purchase_price;
+                                                    return sum + (itemTotal * item.gst_rate / 100);
+                                                }, 0);
+                                                const purchaseResult = await execute(
+                                                    `INSERT INTO purchases (invoice_number, invoice_date, supplier_id, user_id, subtotal, cgst_amount, sgst_amount, total_gst, grand_total, payment_status, paid_amount)
+                                                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', 0)`,
+                                                    [invoiceNumber, invoiceDate, selectedSupplierId, user?.id || 1, subtotal, totalGst / 2, totalGst / 2, totalGst, subtotal + totalGst]
+                                                );
+                                                purchaseId = purchaseResult.lastInsertId;
+                                            }
 
-                                    {/* Right Column: Quantity & Location */}
-                                    <div>
-                                        <h4 style={{
-                                            fontSize: 'var(--text-xs)',
-                                            textTransform: 'uppercase',
-                                            letterSpacing: '0.05em',
-                                            color: 'var(--text-tertiary)',
-                                            marginBottom: 'var(--space-3)',
-                                            fontWeight: 600
-                                        }}>
-                                            Quantity & Storage
-                                        </h4>
-                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)' }}>
-                                            <div className="form-group">
-                                                <label className="form-label">Quantity (Strips) *</label>
-                                                <input
-                                                    type="number"
-                                                    className="form-input"
-                                                    value={batchForm.quantity || ''}
-                                                    onChange={(e) => setBatchForm({ ...batchForm, quantity: e.target.value === '' ? 0 : parseInt(e.target.value) })}
-                                                    required
-                                                    min="0"
-                                                />
-                                            </div>
-                                            <div className="form-group">
-                                                <label className="form-label">Tablets / Strip</label>
-                                                <input
-                                                    type="number"
-                                                    className="form-input"
-                                                    value={batchForm.tablets_per_strip ?? ''}
-                                                    onChange={(e) => setBatchForm({ ...batchForm, tablets_per_strip: e.target.value === '' ? 10 : parseInt(e.target.value) })}
-                                                    min="1"
-                                                    placeholder="10"
-                                                />
-                                            </div>
-                                            <div className="form-group">
-                                                <label className="form-label">Rack Location</label>
-                                                <input
-                                                    type="text"
-                                                    className="form-input"
-                                                    value={batchForm.rack}
-                                                    onChange={(e) => setBatchForm({ ...batchForm, rack: e.target.value })}
-                                                    placeholder="e.g., A1"
-                                                />
-                                            </div>
-                                            <div className="form-group">
-                                                <label className="form-label">Box Location</label>
-                                                <input
-                                                    type="text"
-                                                    className="form-input"
-                                                    value={batchForm.box}
-                                                    onChange={(e) => setBatchForm({ ...batchForm, box: e.target.value })}
-                                                    placeholder="e.g., 1"
-                                                />
-                                            </div>
-                                            <div style={{
-                                                gridColumn: '1 / -1',
-                                                padding: 'var(--space-3)',
-                                                background: 'var(--bg-tertiary)',
-                                                borderRadius: 'var(--radius-md)',
-                                                marginTop: 'var(--space-2)'
-                                            }}>
-                                                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', marginBottom: 4 }}>Total Tablets</div>
-                                                <div style={{ fontSize: 'var(--text-xl)', fontWeight: 'bold', color: 'var(--text-primary)' }}>
-                                                    {((batchForm.quantity || 0) * (batchForm.tablets_per_strip || 10)).toLocaleString()}
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="modal-footer">
-                                <button type="button" className="btn btn-secondary" onClick={() => {
-                                    setShowAddBatchModal(false);
-                                    setSelectedSupplierId(0);
-                                    setInvoiceNumber('');
-                                    setInvoiceDate(new Date().toISOString().split('T')[0]);
-                                }}>
-                                    Cancel
-                                </button>
-                                <button type="submit" className="btn btn-primary" disabled={!selectedMedicine || (selectedSupplierId > 0 && !invoiceNumber)}>
-                                    <Plus size={18} />
-                                    Add Stock
+                                            // Create all batches
+                                            for (const item of stockCart) {
+                                                const batchId = await createBatch({
+                                                    medicine_id: item.medicine.id,
+                                                    batch_number: item.batch_number,
+                                                    expiry_date: item.expiry_date,
+                                                    purchase_price: item.purchase_price,
+                                                    mrp: item.mrp,
+                                                    selling_price: item.selling_price,
+                                                    price_type: 'INCLUSIVE',
+                                                    gst_rate: item.gst_rate,
+                                                    is_schedule: item.is_schedule,
+                                                    quantity: item.quantity,
+                                                    tablets_per_strip: item.tablets_per_strip,
+                                                    rack: item.rack,
+                                                    box: item.box
+                                                });
+
+                                                if (purchaseId) {
+                                                    const itemTotal = item.quantity * item.purchase_price;
+                                                    const gst = itemTotal * item.gst_rate / 100;
+                                                    await execute(`UPDATE batches SET purchase_id = ?, supplier_id = ? WHERE id = ?`, [purchaseId, selectedSupplierId, batchId]);
+                                                    await execute(
+                                                        `INSERT INTO purchase_items (purchase_id, medicine_id, batch_id, medicine_name, batch_number, expiry_date, quantity, free_quantity, purchase_price, mrp, discount_percent, gst_rate, cgst_amount, sgst_amount, total_amount)
+                                                         VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, 0, ?, ?, ?, ?)`,
+                                                        [purchaseId, item.medicine.id, batchId, item.medicine.name, item.batch_number, item.expiry_date, item.quantity, item.purchase_price, item.mrp, item.gst_rate, gst / 2, gst / 2, itemTotal + gst]
+                                                    );
+                                                }
+                                            }
+
+                                            showToast('success', `Added ${stockCart.length} item(s) to stock`);
+                                            setShowAddBatchModal(false);
+                                            setStockCart([]);
+                                            setSelectedSupplierId(0);
+                                            setInvoiceNumber('');
+                                            loadData();
+                                        } catch (err) {
+                                            console.error(err);
+                                            showToast('error', 'Failed to add stock');
+                                        } finally {
+                                            setIsSubmitting(false);
+                                        }
+                                    }}
+                                >
+                                    {isSubmitting ? 'Saving...' : `Save ${stockCart.length} Item${stockCart.length !== 1 ? 's' : ''}`}
                                 </button>
                             </div>
-                        </form>
+                        </div>
                     </div>
                 </div>
             )}
