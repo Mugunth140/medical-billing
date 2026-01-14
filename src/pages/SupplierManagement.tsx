@@ -1085,8 +1085,8 @@ export function SupplierManagement() {
                                         <label className="form-label">GST Rate</label>
                                         <select
                                             className="form-select"
-                                            value={medicineForm.gst_rate}
-                                            onChange={(e) => setMedicineForm({ ...medicineForm, gst_rate: parseInt(e.target.value) as GstRate })}
+                                            value={batchForm.gst_rate}
+                                            onChange={(e) => setBatchForm({ ...batchForm, gst_rate: parseInt(e.target.value) as GstRate })}
                                         >
                                             <option value={0}>0% (Exempt)</option>
                                             <option value={5}>5%</option>
