@@ -401,7 +401,7 @@ export async function getTodaysBills(): Promise<Bill[]> {
 // =====================================================
 
 /**
- * Get today's sales summary
+ * Get today's sales summary (net of sales returns)
  */
 export async function getTodaysSalesSummary(): Promise<{
     totalBills: number;
@@ -411,7 +411,8 @@ export async function getTodaysSalesSummary(): Promise<{
     creditAmount: number;
     totalGst: number;
 }> {
-    const result = await queryOne<{
+    // Get sales totals
+    const salesResult = await queryOne<{
         total_bills: number;
         total_amount: number;
         cash_amount: number;
@@ -431,18 +432,34 @@ export async function getTodaysSalesSummary(): Promise<{
         []
     );
 
+    // Get returns totals for today
+    const returnsResult = await queryOne<{
+        total_returned: number;
+        total_gst_returned: number;
+    }>(
+        `SELECT 
+      COALESCE(SUM(total_amount), 0) AS total_returned,
+      COALESCE(SUM(total_gst), 0) AS total_gst_returned
+    FROM sales_returns
+    WHERE date(return_date) = date('now') AND status = 'COMPLETED'`,
+        []
+    );
+
+    const totalReturned = returnsResult?.total_returned ?? 0;
+    const totalGstReturned = returnsResult?.total_gst_returned ?? 0;
+
     return {
-        totalBills: result?.total_bills ?? 0,
-        totalAmount: result?.total_amount ?? 0,
-        cashAmount: result?.cash_amount ?? 0,
-        onlineAmount: result?.online_amount ?? 0,
-        creditAmount: result?.credit_amount ?? 0,
-        totalGst: result?.total_gst ?? 0
+        totalBills: salesResult?.total_bills ?? 0,
+        totalAmount: (salesResult?.total_amount ?? 0) - totalReturned,
+        cashAmount: salesResult?.cash_amount ?? 0,
+        onlineAmount: salesResult?.online_amount ?? 0,
+        creditAmount: salesResult?.credit_amount ?? 0,
+        totalGst: (salesResult?.total_gst ?? 0) - totalGstReturned
     };
 }
 
 /**
- * Get monthly sales summary
+ * Get monthly sales summary (net of sales returns)
  */
 export async function getMonthlySalesSummary(year: number, month: number): Promise<{
     totalBills: number;
@@ -452,7 +469,8 @@ export async function getMonthlySalesSummary(year: number, month: number): Promi
     const startDate = `${year}-${month.toString().padStart(2, '0')}-01`;
     const endDate = new Date(year, month, 0).toISOString().split('T')[0];
 
-    const result = await queryOne<{
+    // Get sales totals
+    const salesResult = await queryOne<{
         total_bills: number;
         total_amount: number;
         total_gst: number;
@@ -466,10 +484,26 @@ export async function getMonthlySalesSummary(year: number, month: number): Promi
         [startDate, endDate]
     );
 
+    // Get returns totals for the month
+    const returnsResult = await queryOne<{
+        total_returned: number;
+        total_gst_returned: number;
+    }>(
+        `SELECT 
+      COALESCE(SUM(total_amount), 0) AS total_returned,
+      COALESCE(SUM(total_gst), 0) AS total_gst_returned
+    FROM sales_returns
+    WHERE date(return_date) BETWEEN ? AND ? AND status = 'COMPLETED'`,
+        [startDate, endDate]
+    );
+
+    const totalReturned = returnsResult?.total_returned ?? 0;
+    const totalGstReturned = returnsResult?.total_gst_returned ?? 0;
+
     return {
-        totalBills: result?.total_bills ?? 0,
-        totalAmount: result?.total_amount ?? 0,
-        totalGst: result?.total_gst ?? 0
+        totalBills: salesResult?.total_bills ?? 0,
+        totalAmount: (salesResult?.total_amount ?? 0) - totalReturned,
+        totalGst: (salesResult?.total_gst ?? 0) - totalGstReturned
     };
 }
 

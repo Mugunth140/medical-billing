@@ -793,11 +793,11 @@ export function Settings() {
                                                 <option value="legal">Legal Size (Inkjet/Laser)</option>
                                             </select>
                                             <span className="form-hint">
-                                                {billingForm.printer_type === 'dotmatrix' 
+                                                {billingForm.printer_type === 'dotmatrix'
                                                     ? 'Optimized for dot matrix printers like TVS MSP 250 Champion - uses monospace text format'
                                                     : billingForm.printer_type === 'thermal'
-                                                    ? 'For 80mm thermal receipt printers'
-                                                    : 'For standard inkjet/laser printers'
+                                                        ? 'For 80mm thermal receipt printers'
+                                                        : 'For standard inkjet/laser printers'
                                                 }
                                             </span>
                                         </div>
@@ -1217,12 +1217,13 @@ export function Settings() {
                             box-shadow: 0 12px 24px rgba(0,0,0,0.15);
                             flex-shrink: 0;
                             border: 4px solid rgba(255,255,255,0.2);
+                            overflow: hidden;
                           }
 
                           .about-logo-wrapper img {
-                             width: 75px;
-                             height: 75px;
-                             object-fit: contain;
+                             width: 100%;
+                             height: 100%;
+                             object-fit: cover;
                           }
 
                           .about-title-group {

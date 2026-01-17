@@ -20,6 +20,24 @@ export function round2(num: number): number {
 }
 
 /**
+ * Round to nearest rupee using standard paisa rounding:
+ * - If paisa < 50: floor (₹1.49 → ₹1)
+ * - If paisa >= 50: ceil (₹1.50 → ₹2)
+ * 
+ * This is essentially Math.round() but we're being explicit about the logic
+ */
+export function roundToNearestRupee(amount: number): number {
+    const paisa = Math.round((amount % 1) * 100); // Get paisa portion (0-99)
+    const rupees = Math.floor(amount);
+
+    if (paisa >= 50) {
+        return rupees + 1;
+    }
+    return rupees;
+}
+
+
+/**
  * Calculate GST for EXCLUSIVE pricing (price before GST)
  * Price given is the base price, GST is added on top
  * 
@@ -244,9 +262,10 @@ export function calculateBill(
 
     const grandTotal = round2(itemsTotal - billDiscount);
 
-    // Round off to nearest rupee
-    const roundOff = round2(Math.round(grandTotal) - grandTotal);
-    const finalAmount = Math.round(grandTotal);
+    // Round off to nearest rupee using standard paisa rounding
+    // < 50 paisa = floor, >= 50 paisa = ceil
+    const finalAmount = roundToNearestRupee(grandTotal);
+    const roundOff = round2(finalAmount - grandTotal);
 
     return {
         items: calculatedItems,
@@ -347,6 +366,7 @@ export function groupByGstRate(items: ItemCalculation[]): Map<GstRate, {
 
 export default {
     round2,
+    roundToNearestRupee,
     calculateGstExclusive,
     calculateGstInclusive,
     calculateGst,

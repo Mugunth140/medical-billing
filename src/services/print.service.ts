@@ -576,15 +576,32 @@ export async function generateThermalBillHTML(bill: Bill, items: BillItem[]): Pr
     const itemRows = items.map((item, index) => {
         const qty = item.quantity || 0;
         const tps = item.tablets_per_strip || 10;
-        const units = convertToUnits(qty, tps);
+
+        // Format quantity display
+        let qtyDisplay = '';
+
+        // If tablets_per_strip is 1, treat everything as pieces (for running bills, non-medicines, etc.)
+        if (tps === 1) {
+            qtyDisplay = `${qty} pc${qty > 1 ? 's' : ''}`;
+        } else {
+            const strips = Math.floor(qty / tps);
+            const pieces = qty % tps;
+
+            if (strips > 0 && pieces > 0) {
+                qtyDisplay = `${strips}s ${pieces}p`;
+            } else if (strips > 0) {
+                qtyDisplay = `${strips} strip${strips > 1 ? 's' : ''}`;
+            } else {
+                qtyDisplay = `${pieces} pc${pieces > 1 ? 's' : ''}`;
+            }
+        }
 
         return `
             <tr>
                 <td style="padding: 8px 4px; font-size: 14px; border-bottom: 1px dashed #000;">
                     <strong>${index + 1}. ${item.medicine_name}</strong>
-                    <span style="font-size: 12px; margin-left: 8px;">(${item.batch_number})</span>
                     <br/>
-                    <span style="font-size: 13px;">${units.displayShort} × ${formatCurrency(item.selling_price || item.unit_price || 0)}</span>
+                    <span style="font-size: 12px; color: #666;">Qty: ${qtyDisplay}</span>
                 </td>
                 <td style="text-align: center; padding: 8px 4px; font-size: 14px; border-bottom: 1px dashed #000;">
                     ${item.discount_amount > 0 ? `-${formatCurrency(item.discount_amount)}` : '-'}
@@ -755,9 +772,7 @@ export async function generateThermalBillHTML(bill: Bill, items: BillItem[]): Pr
         </div>
         
         <div class="footer">
-            <div style="font-size: 14px; margin-bottom: 5px;"><strong>Thank you for your purchase!</strong></div>
-            <div>*** Get Well Soon ***</div>
-            <div style="margin-top: 10px; font-size: 11px;">This is a computer generated bill</div>
+            <div style="font-size: 14px;"><strong>Thank you!</strong></div>
         </div>
     </div>
 </body>
@@ -777,29 +792,29 @@ export async function generateThermalBillHTML(bill: Bill, items: BillItem[]): Pr
 export async function generateDotMatrixBillHTML(bill: Bill, items: BillItem[]): Promise<string> {
     const shopInfo = await getShopInfo();
     const LINE_WIDTH = 42; // Characters per line for narrow receipts
-    
+
     // Helper to center text
     const center = (text: string, width: number = LINE_WIDTH): string => {
         const padding = Math.max(0, width - text.length);
         const left = Math.floor(padding / 2);
         return ' '.repeat(left) + text;
     };
-    
+
     // Helper to create a line separator
     const separator = (char: string = '-'): string => char.repeat(LINE_WIDTH);
-    
+
     // Helper to create left-right aligned text
     const leftRight = (left: string, right: string, width: number = LINE_WIDTH): string => {
         const space = Math.max(1, width - left.length - right.length);
         return left + ' '.repeat(space) + right;
     };
-    
+
     // Format currency without symbol for cleaner display
     const fmtAmt = (amt: number): string => amt.toFixed(2);
-    
+
     // Build the receipt content as plain text
     let receipt = '';
-    
+
     // Header
     receipt += center(shopInfo.shop_name) + '\n';
     if (shopInfo.shop_address) {
@@ -823,29 +838,29 @@ export async function generateDotMatrixBillHTML(bill: Bill, items: BillItem[]): 
     if (shopInfo.shop_drug_license) {
         receipt += center('D.L: ' + shopInfo.shop_drug_license) + '\n';
     }
-    
+
     receipt += separator('=') + '\n';
-    
+
     // Bill info
     receipt += leftRight('Bill: ' + bill.bill_number, formatDate(bill.bill_date, 'dd/MM/yy HH:mm')) + '\n';
     receipt += leftRight('Customer:', bill.customer_name || 'Walk-in Customer') + '\n';
     if (bill.doctor_name) {
         receipt += leftRight('Doctor:', bill.doctor_name) + '\n';
     }
-    
+
     receipt += separator('-') + '\n';
-    
+
     // Items header
     receipt += 'Item                           Qty    Amt\n';
     receipt += separator('-') + '\n';
-    
+
     // Items
     items.forEach((item, index) => {
         const qty = item.quantity || 0;
         const tps = item.tablets_per_strip || 10;
         const units = convertToUnits(qty, tps);
         const amt = item.total || item.total_amount || 0;
-        
+
         // First line: item number and name (truncated if needed)
         const itemNum = `${index + 1}. `;
         const maxNameLen = LINE_WIDTH - 15; // Leave space for qty and amt
@@ -853,13 +868,13 @@ export async function generateDotMatrixBillHTML(bill: Bill, items: BillItem[]): 
         if (name.length > maxNameLen) {
             name = name.substring(0, maxNameLen - 2) + '..';
         }
-        
+
         // Format: Name padded, then qty right-aligned, then amount right-aligned
         const qtyStr = units.displayShort.padStart(6);
         const amtStr = fmtAmt(amt).padStart(8);
         const nameWithNum = (itemNum + name).padEnd(LINE_WIDTH - 14);
         receipt += nameWithNum + qtyStr + amtStr + '\n';
-        
+
         // Second line: batch and SP (optional, for detailed receipts)
         const sp = item.selling_price || item.unit_price || 0;
         const batchInfo = `   ${item.batch_number} @ ${fmtAmt(sp)}`;
@@ -867,26 +882,26 @@ export async function generateDotMatrixBillHTML(bill: Bill, items: BillItem[]): 
             receipt += batchInfo.padEnd(LINE_WIDTH - 10) + `-${fmtAmt(item.discount_amount).padStart(8)}\n`;
         }
     });
-    
+
     receipt += separator('-') + '\n';
-    
+
     // Totals
     receipt += leftRight(`Sub Total (${items.length} items):`, fmtAmt(bill.subtotal || 0)) + '\n';
-    
+
     if (bill.discount_amount > 0) {
         receipt += leftRight('Discount:', '-' + fmtAmt(bill.discount_amount)) + '\n';
     }
-    
+
     receipt += leftRight('GST:', fmtAmt(bill.total_gst || 0)) + '\n';
-    
+
     if (bill.round_off) {
         receipt += leftRight('Round Off:', fmtAmt(bill.round_off)) + '\n';
     }
-    
+
     receipt += separator('=') + '\n';
     receipt += leftRight('TOTAL:', 'Rs.' + fmtAmt(bill.grand_total || 0)) + '\n';
     receipt += separator('=') + '\n';
-    
+
     // Payment info
     let paymentLine = bill.payment_mode.toUpperCase();
     if (bill.payment_mode === 'CASH' && bill.cash_amount > 0) {
@@ -899,7 +914,7 @@ export async function generateDotMatrixBillHTML(bill: Bill, items: BillItem[]): 
         paymentLine = parts.join(' | ');
     }
     receipt += center(paymentLine) + '\n';
-    
+
     receipt += '\n';
     receipt += center('Thank you!') + '\n';
     receipt += center('*** Get Well Soon ***') + '\n';

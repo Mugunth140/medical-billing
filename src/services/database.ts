@@ -503,7 +503,9 @@ export async function initDatabase(): Promise<Database> {
             `ALTER TABLE batches ADD COLUMN gst_rate DECIMAL(5,2) DEFAULT 12`,
             `ALTER TABLE batches ADD COLUMN is_schedule INTEGER DEFAULT 0`,
             // Add pack_size to medicines for dataset import
-            `ALTER TABLE medicines ADD COLUMN pack_size TEXT`
+            `ALTER TABLE medicines ADD COLUMN pack_size TEXT`,
+            // Add free_quantity to batches for supplier free units
+            `ALTER TABLE batches ADD COLUMN free_quantity INTEGER DEFAULT 0`
         ];
         for (const migration of migrations) {
             try {

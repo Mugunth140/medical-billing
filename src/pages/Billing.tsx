@@ -993,6 +993,12 @@ export function Billing() {
                             <span>GST</span>
                             <span>{formatCurrency(billCalc.totalGst)}</span>
                         </div>
+                        {billCalc.roundOff !== 0 && (
+                            <div className="total-row" style={{ color: billCalc.roundOff > 0 ? '#4ade80' : '#f87171' }}>
+                                <span>Rounding</span>
+                                <span>{billCalc.roundOff > 0 ? '+' : ''}{formatCurrency(billCalc.roundOff)}</span>
+                            </div>
+                        )}
                         <div className="grand-total">
                             <span style={{ fontSize: 14, fontWeight: 500, color: 'rgba(255,255,255,0.7)' }}>Total</span>
                             <span>{formatCurrency(billCalc.finalAmount)}</span>
@@ -1005,6 +1011,11 @@ export function Billing() {
                         >
                             {isSubmitting ? 'Processing...' : 'Complete Sale (Ctrl+S)'}
                         </button>
+
+                        {/* Rounding info */}
+                        <div style={{ marginTop: 8, fontSize: 10, color: 'rgba(255,255,255,0.5)', textAlign: 'center' }}>
+                            Amounts rounded to nearest ₹ (paise &lt;50 = floor, ≥50 = ceil)
+                        </div>
                     </div>
                 </div>
             </div>

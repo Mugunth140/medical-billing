@@ -297,18 +297,20 @@ export async function getBatchWithMedicine(batchId: number): Promise<StockItem |
 /**
  * Create a new batch
  * Note: quantity input is in strips, but stored in tablets (quantity × tablets_per_strip)
+ * free_quantity is in TABLETS/PIECES directly (not strips) - supplier gives free units in smallest unit
  */
 export async function createBatch(input: CreateBatchInput): Promise<number> {
   const tabletsPerStrip = input.tablets_per_strip ?? 10;
-  // Convert strips to tablets for storage
-  const totalTablets = input.quantity * tabletsPerStrip;
+  const freeQuantity = input.free_quantity ?? 0; // Already in tablets/pieces
+  // Convert strips to tablets, then add free tablets directly
+  const totalTablets = (input.quantity * tabletsPerStrip) + freeQuantity;
 
   const result = await execute(
     `INSERT INTO batches (
       medicine_id, batch_number, expiry_date, purchase_price,
       mrp, selling_price, price_type, gst_rate, is_schedule,
-      quantity, tablets_per_strip, rack, box, supplier_id
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      quantity, free_quantity, tablets_per_strip, rack, box, supplier_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       input.medicine_id,
       input.batch_number,
@@ -319,7 +321,8 @@ export async function createBatch(input: CreateBatchInput): Promise<number> {
       input.price_type,
       input.gst_rate,
       input.is_schedule ? 1 : 0,
-      totalTablets, // Store in tablets
+      totalTablets, // Store total tablets including free
+      freeQuantity, // Store free in tablets (already the smallest unit)
       tabletsPerStrip,
       input.rack ?? null,
       input.box ?? null,

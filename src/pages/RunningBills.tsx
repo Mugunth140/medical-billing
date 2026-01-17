@@ -836,7 +836,7 @@ export function RunningBills() {
                                                 />
                                             </div>
                                             <div className="form-group">
-                                                <label className="form-label">Qty *</label>
+                                                <label className="form-label">Qty (pcs) *</label>
                                                 <input
                                                     type="number"
                                                     className="form-input"
@@ -847,7 +847,7 @@ export function RunningBills() {
                                                 />
                                             </div>
                                             <div className="form-group">
-                                                <label className="form-label">Price (₹) *</label>
+                                                <label className="form-label">MRP/pc *</label>
                                                 <input
                                                     type="number"
                                                     className="form-input"
@@ -856,6 +856,7 @@ export function RunningBills() {
                                                     step={0.01}
                                                     min={0}
                                                     required
+                                                    placeholder="incl. GST"
                                                 />
                                             </div>
                                             <div className="form-group">

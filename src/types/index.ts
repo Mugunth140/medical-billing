@@ -79,6 +79,7 @@ export interface Batch {
     gst_rate: GstRate;
     is_schedule: boolean;
     quantity: number;
+    free_quantity?: number;
     tablets_per_strip: number;
     rack?: string;
     box?: string;
@@ -408,6 +409,7 @@ export interface StockItem {
     gst_rate: GstRate;
     is_schedule: boolean;
     quantity: number;
+    free_quantity?: number;
     tablets_per_strip: number;
     rack?: string;
     box?: string;
@@ -515,6 +517,7 @@ export interface CreateBatchInput {
     gst_rate: GstRate;
     is_schedule?: boolean;
     quantity: number;
+    free_quantity?: number;
     tablets_per_strip?: number;
     rack?: string;
     box?: string;
