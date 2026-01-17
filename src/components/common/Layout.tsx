@@ -53,7 +53,7 @@ const MAIN_NAV_ITEMS: NavItem[] = [
     { id: 'inventory', label: 'Inventory', icon: Package, path: '/inventory' },
     { id: 'customers', label: 'Customers', icon: Users, path: '/customers' },
     { id: 'suppliers', label: 'Suppliers & Purchases', icon: Building2, path: '/purchases', adminOnly: true },
-    { id: 'returns', label: 'Returns', icon: ArrowDownLeft, path: '/returns', adminOnly: true },
+    { id: 'returns', label: 'Returns', icon: ArrowDownLeft, path: '/returns', adminOnly: false },
 ];
 
 // Grouped navigation items (collapsible)
