@@ -1,13 +1,13 @@
 // =====================================================
 // Silent Print Module for Dot Matrix Printers
-// Optimized for TVS MSP 250 and similar dot matrix printers
+// Optimized for TVS MSP 250 - Minimal Paper Usage
 // =====================================================
 
 use std::process::Command;
 use tauri::command;
 
 /// Print plain text silently to the default printer.
-/// This is the most reliable method for dot matrix printers like TVS MSP 250.
+/// Optimized for dot matrix printers like TVS MSP 250.
 #[command]
 pub async fn silent_print(html_content: String) -> Result<String, String> {
     #[cfg(windows)]
@@ -32,38 +32,24 @@ pub async fn silent_print(html_content: String) -> Result<String, String> {
         };
 
         if printer_name.is_empty() {
-            return Err(
-                "No default printer configured. Please set TVS MSP 250 as default printer."
-                    .to_string(),
-            );
+            return Err("No default printer. Set TVS MSP 250 as default.".to_string());
         }
 
-        // Convert HTML to plain text for dot matrix printing
-        let plain_text = html_to_plain_text(&html_content);
+        // Extract just the receipt text from HTML (between <pre> tags if present)
+        let receipt_text = extract_receipt_text(&html_content);
 
-        log::info!(
-            "Printing {} characters to {}",
-            plain_text.len(),
-            printer_name
-        );
+        log::info!("Printing {} chars to {}", receipt_text.len(), printer_name);
 
-        // Use Out-Printer cmdlet - most reliable for dot matrix
-        let escaped_text = plain_text.replace("'", "''").replace("`", "``");
+        // Use Out-Printer cmdlet
+        let escaped_text = receipt_text.replace("'", "''").replace("`", "``");
 
         let ps_script = format!(
             r#"
-$ErrorActionPreference = 'Stop'
 $content = @'
 {}
 '@
-
-try {{
-    $content | Out-Printer
-    Write-Output "SUCCESS"
-}} catch {{
-    Write-Output "ERROR:$($_.Exception.Message)"
-}}
-            "#,
+$content | Out-Printer
+"#,
             escaped_text
         );
 
@@ -82,93 +68,146 @@ try {{
 
         match output {
             Ok(result) => {
-                let stdout = String::from_utf8_lossy(&result.stdout);
                 let stderr = String::from_utf8_lossy(&result.stderr);
-                let output_str = stdout.trim();
-
-                log::info!("Print stdout: {}", output_str);
-                if !stderr.is_empty() {
-                    log::warn!("Print stderr: {}", stderr.trim());
-                }
-
-                if output_str.contains("SUCCESS") {
-                    Ok(format!("Print job sent to {}", printer_name))
-                } else if output_str.contains("ERROR:") {
-                    let error_msg = output_str.replace("ERROR:", "");
-                    Err(error_msg.trim().to_string())
+                if stderr.trim().is_empty() || !stderr.to_lowercase().contains("error") {
+                    Ok(format!("Printed to {}", printer_name))
                 } else {
-                    Ok(format!("Print initiated to {}", printer_name))
+                    log::warn!("Print stderr: {}", stderr.trim());
+                    Err(stderr.trim().to_string())
                 }
             }
-            Err(e) => Err(format!("Failed to execute print command: {}", e)),
+            Err(e) => Err(format!("Print failed: {}", e)),
         }
     }
 
     #[cfg(not(windows))]
     {
         let _ = html_content;
-        Err("Silent printing is only supported on Windows".to_string())
+        Err("Only supported on Windows".to_string())
     }
 }
 
-/// Convert HTML to plain text suitable for dot matrix printing
-fn html_to_plain_text(html: &str) -> String {
+/// Extract receipt text from HTML - looks for <pre> content or strips to plain text
+fn extract_receipt_text(html: &str) -> String {
+    // Method 1: Look for content between <pre> tags (dot matrix template uses this)
+    if let Some(start) = html.find("<pre") {
+        if let Some(tag_end) = html[start..].find('>') {
+            let content_start = start + tag_end + 1;
+            if let Some(end) = html[content_start..].find("</pre>") {
+                let pre_content = &html[content_start..content_start + end];
+                return decode_entities(pre_content.trim());
+            }
+        }
+    }
+
+    // Method 2: Look for <body> content
+    let body_content = if let Some(start) = html.find("<body") {
+        if let Some(tag_end) = html[start..].find('>') {
+            let content_start = start + tag_end + 1;
+            if let Some(end) = html[content_start..].find("</body>") {
+                &html[content_start..content_start + end]
+            } else {
+                html
+            }
+        } else {
+            html
+        }
+    } else {
+        html
+    };
+
+    // Convert HTML to plain text
+    html_to_text(body_content)
+}
+
+/// Convert HTML to plain text with minimal formatting
+fn html_to_text(html: &str) -> String {
     let mut text = html.to_string();
 
-    // Remove script and style tags with content
-    let script_re = regex_lite::Regex::new(r"(?is)<script[^>]*>.*?</script>").unwrap();
-    text = script_re.replace_all(&text, "").to_string();
+    // Remove script/style blocks using simple string matching
+    text = remove_block(&text, "<script", "</script>");
+    text = remove_block(&text, "<style", "</style>");
+    text = remove_block(&text, "<!--", "-->");
 
-    let style_re = regex_lite::Regex::new(r"(?is)<style[^>]*>.*?</style>").unwrap();
-    text = style_re.replace_all(&text, "").to_string();
-
-    // Replace common HTML elements
+    // Replace block elements with newlines
+    text = text.replace("</tr>", "\n");
+    text = text.replace("</p>", "\n");
+    text = text.replace("</div>", "\n");
+    text = text.replace("</h1>", "\n");
+    text = text.replace("</h2>", "\n");
+    text = text.replace("</h3>", "\n");
     text = text.replace("<br>", "\n");
     text = text.replace("<br/>", "\n");
     text = text.replace("<br />", "\n");
-    text = text.replace("</p>", "\n");
-    text = text.replace("</div>", "\n");
-    text = text.replace("</tr>", "\n");
-    text = text.replace("</h1>", "\n\n");
-    text = text.replace("</h2>", "\n\n");
-    text = text.replace("</h3>", "\n");
-    text = text.replace("<hr>", "\n----------------------------------------\n");
-    text = text.replace("<hr/>", "\n----------------------------------------\n");
+    text = text.replace("<hr>", "\n---\n");
+    text = text.replace("<hr/>", "\n---\n");
+
+    // Table cells with spacing
     text = text.replace("</td>", "  ");
     text = text.replace("</th>", "  ");
 
-    // Remove all remaining HTML tags
-    let tag_re = regex_lite::Regex::new(r"<[^>]+>").unwrap();
-    text = tag_re.replace_all(&text, "").to_string();
+    // Remove all HTML tags
+    let mut result = String::new();
+    let mut in_tag = false;
+    for c in text.chars() {
+        if c == '<' {
+            in_tag = true;
+        } else if c == '>' {
+            in_tag = false;
+        } else if !in_tag {
+            result.push(c);
+        }
+    }
 
-    // Decode common HTML entities
-    text = text.replace("&nbsp;", " ");
-    text = text.replace("&amp;", "&");
-    text = text.replace("&lt;", "<");
-    text = text.replace("&gt;", ">");
-    text = text.replace("&quot;", "\"");
-    text = text.replace("&#39;", "'");
-    text = text.replace("&#8377;", "Rs."); // Rupee symbol
-    text = text.replace("₹", "Rs.");
+    // Decode entities and clean up
+    result = decode_entities(&result);
 
-    // Clean up whitespace
-    let multi_newline = regex_lite::Regex::new(r"\n{3,}").unwrap();
-    text = multi_newline.replace_all(&text, "\n\n").to_string();
-
-    let multi_space = regex_lite::Regex::new(r"[ \t]{2,}").unwrap();
-    text = multi_space.replace_all(&text, "  ").to_string();
-
-    // Trim each line
-    text = text
+    // Remove excessive whitespace
+    let mut lines: Vec<&str> = result
         .lines()
-        .map(|line| line.trim())
-        .collect::<Vec<&str>>()
-        .join("\n");
+        .map(|l| l.trim())
+        .filter(|l| !l.is_empty())
+        .filter(|l| !l.starts_with('@')) // Remove CSS
+        .filter(|l| !l.contains('{')) // Remove CSS
+        .filter(|l| !l.contains('}')) // Remove CSS
+        .collect();
 
-    // Add form feed at end for dot matrix printers
-    text.push_str("\n\n\n");
+    // Limit consecutive empty-ish lines
+    lines.dedup();
 
-    text.trim().to_string()
+    lines.join("\n") + "\n\n"
+}
+
+/// Remove a block of content between start and end markers
+fn remove_block(text: &str, start_marker: &str, end_marker: &str) -> String {
+    let mut result = text.to_string();
+    while let Some(start) = result.to_lowercase().find(&start_marker.to_lowercase()) {
+        if let Some(rel_end) = result[start..]
+            .to_lowercase()
+            .find(&end_marker.to_lowercase())
+        {
+            let end = start + rel_end + end_marker.len();
+            result = result[..start].to_string() + &result[end..];
+        } else {
+            break;
+        }
+    }
+    result
+}
+
+/// Decode HTML entities
+fn decode_entities(text: &str) -> String {
+    text.replace("&nbsp;", " ")
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&#8377;", "Rs.")
+        .replace("₹", "Rs.")
+        .replace("&times;", "x")
+        .replace("×", "x")
+        .replace("  ", " ")
 }
 
 /// Check if a default printer is configured
@@ -188,9 +227,7 @@ pub fn check_printer_available() -> Result<bool, String> {
         match output {
             Ok(result) => {
                 let stdout = String::from_utf8_lossy(&result.stdout);
-                let printer_name = stdout.trim();
-                log::info!("Default printer: {}", printer_name);
-                Ok(!printer_name.is_empty())
+                Ok(!stdout.trim().is_empty())
             }
             Err(_) => Ok(false),
         }
@@ -218,21 +255,20 @@ pub fn get_default_printer() -> Result<String, String> {
 
         match output {
             Ok(result) => {
-                let stdout = String::from_utf8_lossy(&result.stdout);
-                let printer_name = stdout.trim().to_string();
-                if printer_name.is_empty() {
-                    Err("No default printer configured".to_string())
+                let name = String::from_utf8_lossy(&result.stdout).trim().to_string();
+                if name.is_empty() {
+                    Err("No default printer".to_string())
                 } else {
-                    Ok(printer_name)
+                    Ok(name)
                 }
             }
-            Err(e) => Err(format!("Failed to get printer: {}", e)),
+            Err(e) => Err(format!("Failed: {}", e)),
         }
     }
 
     #[cfg(not(windows))]
     {
-        Err("Only supported on Windows".to_string())
+        Err("Windows only".to_string())
     }
 }
 
@@ -260,13 +296,13 @@ pub fn list_printers() -> Result<Vec<String>, String> {
                     .collect();
                 Ok(printers)
             }
-            Err(e) => Err(format!("Failed to list printers: {}", e)),
+            Err(e) => Err(format!("Failed: {}", e)),
         }
     }
 
     #[cfg(not(windows))]
     {
-        Err("Only supported on Windows".to_string())
+        Err("Windows only".to_string())
     }
 }
 
@@ -275,17 +311,13 @@ pub fn list_printers() -> Result<Vec<String>, String> {
 pub async fn print_raw_text(text: String, _printer_name: Option<String>) -> Result<String, String> {
     #[cfg(windows)]
     {
-        let escaped_text = text.replace("'", "''").replace("`", "``");
+        let escaped = text.replace("'", "''").replace("`", "``");
 
-        let ps_script = format!(
-            r#"
-$content = @'
+        let ps = format!(
+            r#"@'
 {}
-'@
-$content | Out-Printer
-Write-Output "SUCCESS"
-            "#,
-            escaped_text
+'@ | Out-Printer"#,
+            escaped
         );
 
         let output = Command::new("powershell")
@@ -294,30 +326,27 @@ Write-Output "SUCCESS"
                 "-NonInteractive",
                 "-WindowStyle",
                 "Hidden",
-                "-ExecutionPolicy",
-                "Bypass",
                 "-Command",
-                &ps_script,
+                &ps,
             ])
             .output();
 
         match output {
-            Ok(result) => {
-                let stdout = String::from_utf8_lossy(&result.stdout);
-                if stdout.contains("SUCCESS") {
-                    Ok("Print job sent".to_string())
+            Ok(r) => {
+                let err = String::from_utf8_lossy(&r.stderr);
+                if err.trim().is_empty() {
+                    Ok("Sent".to_string())
                 } else {
-                    let stderr = String::from_utf8_lossy(&result.stderr);
-                    Err(format!("Print failed: {}", stderr))
+                    Err(err.trim().to_string())
                 }
             }
-            Err(e) => Err(format!("Failed to execute: {}", e)),
+            Err(e) => Err(format!("{}", e)),
         }
     }
 
     #[cfg(not(windows))]
     {
         let _ = text;
-        Err("Only supported on Windows".to_string())
+        Err("Windows only".to_string())
     }
 }

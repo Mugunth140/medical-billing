@@ -186,7 +186,15 @@ export function Billing() {
                 e.preventDefault();
                 searchInputRef.current?.focus();
             }
-            // Note: Ctrl+S for submit is handled inline to avoid circular dependencies
+            // Ctrl+S to complete sale
+            if (e.ctrlKey && (e.key === 's' || e.key === 'S')) {
+                e.preventDefault();
+                // Find and click the submit button
+                const submitBtn = document.getElementById('complete-sale-btn');
+                if (submitBtn && !submitBtn.hasAttribute('disabled')) {
+                    submitBtn.click();
+                }
+            }
             if (e.ctrlKey && e.key === 'Delete') {
                 e.preventDefault();
                 if (window.confirm('Clear current bill?')) clearBill();
@@ -1005,6 +1013,7 @@ export function Billing() {
                         </div>
 
                         <button
+                            id="complete-sale-btn"
                             className="save-btn"
                             onClick={handleSubmitBill}
                             disabled={items.length === 0 || isSubmitting}
