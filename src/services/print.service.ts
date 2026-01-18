@@ -1137,7 +1137,7 @@ export function downloadBillHTML(html: string, billNumber: string): void {
 
 /**
  * Print a bill silently using the Tauri backend.
- * This sends the bill directly to the default printer without any dialogs.
+ * This prints directly to the default printer without any dialogs.
  * 
  * @param bill - The bill to print
  * @param items - Bill items
@@ -1164,21 +1164,17 @@ export async function silentPrintBill(
             break;
     }
 
-    // Import Tauri invoke dynamically
-    const { invoke } = await import('@tauri-apps/api/core');
-
-    // Send to Tauri backend for silent printing (no dialogs, no popups)
+    // Send to Tauri backend for silent printing
     try {
-        await invoke('silent_print', { htmlContent: html });
-        console.log('[Print] Silent print initiated successfully');
+        const { invoke } = await import('@tauri-apps/api/core');
+        const result = await invoke<string>('silent_print', { htmlContent: html });
+        console.log('[Print] Silent print result:', result);
     } catch (error) {
         console.error('[Print] Silent print failed:', error);
-        // No fallback popup - just log the error
-        // The bill is already saved, user can print from Bill History if needed
         throw new Error(
             error instanceof Error
                 ? error.message
-                : 'Silent print failed. Please check if a printer is connected.'
+                : 'Silent print failed. Please check if printer is connected and set as default.'
         );
     }
 }

@@ -12,8 +12,10 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
             print::silent_print,
+            print::print_raw_text,
             print::check_printer_available,
             print::get_default_printer,
+            print::list_printers,
             medicines::import_bundled_medicines,
             medicines::get_medicines_count
         ])
