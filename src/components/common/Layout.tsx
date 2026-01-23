@@ -17,7 +17,7 @@ import {
     Package,
     Receipt,
     Settings,
-
+    StickyNote,
     Users
 } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
@@ -54,6 +54,7 @@ const MAIN_NAV_ITEMS: NavItem[] = [
     { id: 'customers', label: 'Customers', icon: Users, path: '/customers' },
     { id: 'suppliers', label: 'Suppliers & Purchases', icon: Building2, path: '/purchases', adminOnly: true },
     { id: 'returns', label: 'Returns', icon: ArrowDownLeft, path: '/returns', adminOnly: false },
+    { id: 'medicine-notes', label: 'Medicine Notes', icon: StickyNote, path: '/medicine-notes', adminOnly: false },
 ];
 
 // Grouped navigation items (collapsible)

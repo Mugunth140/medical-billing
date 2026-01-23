@@ -8,6 +8,7 @@ export { Customers } from './Customers';
 export { Dashboard } from './Dashboard';
 export { Inventory } from './Inventory';
 export { Login } from './Login';
+export { MedicineNotes } from './MedicineNotes';
 export { Purchases } from './Purchases';
 export { Reports } from './Reports';
 export { Returns } from './Returns';

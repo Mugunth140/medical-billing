@@ -13,6 +13,7 @@ import { Customers } from './pages/Customers';
 import { Dashboard } from './pages/Dashboard';
 import { Inventory } from './pages/Inventory';
 import { Login } from './pages/Login';
+import { MedicineNotes } from './pages/MedicineNotes';
 import { Purchases } from './pages/Purchases';
 import { Reports } from './pages/Reports';
 import { Returns } from './pages/Returns';
@@ -139,6 +140,7 @@ function App() {
             <Route path="/suppliers" element={<SupplierManagement />} />
             <Route path="/returns" element={<Returns />} />
             <Route path="/customers" element={<Customers />} />
+            <Route path="/medicine-notes" element={<MedicineNotes />} />
             <Route path="/reports" element={<Reports />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />

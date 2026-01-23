@@ -28,7 +28,7 @@ function parseCSVLine(line) {
     const result = [];
     let current = '';
     let inQuotes = false;
-    
+
     for (let i = 0; i < line.length; i++) {
         const char = line[i];
         if (char === '"') {
@@ -127,10 +127,10 @@ async function main() {
 
         try {
             const fields = parseCSVLine(line);
-            
+
             // Fields: [id, name, price, Is_discontinued, manufacturer_name, type, pack_size_label, composition1, composition2]
             const isDiscontinued = fields[3]?.toLowerCase() === 'true';
-            
+
             // Skip discontinued medicines
             if (isDiscontinued) {
                 skippedCount++;
@@ -151,7 +151,7 @@ async function main() {
 
             // Combine compositions for generic_name
             const genericName = [composition1, composition2].filter(Boolean).join(' + ') || null;
-            
+
             // Extract category from pack_size_label
             const category = extractCategory(packSizeLabel);
 
@@ -188,7 +188,12 @@ async function main() {
     }
 
     const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
-    console.log(`\n\n===========================================`);
+
+    // Optimize database size
+    console.log('Optimizing database with VACUUM...');
+    db.exec('VACUUM');
+
+    console.log(`\n===========================================`);
     console.log(`Bundle Created!`);
     console.log(`===========================================`);
     console.log(`  Total medicines: ${importedCount.toLocaleString()}`);

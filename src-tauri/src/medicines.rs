@@ -1,16 +1,22 @@
+use flate2::read::GzDecoder;
 use rusqlite::Connection;
+use std::fs::File;
+use std::io::{Read, Write};
 use std::path::PathBuf;
 use tauri::Manager;
 
-/// Get the path to a bundled resource
-fn get_resource_path(app: &tauri::AppHandle, resource: &str) -> Result<PathBuf, String> {
+/// Embedded compressed medicines database (gzip compressed)
+const MEDICINES_DB_GZ: &[u8] = include_bytes!("../resources/medicines-bundle.db.gz");
+
+/// Get the path where bundled database should be extracted
+fn get_bundle_extract_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     app.path()
-        .resource_dir()
-        .map(|p| p.join(resource))
-        .map_err(|e| format!("Failed to get resource directory: {}", e))
+        .app_data_dir()
+        .map(|p| p.join("medicines-bundle.db"))
+        .map_err(|e| format!("Failed to get app data directory: {}", e))
 }
 
-/// Get the main database path (matches Tauri SQL plugin location - ~/.config/)
+/// Get the main database path (matches Tauri SQL plugin location)
 fn get_db_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     app.path()
         .app_config_dir()
@@ -18,19 +24,43 @@ fn get_db_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         .map_err(|e| format!("Failed to get config directory: {}", e))
 }
 
+/// Extract embedded compressed database to a file
+fn extract_embedded_database(target_path: &PathBuf) -> Result<(), String> {
+    log::info!("Extracting embedded medicines database...");
+
+    // Decompress the embedded gzip data
+    let mut decoder = GzDecoder::new(MEDICINES_DB_GZ);
+    let mut decompressed = Vec::new();
+    decoder
+        .read_to_end(&mut decompressed)
+        .map_err(|e| format!("Failed to decompress medicines database: {}", e))?;
+
+    log::info!(
+        "Decompressed {} bytes from {} compressed bytes",
+        decompressed.len(),
+        MEDICINES_DB_GZ.len()
+    );
+
+    // Ensure parent directory exists
+    if let Some(parent) = target_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create directory: {}", e))?;
+    }
+
+    // Write to file
+    let mut file =
+        File::create(target_path).map_err(|e| format!("Failed to create bundle file: {}", e))?;
+    file.write_all(&decompressed)
+        .map_err(|e| format!("Failed to write bundle file: {}", e))?;
+
+    log::info!("Extracted medicines database to {:?}", target_path);
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn import_bundled_medicines(app: tauri::AppHandle) -> Result<u32, String> {
-    // Get paths
-    let bundle_path = get_resource_path(&app, "medicines-bundle.db")?;
     let db_path = get_db_path(&app)?;
-
-    // Check if bundle exists
-    if !bundle_path.exists() {
-        return Err(format!(
-            "Bundled medicines database not found at {:?}",
-            bundle_path
-        ));
-    }
+    let bundle_path = get_bundle_extract_path(&app)?;
 
     // Open main database
     let main_db =
@@ -41,11 +71,7 @@ pub async fn import_bundled_medicines(app: tauri::AppHandle) -> Result<u32, Stri
         .query_row("SELECT COUNT(*) FROM medicines", [], |row| row.get(0))
         .unwrap_or(0);
 
-    log::info!(
-        "Current medicines count: {}, bundle at: {:?}",
-        current_count,
-        bundle_path
-    );
+    log::info!("Current medicines count: {}", current_count);
 
     // Only import if no medicines exist
     if current_count > 0 {
@@ -53,7 +79,12 @@ pub async fn import_bundled_medicines(app: tauri::AppHandle) -> Result<u32, Stri
         return Ok(current_count);
     }
 
-    log::info!("Importing medicines from bundled database...");
+    // Extract embedded database if needed
+    if !bundle_path.exists() {
+        extract_embedded_database(&bundle_path)?;
+    }
+
+    log::info!("Importing medicines from embedded database...");
 
     // Attach bundled database
     main_db
@@ -77,6 +108,9 @@ pub async fn import_bundled_medicines(app: tauri::AppHandle) -> Result<u32, Stri
     main_db
         .execute("DETACH DATABASE bundle", [])
         .map_err(|e| format!("Failed to detach bundle: {}", e))?;
+
+    // Clean up extracted bundle file (optional, saves space)
+    let _ = std::fs::remove_file(&bundle_path);
 
     log::info!("Successfully imported {} medicines", imported);
 

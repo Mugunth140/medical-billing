@@ -350,6 +350,19 @@ const TABLE_STATEMENTS = [
         sgst DECIMAL(10,2) DEFAULT 0,
         total DECIMAL(12,2) NOT NULL,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`,
+
+    // Medicine Notes Table - For tracking medicines to buy
+    `CREATE TABLE IF NOT EXISTS medicine_notes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        medicine_name TEXT NOT NULL,
+        notes TEXT,
+        quantity INTEGER DEFAULT 1,
+        priority TEXT DEFAULT 'normal' CHECK (priority IN ('low', 'normal', 'high')),
+        status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'ordered', 'completed')),
+        created_by INTEGER REFERENCES users(id),
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        completed_at DATETIME
     )`
 ];
 
@@ -386,7 +399,8 @@ const INDEX_STATEMENTS = [
     `CREATE INDEX IF NOT EXISTS idx_sales_returns_customer ON sales_returns(customer_id)`,
     `CREATE INDEX IF NOT EXISTS idx_sales_return_items_return ON sales_return_items(return_id)`,
     `CREATE INDEX IF NOT EXISTS idx_purchase_returns_supplier ON purchase_returns(supplier_id)`,
-    `CREATE INDEX IF NOT EXISTS idx_purchase_return_items_return ON purchase_return_items(return_id)`
+    `CREATE INDEX IF NOT EXISTS idx_purchase_return_items_return ON purchase_return_items(return_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_medicine_notes_status ON medicine_notes(status)`
 ];
 
 
