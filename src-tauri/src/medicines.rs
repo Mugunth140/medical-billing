@@ -21,7 +21,7 @@ fn get_db_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 #[tauri::command]
 pub async fn import_bundled_medicines(app: tauri::AppHandle) -> Result<u32, String> {
     // Get paths
-    let bundle_path = get_resource_path(&app, "resources/medicines-bundle.db")?;
+    let bundle_path = get_resource_path(&app, "medicines-bundle.db")?;
     let db_path = get_db_path(&app)?;
 
     // Check if bundle exists
