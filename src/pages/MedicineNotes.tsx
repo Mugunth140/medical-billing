@@ -4,7 +4,6 @@
 // =====================================================
 
 import {
-    AlertCircle,
     Check,
     Clock,
     Package,
@@ -14,7 +13,7 @@ import {
     StickyNote,
     Trash2
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useToast } from '../components/common/Toast';
 import { execute, query } from '../services/database';
 import { useAuthStore } from '../stores';
@@ -42,6 +41,7 @@ export function MedicineNotes() {
     const [loading, setLoading] = useState(true);
     const [filterStatus, setFilterStatus] = useState<FilterStatus>('pending');
     const [searchTerm, setSearchTerm] = useState('');
+    const [stats, setStats] = useState({ pending: 0, ordered: 0, completed: 0 });
 
     // Form state
     const [showAddForm, setShowAddForm] = useState(false);
@@ -53,7 +53,25 @@ export function MedicineNotes() {
 
     useEffect(() => {
         loadNotes();
+        loadStats();
     }, [filterStatus]);
+
+    const loadStats = async () => {
+        try {
+            const result = await query<{ pending: number, ordered: number, completed: number }>(`
+                SELECT 
+                    SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
+                    SUM(CASE WHEN status = 'ordered' THEN 1 ELSE 0 END) as ordered,
+                    SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed
+                FROM medicine_notes
+            `);
+            if (result.length > 0) {
+                setStats(result[0]);
+            }
+        } catch (error) {
+            console.error('Failed to load stats:', error);
+        }
+    };
 
     const loadNotes = async () => {
         try {
@@ -96,7 +114,7 @@ export function MedicineNotes() {
             await execute(
                 `INSERT INTO medicine_notes (medicine_name, notes, quantity, priority, created_by)
                  VALUES (?, ?, ?, ?, ?)`,
-                [medicineName.trim(), noteText.trim() || null, quantity, priority, user?.id]
+                [medicineName.trim(), noteText.trim() || null, quantity, priority, user?.id || 1]
             );
 
             showToast('success', 'Note added successfully');
@@ -106,6 +124,7 @@ export function MedicineNotes() {
             setPriority('normal');
             setShowAddForm(false);
             loadNotes();
+            loadStats();
         } catch (error) {
             console.error('Failed to add note:', error);
             showToast('error', 'Failed to add note');
@@ -123,6 +142,7 @@ export function MedicineNotes() {
             );
             showToast('success', `Status updated to ${newStatus}`);
             loadNotes();
+            loadStats();
         } catch (error) {
             console.error('Failed to update status:', error);
             showToast('error', 'Failed to update status');
@@ -136,6 +156,7 @@ export function MedicineNotes() {
             await execute('DELETE FROM medicine_notes WHERE id = ?', [id]);
             showToast('success', 'Note deleted');
             loadNotes();
+            loadStats();
         } catch (error) {
             console.error('Failed to delete note:', error);
             showToast('error', 'Failed to delete note');
@@ -147,194 +168,331 @@ export function MedicineNotes() {
         (note.notes && note.notes.toLowerCase().includes(searchTerm.toLowerCase()))
     );
 
-    const getPriorityColor = (priority: string) => {
+    const getPriorityBadgeStyle = (priority: string) => {
         switch (priority) {
-            case 'high': return 'var(--color-danger-600)';
-            case 'normal': return 'var(--color-warning-600)';
-            case 'low': return 'var(--color-gray-500)';
-            default: return 'var(--text-secondary)';
+            case 'high': return { backgroundColor: '#fee2e2', color: '#dc2626' };
+            case 'normal': return { backgroundColor: '#fef3c7', color: '#d97706' };
+            case 'low': return { backgroundColor: '#f1f5f9', color: '#64748b' };
+            default: return {};
         }
     };
 
-    const getStatusIcon = (status: string) => {
-        switch (status) {
-            case 'pending': return <Clock size={16} />;
-            case 'ordered': return <ShoppingCart size={16} />;
-            case 'completed': return <Check size={16} />;
-            default: return null;
-        }
-    };
-
-    const getStatusColor = (status: string) => {
-        switch (status) {
-            case 'pending': return 'var(--color-warning-600)';
-            case 'ordered': return 'var(--color-primary-600)';
-            case 'completed': return 'var(--color-success-600)';
-            default: return 'var(--text-secondary)';
-        }
-    };
-
-    const statusCounts = {
-        pending: notes.filter(n => n.status === 'pending').length,
-        ordered: notes.filter(n => n.status === 'ordered').length,
-        completed: notes.filter(n => n.status === 'completed').length
-    };
+    // Status counts for the summary cards
+    // Using independent stats from database instead of derived from filtered execution
+    const statusCounts = stats;
 
     return (
-        <div className="page-container">
-            {/* Header */}
-            <div className="page-header">
+        <div className="page-container" style={{ maxWidth: '1200px', margin: '0 auto' }}>
+            {/* Premium Header */}
+            <div className="page-header" style={{
+                background: 'transparent',
+                borderBottom: 'none',
+                paddingBottom: '0',
+                marginBottom: 'var(--space-8)'
+            }}>
                 <div>
                     <h1 className="page-title">
-                        <StickyNote className="page-title-icon" />
+                        <div style={{
+                            padding: '10px',
+                            background: 'white',
+                            borderRadius: '12px',
+                            boxShadow: 'var(--shadow-sm)',
+                            display: 'flex'
+                        }}>
+                            <StickyNote className="page-title-icon" />
+                        </div>
                         Medicine Notes
                     </h1>
-                    <p className="page-subtitle">Track medicines to buy for customers</p>
+                    <p className="page-subtitle" style={{ marginLeft: '54px' }}>
+                        Track and manage requested medicines
+                    </p>
                 </div>
                 <button
-                    className="btn btn-primary"
+                    className="btn btn-primary btn-lg"
+                    style={{
+                        boxShadow: '0 4px 14px 0 rgba(0,118,255,0.39)',
+                        padding: '12px 24px',
+                        borderRadius: '12px'
+                    }}
                     onClick={() => setShowAddForm(true)}
                 >
-                    <Plus size={18} />
+                    <Plus size={20} />
                     Add Note
                 </button>
             </div>
 
-            {/* Stats Cards */}
-            <div className="grid grid-cols-3 gap-4 mb-6">
-                <div className="card" style={{ padding: 'var(--space-4)' }}>
-                    <div className="flex items-center gap-3">
-                        <div style={{
-                            padding: 'var(--space-2)',
-                            borderRadius: 'var(--radius-md)',
-                            backgroundColor: 'var(--color-warning-100)'
-                        }}>
-                            <Clock size={20} style={{ color: 'var(--color-warning-600)' }} />
-                        </div>
+            {/* Modern Stats Overview */}
+            <div className="grid grid-cols-3 gap-4 mb-4 mt-4">
+                <div
+                    className={`card stat-card ${filterStatus === 'pending' ? 'ring-2 ring-warning-500' : ''}`}
+                    onClick={() => setFilterStatus('pending')}
+                    style={{
+                        cursor: 'pointer',
+                        background: 'linear-gradient(135deg, #fffbeb 0%, #ffffff 100%)',
+                        border: '1px solid #fef3c7',
+                        transition: 'transform 0.2s',
+                        transform: filterStatus === 'pending' ? 'translateY(-4px)' : 'none'
+                    }}
+                >
+                    <div className="flex justify-between items-start">
                         <div>
-                            <div className="text-2xl font-bold">{statusCounts.pending}</div>
-                            <div className="text-sm text-secondary">Pending</div>
+                            <div className="text-secondary text-sm font-medium uppercase tracking-wider mb-1">Pending Requests</div>
+                            <div className="text-4xl font-bold" style={{ color: '#d97706' }}>{statusCounts.pending}</div>
+                        </div>
+                        <div style={{
+                            padding: '12px',
+                            background: '#fef3c7',
+                            borderRadius: '16px',
+                            color: '#d97706'
+                        }}>
+                            <Clock size={24} />
                         </div>
                     </div>
                 </div>
-                <div className="card" style={{ padding: 'var(--space-4)' }}>
-                    <div className="flex items-center gap-3">
-                        <div style={{
-                            padding: 'var(--space-2)',
-                            borderRadius: 'var(--radius-md)',
-                            backgroundColor: 'var(--color-primary-100)'
-                        }}>
-                            <ShoppingCart size={20} style={{ color: 'var(--color-primary-600)' }} />
-                        </div>
+
+                <div
+                    className={`card stat-card ${filterStatus === 'ordered' ? 'ring-2 ring-primary-500' : ''}`}
+                    onClick={() => setFilterStatus('ordered')}
+                    style={{
+                        cursor: 'pointer',
+                        background: 'linear-gradient(135deg, #eff6ff 0%, #ffffff 100%)',
+                        border: '1px solid #dbeafe',
+                        transition: 'transform 0.2s',
+                        transform: filterStatus === 'ordered' ? 'translateY(-4px)' : 'none'
+                    }}
+                >
+                    <div className="flex justify-between items-start">
                         <div>
-                            <div className="text-2xl font-bold">{statusCounts.ordered}</div>
-                            <div className="text-sm text-secondary">Ordered</div>
+                            <div className="text-secondary text-sm font-medium uppercase tracking-wider mb-1">Previously Ordered</div>
+                            <div className="text-4xl font-bold" style={{ color: '#2563eb' }}>{statusCounts.ordered}</div>
+                        </div>
+                        <div style={{
+                            padding: '12px',
+                            background: '#dbeafe',
+                            borderRadius: '16px',
+                            color: '#2563eb'
+                        }}>
+                            <ShoppingCart size={24} />
                         </div>
                     </div>
                 </div>
-                <div className="card" style={{ padding: 'var(--space-4)' }}>
-                    <div className="flex items-center gap-3">
-                        <div style={{
-                            padding: 'var(--space-2)',
-                            borderRadius: 'var(--radius-md)',
-                            backgroundColor: 'var(--color-success-100)'
-                        }}>
-                            <Check size={20} style={{ color: 'var(--color-success-600)' }} />
-                        </div>
+
+                <div
+                    className={`card stat-card ${filterStatus === 'completed' ? 'ring-2 ring-success-500' : ''}`}
+                    onClick={() => setFilterStatus('completed')}
+                    style={{
+                        cursor: 'pointer',
+                        background: 'linear-gradient(135deg, #f0fdf4 0%, #ffffff 100%)',
+                        border: '1px solid #dcfce7',
+                        transition: 'transform 0.2s',
+                        transform: filterStatus === 'completed' ? 'translateY(-4px)' : 'none'
+                    }}
+                >
+                    <div className="flex justify-between items-start">
                         <div>
-                            <div className="text-2xl font-bold">{statusCounts.completed}</div>
-                            <div className="text-sm text-secondary">Completed</div>
+                            <div className="text-secondary text-sm font-medium uppercase tracking-wider mb-1">Completed</div>
+                            <div className="text-4xl font-bold" style={{ color: '#059669' }}>{statusCounts.completed}</div>
+                        </div>
+                        <div style={{
+                            padding: '12px',
+                            background: '#dcfce7',
+                            borderRadius: '16px',
+                            color: '#059669'
+                        }}>
+                            <Check size={24} />
                         </div>
                     </div>
                 </div>
             </div>
 
-            {/* Filters */}
-            <div className="card mb-4">
-                <div className="card-body">
-                    <div className="flex gap-4 items-center">
-                        <div className="flex-1">
-                            <div className="input-group">
-                                <Search className="input-icon" size={18} />
-                                <input
-                                    type="text"
-                                    className="form-input"
-                                    placeholder="Search medicines..."
-                                    value={searchTerm}
-                                    onChange={(e) => setSearchTerm(e.target.value)}
-                                />
+            {/* Filter Bar & Search */}
+            <div className="flex justify-between items-center mb-8">
+                <div className="filter-bar">
+                    {(['all', 'pending', 'ordered', 'completed'] as FilterStatus[]).map((status) => (
+                        <button
+                            key={status}
+                            onClick={() => setFilterStatus(status)}
+                            className={`filter-btn ${filterStatus === status ? 'active' : ''}`}
+                        >
+                            {status.charAt(0).toUpperCase() + status.slice(1)}
+                        </button>
+                    ))}
+                </div>
+
+                <div className="input-group" style={{ maxWidth: '300px' }}>
+                    <Search className="input-icon" size={18} />
+                    <input
+                        type="text"
+                        className="form-input"
+                        placeholder="Search medicines..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        style={{ paddingLeft: '40px' }}
+                    />
+                </div>
+            </div>
+
+            {/* Modern List View */}
+            {loading ? (
+                <div className="flex justify-center p-12">
+                    <div className="loading-spinner"></div>
+                </div>
+            ) : filteredNotes.length === 0 ? (
+                <div className="empty-state card border-dashed">
+                    <div className="p-8 bg-gray-50 rounded-full mb-4">
+                        <Package size={48} className="text-gray-400" />
+                    </div>
+                    <h3 className="empty-state-title">No medicines found</h3>
+                    <p className="empty-state-description">
+                        {searchTerm ? 'Try adjusting your search terms' : 'Start by adding a medicine request'}
+                    </p>
+                    {!searchTerm && (
+                        <button
+                            className="btn btn-primary mt-6"
+                            onClick={() => setShowAddForm(true)}
+                        >
+                            <Plus size={18} /> Add First Note
+                        </button>
+                    )}
+                </div>
+            ) : (
+                <div className="grid gap-4">
+                    {filteredNotes.map((note) => (
+                        <div
+                            key={note.id}
+                            className="card hover:shadow-lg transition-all"
+                            style={{
+                                padding: '32px',
+                                borderLeft: `4px solid ${note.priority === 'high' ? 'var(--color-danger-500)' :
+                                    note.priority === 'normal' ? 'var(--color-warning-500)' :
+                                        'var(--color-gray-300)'
+                                    }`
+                            }}
+                        >
+                            <div className="flex items-start justify-between">
+                                <div className="flex-1">
+                                    <div className="flex items-center gap-3 mb-2">
+                                        <h3 className="text-lg font-bold text-gray-800">{note.medicine_name}</h3>
+                                        <span
+                                            className="px-2 py-1 rounded-md text-xs font-bold uppercase tracking-wide"
+                                            style={getPriorityBadgeStyle(note.priority)}
+                                        >
+                                            {note.priority} Priority
+                                        </span>
+                                        <span className="text-xs text-gray-400 flex items-center gap-1">
+                                            <Clock size={12} />
+                                            {new Date(note.created_at).toLocaleDateString()}
+                                        </span>
+                                    </div>
+                                    <div className="flex items-center gap-6 text-gray-600">
+                                        <div className="flex items-center gap-2">
+                                            <span className="bg-gray-100 text-gray-600 px-2 py-1 rounded text-sm font-mono">
+                                                Qty: {note.quantity}
+                                            </span>
+                                        </div>
+                                        {note.notes && (
+                                            <p className="text-sm text-gray-500 m-0 flex items-center gap-2">
+                                                <StickyNote size={14} />
+                                                {note.notes}
+                                            </p>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div className="flex items-center gap-2 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                                    {note.status === 'pending' && (
+                                        <button
+                                            className="btn btn-secondary btn-sm"
+                                            onClick={() => updateStatus(note.id, 'ordered')}
+                                            title="Mark as Ordered"
+                                        >
+                                            <ShoppingCart size={16} className="text-primary-600" />
+                                            <span className="ml-2">Order</span>
+                                        </button>
+                                    )}
+                                    {note.status !== 'completed' && (
+                                        <button
+                                            className="btn btn-success btn-sm"
+                                            style={{ background: 'var(--color-success-50)', color: 'var(--color-success-700)', border: '1px solid var(--color-success-200)' }}
+                                            onClick={() => updateStatus(note.id, 'completed')}
+                                            title="Mark as Completed"
+                                        >
+                                            <Check size={16} />
+                                            <span className="ml-2">Complete</span>
+                                        </button>
+                                    )}
+                                    <button
+                                        className="btn btn-ghost btn-sm text-danger"
+                                        onClick={() => deleteNote(note.id)}
+                                        title="Delete"
+                                    >
+                                        <Trash2 size={16} />
+                                    </button>
+                                </div>
                             </div>
                         </div>
-                        <div className="flex gap-2">
-                            {(['all', 'pending', 'ordered', 'completed'] as FilterStatus[]).map((status) => (
-                                <button
-                                    key={status}
-                                    className={`btn btn-sm ${filterStatus === status ? 'btn-primary' : 'btn-ghost'}`}
-                                    onClick={() => setFilterStatus(status)}
-                                >
-                                    {status.charAt(0).toUpperCase() + status.slice(1)}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
+                    ))}
                 </div>
-            </div>
+            )}
 
-            {/* Add Note Form Modal */}
+            {/* Add Note Form Modal - Kept consistent but with better styling */}
             {showAddForm && (
                 <div className="modal-overlay" onClick={() => setShowAddForm(false)}>
                     <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '500px' }}>
-                        <div className="modal-header">
-                            <h3 className="modal-title">Add Medicine Note</h3>
+                        <div className="modal-header bg-gray-50">
+                            <h3 className="modal-title font-bold text-gray-800">New Medicine Request</h3>
+                            <button className="btn btn-ghost btn-sm" onClick={() => setShowAddForm(false)}>✕</button>
                         </div>
                         <form onSubmit={handleAddNote}>
-                            <div className="modal-body">
+                            <div className="modal-body space-y-4">
                                 <div className="form-group">
-                                    <label className="form-label">Medicine Name *</label>
+                                    <label className="form-label font-bold text-gray-700">Medicine Name</label>
                                     <input
                                         type="text"
-                                        className="form-input"
+                                        className="form-input form-input-lg"
                                         value={medicineName}
                                         onChange={(e) => setMedicineName(e.target.value)}
-                                        placeholder="Enter medicine name"
+                                        placeholder="e.g. Paracetamol 500mg"
                                         autoFocus
                                         required
                                     />
                                 </div>
-                                <div className="form-group">
-                                    <label className="form-label">Quantity</label>
-                                    <input
-                                        type="number"
-                                        className="form-input"
-                                        value={quantity}
-                                        onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
-                                        min="1"
-                                    />
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="form-group">
+                                        <label className="form-label">Quantity</label>
+                                        <input
+                                            type="number"
+                                            className="form-input"
+                                            value={quantity}
+                                            onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+                                            min="1"
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Priority</label>
+                                        <select
+                                            className="form-select"
+                                            value={priority}
+                                            onChange={(e) => setPriority(e.target.value as 'low' | 'normal' | 'high')}
+                                        >
+                                            <option value="low">Low - Routine</option>
+                                            <option value="normal">Normal</option>
+                                            <option value="high">High - Urgent</option>
+                                        </select>
+                                    </div>
                                 </div>
                                 <div className="form-group">
-                                    <label className="form-label">Priority</label>
-                                    <select
-                                        className="form-select"
-                                        value={priority}
-                                        onChange={(e) => setPriority(e.target.value as 'low' | 'normal' | 'high')}
-                                    >
-                                        <option value="low">Low</option>
-                                        <option value="normal">Normal</option>
-                                        <option value="high">High</option>
-                                    </select>
-                                </div>
-                                <div className="form-group">
-                                    <label className="form-label">Notes (optional)</label>
+                                    <label className="form-label">Additional Notes</label>
                                     <textarea
                                         className="form-input"
                                         value={noteText}
                                         onChange={(e) => setNoteText(e.target.value)}
-                                        placeholder="Customer name, phone, or any additional details..."
+                                        placeholder="Customer details or specific brand..."
                                         rows={3}
                                     />
                                 </div>
                             </div>
-                            <div className="modal-footer">
+                            <div className="modal-footer bg-gray-50">
                                 <button
                                     type="button"
                                     className="btn btn-ghost"
@@ -344,127 +502,16 @@ export function MedicineNotes() {
                                 </button>
                                 <button
                                     type="submit"
-                                    className="btn btn-primary"
+                                    className="btn btn-primary shadow-lg"
                                     disabled={submitting || !medicineName.trim()}
                                 >
-                                    {submitting ? 'Adding...' : 'Add Note'}
+                                    {submitting ? 'Adding...' : 'Add Request'}
                                 </button>
                             </div>
                         </form>
                     </div>
                 </div>
             )}
-
-            {/* Notes List */}
-            <div className="card">
-                <div className="card-body" style={{ padding: 0 }}>
-                    {loading ? (
-                        <div className="flex items-center justify-center" style={{ padding: 'var(--space-8)' }}>
-                            <div className="loading-spinner"></div>
-                        </div>
-                    ) : filteredNotes.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center" style={{ padding: 'var(--space-8)' }}>
-                            <Package size={48} style={{ color: 'var(--text-tertiary)', marginBottom: 'var(--space-4)' }} />
-                            <p className="text-secondary">No medicine notes found</p>
-                            <button
-                                className="btn btn-primary mt-4"
-                                onClick={() => setShowAddForm(true)}
-                            >
-                                <Plus size={18} />
-                                Add First Note
-                            </button>
-                        </div>
-                    ) : (
-                        <table className="table">
-                            <thead>
-                                <tr>
-                                    <th style={{ width: '40px' }}>Priority</th>
-                                    <th>Medicine</th>
-                                    <th>Qty</th>
-                                    <th>Notes</th>
-                                    <th>Added By</th>
-                                    <th>Date</th>
-                                    <th>Status</th>
-                                    <th style={{ width: '150px' }}>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {filteredNotes.map((note) => (
-                                    <tr key={note.id}>
-                                        <td>
-                                            <div title={note.priority.toUpperCase()}>
-                                                <AlertCircle
-                                                    size={18}
-                                                    style={{ color: getPriorityColor(note.priority) }}
-                                                />
-                                            </div>
-                                        </td>
-                                        <td className="font-medium">{note.medicine_name}</td>
-                                        <td>{note.quantity}</td>
-                                        <td className="text-secondary" style={{ maxWidth: '200px' }}>
-                                            {note.notes ? (
-                                                <span title={note.notes}>
-                                                    {note.notes.length > 50 ? note.notes.substring(0, 50) + '...' : note.notes}
-                                                </span>
-                                            ) : '-'}
-                                        </td>
-                                        <td className="text-secondary">{note.creator_name || 'Unknown'}</td>
-                                        <td className="text-secondary">
-                                            {new Date(note.created_at).toLocaleDateString()}
-                                        </td>
-                                        <td>
-                                            <span
-                                                className="badge"
-                                                style={{
-                                                    backgroundColor: getStatusColor(note.status) + '20',
-                                                    color: getStatusColor(note.status),
-                                                    display: 'inline-flex',
-                                                    alignItems: 'center',
-                                                    gap: '4px'
-                                                }}
-                                            >
-                                                {getStatusIcon(note.status)}
-                                                {note.status}
-                                            </span>
-                                        </td>
-                                        <td>
-                                            <div className="flex gap-1">
-                                                {note.status === 'pending' && (
-                                                    <button
-                                                        className="btn btn-ghost btn-sm"
-                                                        onClick={() => updateStatus(note.id, 'ordered')}
-                                                        title="Mark as Ordered"
-                                                    >
-                                                        <ShoppingCart size={16} />
-                                                    </button>
-                                                )}
-                                                {note.status !== 'completed' && (
-                                                    <button
-                                                        className="btn btn-ghost btn-sm"
-                                                        onClick={() => updateStatus(note.id, 'completed')}
-                                                        title="Mark as Completed"
-                                                        style={{ color: 'var(--color-success-600)' }}
-                                                    >
-                                                        <Check size={16} />
-                                                    </button>
-                                                )}
-                                                <button
-                                                    className="btn btn-ghost btn-sm"
-                                                    onClick={() => deleteNote(note.id)}
-                                                    title="Delete"
-                                                    style={{ color: 'var(--color-danger-600)' }}
-                                                >
-                                                    <Trash2 size={16} />
-                                                </button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    )}
-                </div>
-            </div>
         </div>
     );
 }
