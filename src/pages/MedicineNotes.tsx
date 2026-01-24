@@ -168,257 +168,384 @@ export function MedicineNotes() {
         (note.notes && note.notes.toLowerCase().includes(searchTerm.toLowerCase()))
     );
 
-    const getPriorityBadgeStyle = (priority: string) => {
-        switch (priority) {
-            case 'high': return { backgroundColor: '#fee2e2', color: '#dc2626' };
-            case 'normal': return { backgroundColor: '#fef3c7', color: '#d97706' };
-            case 'low': return { backgroundColor: '#f1f5f9', color: '#64748b' };
-            default: return {};
-        }
-    };
-
     // Status counts for the summary cards
     // Using independent stats from database instead of derived from filtered execution
     const statusCounts = stats;
 
     return (
-        <div className="page-container" style={{ maxWidth: '1200px', margin: '0 auto' }}>
-            {/* Premium Header */}
-            <div className="page-header" style={{
-                background: 'transparent',
-                borderBottom: 'none',
-                paddingBottom: '0',
-                marginBottom: 'var(--space-8)'
-            }}>
+        <>
+            <header className="page-header">
                 <div>
                     <h1 className="page-title">
-                        <div style={{
-                            padding: '10px',
-                            background: 'white',
-                            borderRadius: '12px',
-                            boxShadow: 'var(--shadow-sm)',
-                            display: 'flex'
-                        }}>
-                            <StickyNote className="page-title-icon" />
-                        </div>
+                        <StickyNote className="page-title-icon" />
                         Medicine Notes
                     </h1>
-                    <p className="page-subtitle" style={{ marginLeft: '54px' }}>
-                        Track and manage requested medicines
-                    </p>
+                    <p className="page-subtitle">Track and manage requested medicines</p>
                 </div>
-                <button
-                    className="btn btn-primary btn-lg"
-                    style={{
-                        boxShadow: '0 4px 14px 0 rgba(0,118,255,0.39)',
-                        padding: '12px 24px',
-                        borderRadius: '12px'
-                    }}
-                    onClick={() => setShowAddForm(true)}
-                >
-                    <Plus size={20} />
-                    Add Note
-                </button>
-            </div>
+                <div className="page-actions">
+                    <button
+                        className="btn btn-primary"
+                        onClick={() => setShowAddForm(true)}
+                    >
+                        <Plus size={18} />
+                        Add Note
+                    </button>
+                </div>
+            </header>
 
-            {/* Modern Stats Overview */}
-            <div className="grid grid-cols-3 gap-4 mb-4 mt-2">
-                <div
-                    className={`card stat-card ${filterStatus === 'pending' ? 'ring-2 ring-warning-500' : ''}`}
-                    onClick={() => setFilterStatus('pending')}
-                    style={{
-                        cursor: 'pointer',
-                        background: 'linear-gradient(135deg, #fffbeb 0%, #ffffff 100%)',
-                        border: '1px solid #fef3c7',
-                        transition: 'transform 0.2s',
-                        transform: filterStatus === 'pending' ? 'translateY(-4px)' : 'none'
-                    }}
-                >
-                    <div className="flex justify-between items-start">
-                        <div>
-                            <div className="text-secondary text-sm font-medium uppercase tracking-wider mb-1">Pending Requests</div>
-                            <div className="text-4xl font-bold" style={{ color: '#d97706' }}>{statusCounts.pending}</div>
+            <div className="page-body">
+                <style>{`
+          .notes-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: var(--space-4);
+            margin-bottom: var(--space-6);
+          }
+
+          .notes-stat-card {
+            text-align: left;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius-lg);
+            padding: var(--space-4);
+            cursor: pointer;
+            transition: all var(--transition-fast);
+          }
+
+          .notes-stat-card:hover {
+            box-shadow: var(--shadow-sm);
+            transform: translateY(-1px);
+          }
+
+          .notes-stat-card.active {
+            box-shadow: var(--shadow-md);
+            border-color: var(--color-primary-300);
+          }
+
+          .notes-stat-card.warning.active { border-color: var(--color-warning-500); }
+          .notes-stat-card.primary.active { border-color: var(--color-primary-500); }
+          .notes-stat-card.success.active { border-color: var(--color-success-500); }
+
+          .notes-stat-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: var(--space-3);
+          }
+
+          .notes-stat-label {
+            font-size: var(--text-sm);
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            margin-bottom: var(--space-1);
+          }
+
+          .notes-stat-value {
+            font-size: var(--text-2xl);
+            font-weight: var(--font-bold);
+            font-family: var(--font-mono);
+          }
+
+          .notes-stat-icon {
+            width: 42px;
+            height: 42px;
+            border-radius: var(--radius-lg);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+          }
+
+          .notes-stat-card.warning .notes-stat-icon { background: var(--color-warning-100); color: var(--color-warning-600); }
+          .notes-stat-card.primary .notes-stat-icon { background: var(--color-primary-100); color: var(--color-primary-600); }
+          .notes-stat-card.success .notes-stat-icon { background: var(--color-success-100); color: var(--color-success-600); }
+
+          .notes-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: var(--space-4);
+            margin-bottom: var(--space-6);
+            flex-wrap: wrap;
+          }
+
+          .notes-filters {
+            display: flex;
+            gap: var(--space-2);
+            flex-wrap: wrap;
+          }
+
+          .notes-filter-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: var(--space-2);
+            padding: var(--space-2) var(--space-4);
+            border: 1px solid var(--border-medium);
+            border-radius: var(--radius-full);
+            background: var(--bg-secondary);
+            cursor: pointer;
+            transition: all var(--transition-fast);
+            font-size: var(--text-sm);
+            color: var(--text-secondary);
+          }
+
+          .notes-filter-btn:hover {
+            border-color: var(--color-primary-300);
+            color: var(--text-primary);
+          }
+
+          .notes-filter-btn.active {
+            background: var(--color-primary-600);
+            color: var(--text-inverse);
+            border-color: var(--color-primary-600);
+          }
+
+          .notes-search {
+            position: relative;
+            min-width: 220px;
+            max-width: 320px;
+            flex: 1;
+          }
+
+          .notes-search input {
+            padding-left: var(--space-10);
+          }
+
+          .notes-search-icon {
+            position: absolute;
+            left: var(--space-3);
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-tertiary);
+          }
+
+          .notes-list {
+            display: grid;
+            gap: var(--space-3);
+          }
+
+          .note-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius-lg);
+            padding: var(--space-4);
+            display: flex;
+            justify-content: space-between;
+            gap: var(--space-4);
+            transition: box-shadow var(--transition-fast);
+          }
+
+          .note-card:hover {
+            box-shadow: var(--shadow-md);
+          }
+
+          .note-card.priority-high { border-left: 4px solid var(--color-danger-500); }
+          .note-card.priority-normal { border-left: 4px solid var(--color-warning-500); }
+          .note-card.priority-low { border-left: 4px solid var(--color-gray-300); }
+
+          .note-title-row {
+            display: flex;
+            align-items: center;
+            gap: var(--space-2);
+            flex-wrap: wrap;
+            margin-bottom: var(--space-2);
+          }
+
+          .note-title {
+            font-size: var(--text-lg);
+            font-weight: var(--font-semibold);
+            color: var(--text-primary);
+          }
+
+          .note-badge {
+            padding: 4px 10px;
+            border-radius: var(--radius-full);
+            font-size: var(--text-xs);
+            font-weight: var(--font-semibold);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+          }
+
+          .note-badge.priority-high { background: var(--color-danger-50); color: var(--color-danger-700); }
+          .note-badge.priority-normal { background: var(--color-warning-50); color: var(--color-warning-700); }
+          .note-badge.priority-low { background: var(--color-gray-100); color: var(--color-gray-600); }
+
+          .note-badge.status-pending { background: var(--color-warning-50); color: var(--color-warning-700); }
+          .note-badge.status-ordered { background: var(--color-primary-100); color: var(--color-primary-700); }
+          .note-badge.status-completed { background: var(--color-success-100); color: var(--color-success-700); }
+
+          .note-meta {
+            display: flex;
+            gap: var(--space-4);
+            flex-wrap: wrap;
+            color: var(--text-secondary);
+            font-size: var(--text-sm);
+            margin-bottom: var(--space-2);
+          }
+
+          .note-qty {
+            font-family: var(--font-mono);
+            background: var(--color-gray-100);
+            padding: 4px 8px;
+            border-radius: var(--radius-md);
+            color: var(--text-primary);
+          }
+
+          .note-notes {
+            color: var(--text-secondary);
+            font-size: var(--text-sm);
+          }
+
+          .note-actions {
+            display: flex;
+            align-items: center;
+            gap: var(--space-2);
+            flex-wrap: wrap;
+            justify-content: flex-end;
+          }
+        `}</style>
+
+                <div className="notes-stats">
+                    <button
+                        className={`notes-stat-card warning ${filterStatus === 'pending' ? 'active' : ''}`}
+                        onClick={() => setFilterStatus('pending')}
+                    >
+                        <div className="notes-stat-header">
+                            <div>
+                                <div className="notes-stat-label">Pending Requests</div>
+                                <div className="notes-stat-value">{statusCounts.pending}</div>
+                            </div>
+                            <div className="notes-stat-icon">
+                                <Clock size={20} />
+                            </div>
                         </div>
-                        <div style={{
-                            padding: '12px',
-                            background: '#fef3c7',
-                            borderRadius: '16px',
-                            color: '#d97706'
-                        }}>
-                            <Clock size={24} />
+                    </button>
+
+                    <button
+                        className={`notes-stat-card primary ${filterStatus === 'ordered' ? 'active' : ''}`}
+                        onClick={() => setFilterStatus('ordered')}
+                    >
+                        <div className="notes-stat-header">
+                            <div>
+                                <div className="notes-stat-label">Previously Ordered</div>
+                                <div className="notes-stat-value">{statusCounts.ordered}</div>
+                            </div>
+                            <div className="notes-stat-icon">
+                                <ShoppingCart size={20} />
+                            </div>
                         </div>
+                    </button>
+
+                    <button
+                        className={`notes-stat-card success ${filterStatus === 'completed' ? 'active' : ''}`}
+                        onClick={() => setFilterStatus('completed')}
+                    >
+                        <div className="notes-stat-header">
+                            <div>
+                                <div className="notes-stat-label">Completed</div>
+                                <div className="notes-stat-value">{statusCounts.completed}</div>
+                            </div>
+                            <div className="notes-stat-icon">
+                                <Check size={20} />
+                            </div>
+                        </div>
+                    </button>
+                </div>
+
+                <div className="notes-toolbar">
+                    <div className="notes-filters">
+                        {(['all', 'pending', 'ordered', 'completed'] as FilterStatus[]).map((status) => (
+                            <button
+                                key={status}
+                                onClick={() => setFilterStatus(status)}
+                                className={`notes-filter-btn ${filterStatus === status ? 'active' : ''}`}
+                            >
+                                {status.charAt(0).toUpperCase() + status.slice(1)}
+                            </button>
+                        ))}
+                    </div>
+
+                    <div className="notes-search">
+                        <Search className="notes-search-icon" size={16} />
+                        <input
+                            type="text"
+                            className="form-input"
+                            placeholder="Search medicines..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                        />
                     </div>
                 </div>
 
-                <div
-                    className={`card stat-card ${filterStatus === 'ordered' ? 'ring-2 ring-primary-500' : ''}`}
-                    onClick={() => setFilterStatus('ordered')}
-                    style={{
-                        cursor: 'pointer',
-                        background: 'linear-gradient(135deg, #eff6ff 0%, #ffffff 100%)',
-                        border: '1px solid #dbeafe',
-                        transition: 'transform 0.2s',
-                        transform: filterStatus === 'ordered' ? 'translateY(-4px)' : 'none'
-                    }}
-                >
-                    <div className="flex justify-between items-start">
-                        <div>
-                            <div className="text-secondary text-sm font-medium uppercase tracking-wider mb-1">Previously Ordered</div>
-                            <div className="text-4xl font-bold" style={{ color: '#2563eb' }}>{statusCounts.ordered}</div>
-                        </div>
-                        <div style={{
-                            padding: '12px',
-                            background: '#dbeafe',
-                            borderRadius: '16px',
-                            color: '#2563eb'
-                        }}>
-                            <ShoppingCart size={24} />
-                        </div>
+                {loading ? (
+                    <div className="flex justify-center p-12">
+                        <div className="loading-spinner"></div>
                     </div>
-                </div>
-
-                <div
-                    className={`card stat-card ${filterStatus === 'completed' ? 'ring-2 ring-success-500' : ''}`}
-                    onClick={() => setFilterStatus('completed')}
-                    style={{
-                        cursor: 'pointer',
-                        background: 'linear-gradient(135deg, #f0fdf4 0%, #ffffff 100%)',
-                        border: '1px solid #dcfce7',
-                        transition: 'transform 0.2s',
-                        transform: filterStatus === 'completed' ? 'translateY(-4px)' : 'none'
-                    }}
-                >
-                    <div className="flex justify-between items-start">
-                        <div>
-                            <div className="text-secondary text-sm font-medium uppercase tracking-wider mb-1">Completed</div>
-                            <div className="text-4xl font-bold" style={{ color: '#059669' }}>{statusCounts.completed}</div>
-                        </div>
-                        <div style={{
-                            padding: '12px',
-                            background: '#dcfce7',
-                            borderRadius: '16px',
-                            color: '#059669'
-                        }}>
-                            <Check size={24} />
-                        </div>
+                ) : filteredNotes.length === 0 ? (
+                    <div className="empty-state card border-dashed">
+                        <Package size={48} className="empty-state-icon" />
+                        <h3 className="empty-state-title">No medicines found</h3>
+                        <p className="empty-state-description">
+                            {searchTerm ? 'Try adjusting your search terms' : 'Start by adding a medicine request'}
+                        </p>
+                        {!searchTerm && (
+                            <button
+                                className="btn btn-primary mt-6"
+                                onClick={() => setShowAddForm(true)}
+                            >
+                                <Plus size={18} /> Add First Note
+                            </button>
+                        )}
                     </div>
-                </div>
-            </div>
-
-            {/* Filter Bar & Search */}
-            <div className="flex justify-between items-center mb-8">
-                <div className="filter-bar">
-                    {(['all', 'pending', 'ordered', 'completed'] as FilterStatus[]).map((status) => (
-                        <button
-                            key={status}
-                            onClick={() => setFilterStatus(status)}
-                            className={`filter-btn ${filterStatus === status ? 'active' : ''}`}
-                        >
-                            {status.charAt(0).toUpperCase() + status.slice(1)}
-                        </button>
-                    ))}
-                </div>
-
-                <div className="input-group" style={{ maxWidth: '300px' }}>
-                    <Search className="input-icon" size={18} />
-                    <input
-                        type="text"
-                        className="form-input"
-                        placeholder="Search medicines..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        style={{ paddingLeft: '40px' }}
-                    />
-                </div>
-            </div>
-
-            {/* Modern List View */}
-            {loading ? (
-                <div className="flex justify-center p-12">
-                    <div className="loading-spinner"></div>
-                </div>
-            ) : filteredNotes.length === 0 ? (
-                <div className="empty-state card border-dashed">
-                    <div className="p-8 bg-gray-50 rounded-full mb-4">
-                        <Package size={48} className="text-gray-400" />
-                    </div>
-                    <h3 className="empty-state-title">No medicines found</h3>
-                    <p className="empty-state-description">
-                        {searchTerm ? 'Try adjusting your search terms' : 'Start by adding a medicine request'}
-                    </p>
-                    {!searchTerm && (
-                        <button
-                            className="btn btn-primary mt-6"
-                            onClick={() => setShowAddForm(true)}
-                        >
-                            <Plus size={18} /> Add First Note
-                        </button>
-                    )}
-                </div>
-            ) : (
-                <div className="grid gap-4">
-                    {filteredNotes.map((note) => (
-                        <div
-                            key={note.id}
-                            className="card hover:shadow-lg transition-all"
-                            style={{
-                                padding: '32px',
-                                borderLeft: `4px solid ${note.priority === 'high' ? 'var(--color-danger-500)' :
-                                    note.priority === 'normal' ? 'var(--color-warning-500)' :
-                                        'var(--color-gray-300)'
-                                    }`
-                            }}
-                        >
-                            <div className="flex items-start justify-between">
-                                <div className="flex-1">
-                                    <div className="flex items-center gap-3 mb-2">
-                                        <h3 className="text-lg font-bold text-gray-800">{note.medicine_name}</h3>
-                                        <span
-                                            className="px-2 py-1 rounded-md text-xs font-bold uppercase tracking-wide"
-                                            style={getPriorityBadgeStyle(note.priority)}
-                                        >
-                                            {note.priority} Priority
+                ) : (
+                    <div className="notes-list">
+                        {filteredNotes.map((note) => (
+                            <div
+                                key={note.id}
+                                className={`note-card priority-${note.priority}`}
+                            >
+                                <div>
+                                    <div className="note-title-row">
+                                        <div className="note-title">{note.medicine_name}</div>
+                                        <span className={`note-badge priority-${note.priority}`}>
+                                            {note.priority} priority
                                         </span>
-                                        <span className="text-xs text-gray-400 flex items-center gap-1">
+                                        <span className={`note-badge status-${note.status}`}>
+                                            {note.status}
+                                        </span>
+                                    </div>
+                                    <div className="note-meta">
+                                        <span className="note-qty">Qty: {note.quantity}</span>
+                                        <span className="flex items-center gap-1">
                                             <Clock size={12} />
                                             {new Date(note.created_at).toLocaleDateString()}
                                         </span>
+                                        {note.creator_name && <span>Added by {note.creator_name}</span>}
                                     </div>
-                                    <div className="flex items-center gap-6 text-gray-600">
-                                        <div className="flex items-center gap-2">
-                                            <span className="bg-gray-100 text-gray-600 px-2 py-1 rounded text-sm font-mono">
-                                                Qty: {note.quantity}
-                                            </span>
-                                        </div>
-                                        {note.notes && (
-                                            <p className="text-sm text-gray-500 m-0 flex items-center gap-2">
-                                                <StickyNote size={14} />
-                                                {note.notes}
-                                            </p>
-                                        )}
-                                    </div>
+                                    {note.notes && (
+                                        <div className="note-notes">{note.notes}</div>
+                                    )}
                                 </div>
 
-                                <div className="flex items-center gap-2 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                                <div className="note-actions">
                                     {note.status === 'pending' && (
                                         <button
                                             className="btn btn-secondary btn-sm"
                                             onClick={() => updateStatus(note.id, 'ordered')}
                                             title="Mark as Ordered"
                                         >
-                                            <ShoppingCart size={16} className="text-primary-600" />
-                                            <span className="ml-2">Order</span>
+                                            <ShoppingCart size={16} />
+                                            Order
                                         </button>
                                     )}
                                     {note.status !== 'completed' && (
                                         <button
                                             className="btn btn-success btn-sm"
-                                            style={{ background: 'var(--color-success-50)', color: 'var(--color-success-700)', border: '1px solid var(--color-success-200)' }}
                                             onClick={() => updateStatus(note.id, 'completed')}
                                             title="Mark as Completed"
                                         >
                                             <Check size={16} />
-                                            <span className="ml-2">Complete</span>
+                                            Complete
                                         </button>
                                     )}
                                     <button
@@ -430,88 +557,87 @@ export function MedicineNotes() {
                                     </button>
                                 </div>
                             </div>
-                        </div>
-                    ))}
-                </div>
-            )}
+                        ))}
+                    </div>
+                )}
 
-            {/* Add Note Form Modal - Kept consistent but with better styling */}
-            {showAddForm && (
-                <div className="modal-overlay" onClick={() => setShowAddForm(false)}>
-                    <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '500px' }}>
-                        <div className="modal-header bg-gray-50">
-                            <h3 className="modal-title font-bold text-gray-800">New Medicine Request</h3>
-                            <button className="btn btn-ghost btn-sm" onClick={() => setShowAddForm(false)}>✕</button>
-                        </div>
-                        <form onSubmit={handleAddNote}>
-                            <div className="modal-body space-y-4">
-                                <div className="form-group">
-                                    <label className="form-label font-bold text-gray-700">Medicine Name</label>
-                                    <input
-                                        type="text"
-                                        className="form-input form-input-lg"
-                                        value={medicineName}
-                                        onChange={(e) => setMedicineName(e.target.value)}
-                                        placeholder="e.g. Paracetamol 500mg"
-                                        autoFocus
-                                        required
-                                    />
-                                </div>
-                                <div className="grid grid-cols-2 gap-4">
+                {showAddForm && (
+                    <div className="modal-overlay" onClick={() => setShowAddForm(false)}>
+                        <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '500px' }}>
+                            <div className="modal-header bg-gray-50">
+                                <h3 className="modal-title">New Medicine Request</h3>
+                                <button className="btn btn-ghost btn-sm" onClick={() => setShowAddForm(false)}>✕</button>
+                            </div>
+                            <form onSubmit={handleAddNote}>
+                                <div className="modal-body space-y-4">
                                     <div className="form-group">
-                                        <label className="form-label">Quantity</label>
+                                        <label className="form-label">Medicine Name</label>
                                         <input
-                                            type="number"
-                                            className="form-input"
-                                            value={quantity}
-                                            onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
-                                            min="1"
+                                            type="text"
+                                            className="form-input form-input-lg"
+                                            value={medicineName}
+                                            onChange={(e) => setMedicineName(e.target.value)}
+                                            placeholder="e.g. Paracetamol 500mg"
+                                            autoFocus
+                                            required
                                         />
                                     </div>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="form-group">
+                                            <label className="form-label">Quantity</label>
+                                            <input
+                                                type="number"
+                                                className="form-input"
+                                                value={quantity}
+                                                onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+                                                min="1"
+                                            />
+                                        </div>
+                                        <div className="form-group">
+                                            <label className="form-label">Priority</label>
+                                            <select
+                                                className="form-select"
+                                                value={priority}
+                                                onChange={(e) => setPriority(e.target.value as 'low' | 'normal' | 'high')}
+                                            >
+                                                <option value="low">Low - Routine</option>
+                                                <option value="normal">Normal</option>
+                                                <option value="high">High - Urgent</option>
+                                            </select>
+                                        </div>
+                                    </div>
                                     <div className="form-group">
-                                        <label className="form-label">Priority</label>
-                                        <select
-                                            className="form-select"
-                                            value={priority}
-                                            onChange={(e) => setPriority(e.target.value as 'low' | 'normal' | 'high')}
-                                        >
-                                            <option value="low">Low - Routine</option>
-                                            <option value="normal">Normal</option>
-                                            <option value="high">High - Urgent</option>
-                                        </select>
+                                        <label className="form-label">Additional Notes</label>
+                                        <textarea
+                                            className="form-input"
+                                            value={noteText}
+                                            onChange={(e) => setNoteText(e.target.value)}
+                                            placeholder="Customer details or specific brand..."
+                                            rows={3}
+                                        />
                                     </div>
                                 </div>
-                                <div className="form-group">
-                                    <label className="form-label">Additional Notes</label>
-                                    <textarea
-                                        className="form-input"
-                                        value={noteText}
-                                        onChange={(e) => setNoteText(e.target.value)}
-                                        placeholder="Customer details or specific brand..."
-                                        rows={3}
-                                    />
+                                <div className="modal-footer bg-gray-50">
+                                    <button
+                                        type="button"
+                                        className="btn btn-ghost"
+                                        onClick={() => setShowAddForm(false)}
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        type="submit"
+                                        className="btn btn-primary"
+                                        disabled={submitting || !medicineName.trim()}
+                                    >
+                                        {submitting ? 'Adding...' : 'Add Request'}
+                                    </button>
                                 </div>
-                            </div>
-                            <div className="modal-footer bg-gray-50">
-                                <button
-                                    type="button"
-                                    className="btn btn-ghost"
-                                    onClick={() => setShowAddForm(false)}
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    type="submit"
-                                    className="btn btn-primary shadow-lg"
-                                    disabled={submitting || !medicineName.trim()}
-                                >
-                                    {submitting ? 'Adding...' : 'Add Request'}
-                                </button>
-                            </div>
-                        </form>
+                            </form>
+                        </div>
                     </div>
-                </div>
-            )}
-        </div>
+                )}
+            </div>
+        </>
     );
 }
