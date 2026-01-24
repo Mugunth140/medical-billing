@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "npm run bundle:medicines && tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
     "tauri": "tauri",
@@ -18,7 +18,8 @@
     "db:seed": "node scripts/db-seed.mjs --seed",
     "db:clear": "node scripts/db-seed.mjs --clear",
     "db:reset": "node scripts/db-seed.mjs --reset",
-    "import:medicines": "node scripts/import-medicines.mjs"
+    "import:medicines": "node scripts/import-medicines.mjs",
+    "bundle:medicines": "node scripts/create-medicines-bundle.mjs && node scripts/compress-medicines-bundle.mjs"
   },
   "dependencies": {
     "@react-pdf/renderer": "^4.1.6",

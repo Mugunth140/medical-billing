@@ -19,9 +19,9 @@ fn get_bundle_extract_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 /// Get the main database path (matches Tauri SQL plugin location)
 fn get_db_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     app.path()
-        .app_config_dir()
+        .app_data_dir()
         .map(|p| p.join("medbill.db"))
-        .map_err(|e| format!("Failed to get config directory: {}", e))
+        .map_err(|e| format!("Failed to get data directory: {}", e))
 }
 
 /// Extract embedded compressed database to a file
