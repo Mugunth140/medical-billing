@@ -222,7 +222,7 @@ export function MedicineNotes() {
             </div>
 
             {/* Modern Stats Overview */}
-            <div className="grid grid-cols-3 gap-4 mb-4 mt-4">
+            <div className="grid grid-cols-3 gap-4 mb-4 mt-2">
                 <div
                     className={`card stat-card ${filterStatus === 'pending' ? 'ring-2 ring-warning-500' : ''}`}
                     onClick={() => setFilterStatus('pending')}
