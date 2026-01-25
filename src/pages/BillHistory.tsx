@@ -254,7 +254,7 @@ export function BillHistory() {
                     
                     .bills-header {
                         display: grid;
-                        grid-template-columns: 140px 2fr 100px 100px 80px 60px;
+                        grid-template-columns: 50px 140px 2fr 100px 100px 80px 60px;
                         gap: 12px;
                         padding: 12px 16px;
                         background: var(--bg-tertiary);
@@ -266,7 +266,7 @@ export function BillHistory() {
                     
                     .bill-row {
                         display: grid;
-                        grid-template-columns: 140px 2fr 100px 100px 80px 60px;
+                        grid-template-columns: 50px 140px 2fr 100px 100px 80px 60px;
                         gap: 12px;
                         padding: 12px 16px;
                         border-bottom: 1px solid var(--border-light);
@@ -423,6 +423,7 @@ export function BillHistory() {
                     <>
                         <div className="bills-table">
                             <div className="bills-header">
+                                <span style={{ textAlign: 'center' }}>S.No</span>
                                 <span>Bill No.</span>
                                 <span>Customer</span>
                                 <span style={{ textAlign: 'right' }}>Amount</span>
@@ -436,8 +437,11 @@ export function BillHistory() {
                             ) : bills.length === 0 ? (
                                 <div className="empty-history">No bills found</div>
                             ) : (
-                                bills.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE).map(bill => (
+                                bills.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE).map((bill, index) => (
                                     <div key={bill.id} className="bill-row">
+                                        <div style={{ textAlign: 'center', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                                            {(currentPage - 1) * ITEMS_PER_PAGE + index + 1}
+                                        </div>
                                         <div>
                                             <div className="bill-number">{bill.bill_number}</div>
                                             <div className="bill-date">{formatDate(bill.bill_date)}</div>

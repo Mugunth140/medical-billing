@@ -52,7 +52,7 @@ const MAIN_NAV_ITEMS: NavItem[] = [
     { id: 'running-bills', label: 'Running Bills', icon: ClipboardList, path: '/running-bills' },
     { id: 'inventory', label: 'Inventory', icon: Package, path: '/inventory' },
     { id: 'customers', label: 'Customers', icon: Users, path: '/customers' },
-    { id: 'suppliers', label: 'Suppliers & Purchases', icon: Building2, path: '/purchases', adminOnly: true },
+    { id: 'suppliers', label: 'Suppliers & Purchases', icon: Building2, path: '/purchases', adminOnly: false },
     { id: 'returns', label: 'Returns', icon: ArrowDownLeft, path: '/returns', adminOnly: false },
     { id: 'medicine-notes', label: 'Medicine Notes', icon: StickyNote, path: '/medicine-notes', adminOnly: false },
 ];
