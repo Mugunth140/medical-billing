@@ -9,7 +9,7 @@
 
 export type UserRole = 'admin' | 'staff';
 
-export type GstRate = 0 | 5 | 12 | 18;
+export type GstRate = number;
 
 export type Taxability = 'TAXABLE' | 'EXEMPT';
 

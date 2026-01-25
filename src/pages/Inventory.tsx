@@ -40,6 +40,11 @@ type FilterType = 'all' | 'expiring' | 'low-stock' | 'non-moving' | 'scheduled' 
 export function Inventory() {
     const { showToast } = useToast();
     const { user } = useAuthStore();
+    const clampGstRate = (value: string | number) => {
+        const num = typeof value === 'number' ? value : parseFloat(value);
+        if (Number.isNaN(num)) return 0;
+        return Math.min(28, Math.max(0, num));
+    };
     const [searchParams, setSearchParams] = useSearchParams();
     const [stockItems, setStockItems] = useState<StockItem[]>([]);
     const [filteredItems, setFilteredItems] = useState<StockItem[]>([]);
@@ -1092,14 +1097,16 @@ export function Inventory() {
                                             </div>
                                             <div className="form-group" style={{ marginBottom: 0 }}>
                                                 <label className="form-label" style={{ fontSize: 'var(--text-xs)' }}>GST %</label>
-                                                <select className="form-select" style={{ padding: '6px 8px', fontSize: 'var(--text-sm)' }}
+                                                <input
+                                                    type="number"
+                                                    className="form-input"
+                                                    style={{ padding: '6px 8px', fontSize: 'var(--text-sm)' }}
                                                     value={batchForm.gst_rate}
-                                                    onChange={(e) => setBatchForm({ ...batchForm, gst_rate: parseInt(e.target.value) as GstRate })}>
-                                                    <option value={0}>0%</option>
-                                                    <option value={5}>5%</option>
-                                                    <option value={12}>12%</option>
-                                                    <option value={18}>18%</option>
-                                                </select>
+                                                    min={0}
+                                                    max={28}
+                                                    step={0.01}
+                                                    onChange={(e) => setBatchForm({ ...batchForm, gst_rate: clampGstRate(e.target.value) })}
+                                                />
                                             </div>
                                             <div className="form-group" style={{ marginBottom: 0 }}>
                                                 <label className="form-label" style={{ fontSize: 'var(--text-xs)' }}>HSN Code</label>
@@ -1262,14 +1269,16 @@ export function Inventory() {
                                             </div>
                                             <div className="form-group" style={{ marginBottom: 0 }}>
                                                 <label className="form-label" style={{ fontSize: 'var(--text-xs)' }}>GST %</label>
-                                                <select className="form-select" style={{ padding: '6px 8px', fontSize: 'var(--text-sm)' }}
+                                                <input
+                                                    type="number"
+                                                    className="form-input"
+                                                    style={{ padding: '6px 8px', fontSize: 'var(--text-sm)' }}
                                                     value={batchForm.gst_rate}
-                                                    onChange={(e) => setBatchForm({ ...batchForm, gst_rate: parseInt(e.target.value) as GstRate })}>
-                                                    <option value={0}>0%</option>
-                                                    <option value={5}>5%</option>
-                                                    <option value={12}>12%</option>
-                                                    <option value={18}>18%</option>
-                                                </select>
+                                                    min={0}
+                                                    max={28}
+                                                    step={0.01}
+                                                    onChange={(e) => setBatchForm({ ...batchForm, gst_rate: clampGstRate(e.target.value) })}
+                                                />
                                             </div>
                                             <div className="form-group" style={{ marginBottom: 0 }}>
                                                 <label className="form-label" style={{ fontSize: 'var(--text-xs)' }}>Schedule Drug</label>

@@ -60,6 +60,11 @@ interface PurchaseForm {
 export function Purchases() {
     const { showToast } = useToast();
     const { user } = useAuthStore();
+    const clampGstRate = (value: string | number) => {
+        const num = typeof value === 'number' ? value : parseFloat(value);
+        if (Number.isNaN(num)) return 0;
+        return Math.min(28, Math.max(0, num));
+    };
     const [purchases, setPurchases] = useState<Purchase[]>([]);
     const [suppliers, setSuppliers] = useState<Supplier[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -88,7 +93,7 @@ export function Purchases() {
         generic_name: '',
         manufacturer: '',
         hsn_code: '3004',
-        gst_rate: 12 as GstRate,
+        gst_rate: 12,
         category: '',
         is_schedule: false
     });
@@ -353,7 +358,7 @@ export function Purchases() {
             medicine_id: medicine.id,
             medicine_name: medicine.name,
             hsn_code: medicine.hsn_code,
-            gst_rate: (lastBatch?.gst_rate || 12) as GstRate, // Get from batch or default to 12%
+            gst_rate: lastBatch?.gst_rate || 12, // Get from batch or default to 12%
             batch_number: '',
             expiry_date: '',
             quantity: 1,
@@ -452,7 +457,7 @@ export function Purchases() {
                 if (['purchase_price', 'quantity', 'gst_rate'].includes(field)) {
                     const qty = field === 'quantity' ? Number(value) : updated.quantity;
                     const price = field === 'purchase_price' ? Number(value) : updated.purchase_price;
-                    const gstRate = field === 'gst_rate' ? Number(value) : updated.gst_rate;
+                    const gstRate = field === 'gst_rate' ? clampGstRate(value as number) : updated.gst_rate;
 
                     const subtotal = qty * price;
                     const halfGstRate = gstRate / 2;
@@ -1447,8 +1452,17 @@ export function Purchases() {
                                                                 min={0}
                                                             />
                                                         </td>
-                                                        <td style={{ textAlign: 'center' }}>
-                                                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-sm)' }}>{item.gst_rate}%</span>
+                                                        <td>
+                                                            <input
+                                                                type="number"
+                                                                className="form-input"
+                                                                style={{ padding: 'var(--space-2)', fontSize: 'var(--text-sm)', textAlign: 'right' }}
+                                                                value={item.gst_rate}
+                                                                onChange={(e) => updatePurchaseItem(item.id, 'gst_rate', clampGstRate(e.target.value))}
+                                                                min={0}
+                                                                max={28}
+                                                                step={0.01}
+                                                            />
                                                         </td>
                                                         <td>
                                                             <input
@@ -1602,16 +1616,15 @@ export function Purchases() {
                                     </div>
                                     <div className="form-group">
                                         <label className="form-label">GST Rate</label>
-                                        <select
-                                            className="form-select"
+                                        <input
+                                            type="number"
+                                            className="form-input"
                                             value={quickMedicineForm.gst_rate}
-                                            onChange={(e) => setQuickMedicineForm({ ...quickMedicineForm, gst_rate: parseInt(e.target.value) as GstRate })}
-                                        >
-                                            <option value={0}>0%</option>
-                                            <option value={5}>5%</option>
-                                            <option value={12}>12%</option>
-                                            <option value={18}>18%</option>
-                                        </select>
+                                            min={0}
+                                            max={28}
+                                            step={0.01}
+                                            onChange={(e) => setQuickMedicineForm({ ...quickMedicineForm, gst_rate: clampGstRate(e.target.value) })}
+                                        />
                                     </div>
                                     <div className="form-group">
                                         <label className="form-label">Category</label>

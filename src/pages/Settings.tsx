@@ -58,6 +58,11 @@ const initialUserForm: UserFormData = {
 export function Settings() {
     const { user } = useAuthStore();
     const { settings, updateSetting } = useSettingsStore();
+    const clampGstRate = (value: string) => {
+        const num = parseFloat(value);
+        if (Number.isNaN(num)) return '0';
+        return String(Math.min(28, Math.max(0, num)));
+    };
     const [activeTab, setActiveTab] = useState<SettingsTab>('shop');
     const [isSaving, setIsSaving] = useState(false);
     const [saveSuccess, setSaveSuccess] = useState(false);
@@ -763,16 +768,15 @@ export function Settings() {
                                         </div>
                                         <div className="form-group">
                                             <label className="form-label">Default GST Rate (%)</label>
-                                            <select
-                                                className="form-select"
+                                            <input
+                                                type="number"
+                                                className="form-input"
                                                 value={billingForm.default_gst_rate}
-                                                onChange={(e) => setBillingForm({ ...billingForm, default_gst_rate: e.target.value })}
-                                            >
-                                                <option value="0">0% (Exempt)</option>
-                                                <option value="5">5%</option>
-                                                <option value="12">12%</option>
-                                                <option value="18">18%</option>
-                                            </select>
+                                                min={0}
+                                                max={28}
+                                                step={0.01}
+                                                onChange={(e) => setBillingForm({ ...billingForm, default_gst_rate: clampGstRate(e.target.value) })}
+                                            />
                                         </div>
                                     </div>
                                 </div>

@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS medicines (
     generic_name TEXT,
     manufacturer TEXT,
     hsn_code TEXT NOT NULL DEFAULT '3004',
-    gst_rate DECIMAL(5,2) NOT NULL CHECK (gst_rate IN (0, 5, 12, 18)),
+    gst_rate DECIMAL(5,2) NOT NULL CHECK (gst_rate >= 0 AND gst_rate <= 28),
     taxability TEXT NOT NULL DEFAULT 'TAXABLE' CHECK (taxability IN ('TAXABLE', 'EXEMPT')),
     category TEXT,
     drug_type TEXT,

@@ -53,6 +53,11 @@ export function RunningBills() {
     const { showToast } = useToast();
     const { user } = useAuthStore();
     const { settings } = useSettingsStore();
+    const clampGstRate = (value: string | number) => {
+        const num = typeof value === 'number' ? value : parseFloat(value);
+        if (Number.isNaN(num)) return 0;
+        return Math.min(28, Math.max(0, num));
+    };
     const [runningBills, setRunningBills] = useState<RunningBill[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [showAddModal, setShowAddModal] = useState(false);
@@ -861,16 +866,15 @@ export function RunningBills() {
                                             </div>
                                             <div className="form-group">
                                                 <label className="form-label">GST %</label>
-                                                <select
-                                                    className="form-select"
+                                                <input
+                                                    type="number"
+                                                    className="form-input"
                                                     value={item.gst_rate}
-                                                    onChange={(e) => updateBillItem(index, 'gst_rate', parseFloat(e.target.value))}
-                                                >
-                                                    <option value={0}>0%</option>
-                                                    <option value={5}>5%</option>
-                                                    <option value={12}>12%</option>
-                                                    <option value={18}>18%</option>
-                                                </select>
+                                                    min={0}
+                                                    max={28}
+                                                    step={0.01}
+                                                    onChange={(e) => updateBillItem(index, 'gst_rate', clampGstRate(e.target.value))}
+                                                />
                                             </div>
                                             <div className="form-group">
                                                 <label className="form-label">Total</label>

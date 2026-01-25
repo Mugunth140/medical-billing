@@ -49,7 +49,7 @@ const TABLE_STATEMENTS = [
         mrp DECIMAL(10,2) NOT NULL,
         selling_price DECIMAL(10,2) NOT NULL,
         price_type TEXT NOT NULL DEFAULT 'INCLUSIVE' CHECK (price_type IN ('INCLUSIVE', 'EXCLUSIVE')),
-        gst_rate DECIMAL(5,2) NOT NULL DEFAULT 12 CHECK (gst_rate IN (0, 5, 12, 18)),
+        gst_rate DECIMAL(5,2) NOT NULL DEFAULT 12 CHECK (gst_rate >= 0 AND gst_rate <= 28),
         is_schedule INTEGER DEFAULT 0,
         quantity INTEGER NOT NULL DEFAULT 0,
         tablets_per_strip INTEGER DEFAULT 10,
@@ -527,6 +527,73 @@ export async function initDatabase(): Promise<Database> {
             } catch {
                 // Column probably already exists, ignore
             }
+        }
+
+        // One-time migration: relax GST rate constraint to 0-28
+        try {
+            const gstConstraintFlag = await db.select<{ value: string }[]>(
+                `SELECT value FROM settings WHERE key = 'gst_rate_range_migration_done'`
+            );
+            if (gstConstraintFlag.length === 0) {
+                console.log('Updating GST rate constraint to 0-28...');
+                await db.execute('PRAGMA foreign_keys=OFF');
+
+                await db.execute(`CREATE TABLE IF NOT EXISTS batches_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    medicine_id INTEGER NOT NULL REFERENCES medicines(id),
+                    batch_number TEXT NOT NULL,
+                    expiry_date DATE NOT NULL,
+                    purchase_price DECIMAL(10,2) NOT NULL,
+                    mrp DECIMAL(10,2) NOT NULL,
+                    selling_price DECIMAL(10,2) NOT NULL,
+                    price_type TEXT NOT NULL DEFAULT 'INCLUSIVE' CHECK (price_type IN ('INCLUSIVE', 'EXCLUSIVE')),
+                    gst_rate DECIMAL(5,2) NOT NULL DEFAULT 12 CHECK (gst_rate >= 0 AND gst_rate <= 28),
+                    is_schedule INTEGER DEFAULT 0,
+                    quantity INTEGER NOT NULL DEFAULT 0,
+                    tablets_per_strip INTEGER DEFAULT 10,
+                    rack TEXT,
+                    box TEXT,
+                    last_sold_date DATE,
+                    purchase_id INTEGER,
+                    supplier_id INTEGER REFERENCES suppliers(id),
+                    is_active INTEGER DEFAULT 1,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    free_quantity INTEGER DEFAULT 0,
+                    UNIQUE(medicine_id, batch_number)
+                )`);
+
+                await db.execute(`INSERT INTO batches_new (
+                    id, medicine_id, batch_number, expiry_date, purchase_price, mrp, selling_price,
+                    price_type, gst_rate, is_schedule, quantity, tablets_per_strip, rack, box,
+                    last_sold_date, purchase_id, supplier_id, is_active, created_at, updated_at, free_quantity
+                )
+                SELECT
+                    id, medicine_id, batch_number, expiry_date, purchase_price, mrp, selling_price,
+                    price_type, gst_rate, is_schedule, quantity, tablets_per_strip, rack, box,
+                    last_sold_date, purchase_id, supplier_id, is_active, created_at, updated_at, free_quantity
+                FROM batches`);
+
+                await db.execute('DROP TABLE batches');
+                await db.execute('ALTER TABLE batches_new RENAME TO batches');
+
+                // Recreate batch indexes (dropped with the table)
+                await db.execute(`CREATE INDEX IF NOT EXISTS idx_batches_medicine ON batches(medicine_id)`);
+                await db.execute(`CREATE INDEX IF NOT EXISTS idx_batches_expiry ON batches(expiry_date)`);
+                await db.execute(`CREATE INDEX IF NOT EXISTS idx_batches_location ON batches(rack, box)`);
+                await db.execute(`CREATE INDEX IF NOT EXISTS idx_batches_quantity ON batches(quantity)`);
+                await db.execute(`CREATE INDEX IF NOT EXISTS idx_batches_gst ON batches(gst_rate)`);
+                await db.execute(`CREATE INDEX IF NOT EXISTS idx_batches_schedule ON batches(is_schedule)`);
+
+                await db.execute('PRAGMA foreign_keys=ON');
+                await db.execute(
+                    `INSERT INTO settings (key, value, category, description)
+                     VALUES ('gst_rate_range_migration_done', 'true', 'system', 'Allow GST rate 0-28')`
+                );
+                console.log('GST rate constraint updated');
+            }
+        } catch (gstMigrationErr) {
+            console.warn('GST rate constraint migration skipped:', gstMigrationErr);
         }
 
 

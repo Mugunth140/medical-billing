@@ -304,7 +304,7 @@ export function getDefaultHsnCode(gstRate: GstRate): string {
  * Validate GST rate
  */
 export function isValidGstRate(rate: number): rate is GstRate {
-    return [0, 5, 12, 18].includes(rate);
+    return rate >= 0 && rate <= 28;
 }
 
 /**
