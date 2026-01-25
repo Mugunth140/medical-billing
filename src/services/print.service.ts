@@ -791,7 +791,8 @@ export async function generateThermalBillHTML(bill: Bill, items: BillItem[]): Pr
  */
 export async function generateDotMatrixBillHTML(bill: Bill, items: BillItem[]): Promise<string> {
     const shopInfo = await getShopInfo();
-    const LINE_WIDTH = 42; // Characters per line for narrow receipts
+    // 150mm paper at ~2.5mm per char = ~60 chars, but we use 48 for bigger font
+    const LINE_WIDTH = 48;
 
     // Helper to center text
     const center = (text: string, width: number = LINE_WIDTH): string => {
@@ -815,19 +816,10 @@ export async function generateDotMatrixBillHTML(bill: Bill, items: BillItem[]): 
     // Build the receipt content as plain text
     let receipt = '';
 
-    // Header
-    receipt += center(shopInfo.shop_name) + '\n';
+    // Header - compact
+    receipt += center(shopInfo.shop_name.toUpperCase()) + '\n';
     if (shopInfo.shop_address) {
-        // Split address if too long
-        const addr = shopInfo.shop_address;
-        if (addr.length > LINE_WIDTH) {
-            const mid = Math.floor(addr.length / 2);
-            const breakPoint = addr.lastIndexOf(',', mid) + 1 || mid;
-            receipt += center(addr.substring(0, breakPoint).trim()) + '\n';
-            receipt += center(addr.substring(breakPoint).trim()) + '\n';
-        } else {
-            receipt += center(addr) + '\n';
-        }
+        receipt += center(shopInfo.shop_address) + '\n';
     }
     if (shopInfo.shop_phone) {
         receipt += center('Ph: ' + shopInfo.shop_phone) + '\n';
@@ -838,90 +830,72 @@ export async function generateDotMatrixBillHTML(bill: Bill, items: BillItem[]): 
     if (shopInfo.shop_drug_license) {
         receipt += center('D.L: ' + shopInfo.shop_drug_license) + '\n';
     }
-
+    receipt += separator('=') + '\n';
+    receipt += center('*** TAX INVOICE ***') + '\n';
     receipt += separator('=') + '\n';
 
-    // Bill info
+    // Bill info - single line where possible
     receipt += leftRight('Bill: ' + bill.bill_number, formatDate(bill.bill_date, 'dd/MM/yy HH:mm')) + '\n';
-    receipt += leftRight('Customer:', bill.customer_name || 'Walk-in Customer') + '\n';
-    if (bill.doctor_name) {
-        receipt += leftRight('Doctor:', bill.doctor_name) + '\n';
+    if (bill.customer_name && bill.customer_name !== 'Walk-in Customer') {
+        receipt += 'Customer: ' + bill.customer_name + '\n';
     }
-
+    if (bill.doctor_name) {
+        receipt += 'Doctor: ' + bill.doctor_name + '\n';
+    }
     receipt += separator('-') + '\n';
 
-    // Items header
-    receipt += 'Item                           Qty    Amt\n';
+    // Items header - compact columns
+    const QTY_W = 5;
+    const RATE_W = 7;
+    const AMT_W = 8;
+    const NAME_W = LINE_WIDTH - QTY_W - RATE_W - AMT_W - 3;
+
+    receipt += 'Item'.padEnd(NAME_W) + ' ' + 'Qty'.padStart(QTY_W) + ' ' + 'Rate'.padStart(RATE_W) + ' ' + 'Amt'.padStart(AMT_W) + '\n';
     receipt += separator('-') + '\n';
 
-    // Items
+    // Items - single line per item, no batch line to save space
     items.forEach((item, index) => {
         const qty = item.quantity || 0;
         const tps = item.tablets_per_strip || 10;
         const units = convertToUnits(qty, tps);
         const amt = item.total || item.total_amount || 0;
+        const rate = item.selling_price || item.unit_price || 0;
 
-        // First line: item number and name (truncated if needed)
-        const itemNum = `${index + 1}. `;
-        const maxNameLen = LINE_WIDTH - 15; // Leave space for qty and amt
+        const itemNum = `${index + 1}.`;
         let name = item.medicine_name || '';
+        const maxNameLen = NAME_W - itemNum.length - 1;
         if (name.length > maxNameLen) {
-            name = name.substring(0, maxNameLen - 2) + '..';
+            name = name.substring(0, maxNameLen - 1) + '.';
         }
 
-        // Format: Name padded, then qty right-aligned, then amount right-aligned
-        const qtyStr = units.displayShort.padStart(6);
-        const amtStr = fmtAmt(amt).padStart(8);
-        const nameWithNum = (itemNum + name).padEnd(LINE_WIDTH - 14);
-        receipt += nameWithNum + qtyStr + amtStr + '\n';
-
-        // Second line: batch and SP (optional, for detailed receipts)
-        const sp = item.selling_price || item.unit_price || 0;
-        const batchInfo = `   ${item.batch_number} @ ${fmtAmt(sp)}`;
-        if (item.discount_amount > 0) {
-            receipt += batchInfo.padEnd(LINE_WIDTH - 10) + `-${fmtAmt(item.discount_amount).padStart(8)}\n`;
-        }
+        const nameCol = (itemNum + name).padEnd(NAME_W);
+        const qtyCol = units.displayShort.padStart(QTY_W);
+        const rateCol = fmtAmt(rate).padStart(RATE_W);
+        const amtCol = fmtAmt(amt).padStart(AMT_W);
+        receipt += `${nameCol} ${qtyCol} ${rateCol} ${amtCol}\n`;
     });
 
     receipt += separator('-') + '\n';
 
-    // Totals
-    receipt += leftRight(`Sub Total (${items.length} items):`, fmtAmt(bill.subtotal || 0)) + '\n';
-
+    // Totals - compact
+    receipt += leftRight('Sub Total:', fmtAmt(bill.subtotal || 0)) + '\n';
     if (bill.discount_amount > 0) {
         receipt += leftRight('Discount:', '-' + fmtAmt(bill.discount_amount)) + '\n';
     }
-
     receipt += leftRight('GST:', fmtAmt(bill.total_gst || 0)) + '\n';
-
     if (bill.round_off) {
         receipt += leftRight('Round Off:', fmtAmt(bill.round_off)) + '\n';
     }
-
     receipt += separator('=') + '\n';
-    receipt += leftRight('TOTAL:', 'Rs.' + fmtAmt(bill.grand_total || 0)) + '\n';
+    receipt += leftRight('GRAND TOTAL:', 'Rs.' + fmtAmt(bill.grand_total || 0)) + '\n';
     receipt += separator('=') + '\n';
 
-    // Payment info
-    let paymentLine = bill.payment_mode.toUpperCase();
-    if (bill.payment_mode === 'CASH' && bill.cash_amount > 0) {
-        paymentLine = `CASH | Cash: ${fmtAmt(bill.cash_amount)}`;
-    } else if (bill.payment_mode === 'SPLIT') {
-        const parts = [];
-        if (bill.cash_amount > 0) parts.push(`Cash:${fmtAmt(bill.cash_amount)}`);
-        if (bill.online_amount > 0) parts.push(`Online:${fmtAmt(bill.online_amount)}`);
-        if (bill.credit_amount > 0) parts.push(`Credit:${fmtAmt(bill.credit_amount)}`);
-        paymentLine = parts.join(' | ');
-    }
-    receipt += center(paymentLine) + '\n';
+    // Payment - single line
+    receipt += center('Paid: ' + bill.payment_mode) + '\n';
+    receipt += separator('-') + '\n';
+    receipt += center('Thank You! Get Well Soon') + '\n';
 
-    receipt += '\n';
-    receipt += center('Thank you!') + '\n';
-    receipt += center('*** Get Well Soon ***') + '\n';
-    receipt += '\n';
-    receipt += center('Computer generated bill') + '\n';
-
-    // Wrap in minimal HTML for dot matrix printer
+    // Wrap in minimal HTML for dot matrix printer - full width, bigger font
     return `<!DOCTYPE html>
 <html>
 <head>
@@ -929,35 +903,37 @@ export async function generateDotMatrixBillHTML(bill: Bill, items: BillItem[]): 
     <title>Bill ${bill.bill_number}</title>
     <style>
         @page {
-            size: auto;
-            margin: 5mm;
+            size: 180mm 220mm;
+            margin: 0;
         }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         @media print {
-            body { margin: 0; padding: 0; }
-            .no-print { display: none; }
+            html, body { width: 180mm; margin: 0; padding: 0; }
         }
         body {
             font-family: 'Courier New', Courier, monospace;
-            font-size: 12pt;
+            font-size: 16pt;
             line-height: 1.2;
             margin: 0;
-            padding: 10px;
+            padding: 0;
+            width: 180mm;
             background: #fff;
             color: #000;
         }
         pre {
             font-family: 'Courier New', Courier, monospace;
-            font-size: 12pt;
-            line-height: 1.3;
+            font-size: 16pt;
+            line-height: 1.2;
             margin: 0;
             padding: 0;
             white-space: pre;
             overflow: visible;
+            width: 100%;
         }
     </style>
 </head>
 <body>
-<pre>${receipt}</pre>
+<pre>${receipt.trimEnd()}</pre>
 </body>
 </html>`;
 }

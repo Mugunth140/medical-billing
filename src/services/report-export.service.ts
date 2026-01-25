@@ -256,8 +256,8 @@ export async function generateSalesReportHTML(
     <div class="report-container">
         <div class="report-header">
             <div class="shop-info">
-                <div class="shop-name">${shopInfo.shop_name}</div>
                 <div class="shop-details">
+                    ${shopInfo.shop_name ? `<div><strong>${shopInfo.shop_name}</strong></div>` : ''}
                     ${shopInfo.shop_address ? `<div>${shopInfo.shop_address}</div>` : ''}
                     ${shopInfo.shop_phone ? `<div>Ph: ${shopInfo.shop_phone}</div>` : ''}
                     ${shopInfo.shop_gstin ? `<div>GSTIN: ${shopInfo.shop_gstin}</div>` : ''}
