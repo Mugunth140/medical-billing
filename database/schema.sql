@@ -92,6 +92,7 @@ CREATE TABLE IF NOT EXISTS suppliers (
     contact_person TEXT,
     phone TEXT,
     email TEXT,
+    dealer_number TEXT,
     gstin TEXT,
     address TEXT,
     city TEXT,

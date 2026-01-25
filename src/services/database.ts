@@ -71,6 +71,7 @@ const TABLE_STATEMENTS = [
         contact_person TEXT,
         phone TEXT,
         email TEXT,
+        dealer_number TEXT,
         gstin TEXT,
         address TEXT,
         city TEXT,
@@ -519,7 +520,9 @@ export async function initDatabase(): Promise<Database> {
             // Add pack_size to medicines for dataset import
             `ALTER TABLE medicines ADD COLUMN pack_size TEXT`,
             // Add free_quantity to batches for supplier free units
-            `ALTER TABLE batches ADD COLUMN free_quantity INTEGER DEFAULT 0`
+            `ALTER TABLE batches ADD COLUMN free_quantity INTEGER DEFAULT 0`,
+            // Add dealer_number to suppliers
+            `ALTER TABLE suppliers ADD COLUMN dealer_number TEXT`
         ];
         for (const migration of migrations) {
             try {

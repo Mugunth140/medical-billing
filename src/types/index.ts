@@ -97,6 +97,7 @@ export interface Supplier {
     contact_person?: string;
     phone?: string;
     email?: string;
+    dealer_number?: string;
     gstin?: string;
     address?: string;
     city?: string;
@@ -529,6 +530,7 @@ export interface CreateSupplierInput {
     contact_person?: string;
     phone?: string;
     email?: string;
+    dealer_number?: string;
     gstin?: string;
     address?: string;
     city?: string;

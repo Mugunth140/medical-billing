@@ -66,6 +66,7 @@ export function SupplierManagement() {
         contact_person: '',
         phone: '',
         email: '',
+        dealer_number: '',
         gstin: '',
         address: '',
         city: '',
@@ -214,13 +215,14 @@ export function SupplierManagement() {
         e.preventDefault();
         try {
             await execute(
-                `INSERT INTO suppliers (name, contact_person, phone, email, gstin, address, city, state, pincode, payment_terms)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                `INSERT INTO suppliers (name, contact_person, phone, email, dealer_number, gstin, address, city, state, pincode, payment_terms)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     supplierForm.name,
                     supplierForm.contact_person || null,
                     supplierForm.phone || null,
                     supplierForm.email || null,
+                    supplierForm.dealer_number || null,
                     supplierForm.gstin || null,
                     supplierForm.address || null,
                     supplierForm.city || null,
@@ -247,13 +249,14 @@ export function SupplierManagement() {
             await execute(
                 `UPDATE suppliers SET 
                     name = ?, contact_person = ?, phone = ?, email = ?, 
-                    gstin = ?, address = ?, city = ?, state = ?, pincode = ?, payment_terms = ?
+                    dealer_number = ?, gstin = ?, address = ?, city = ?, state = ?, pincode = ?, payment_terms = ?
                  WHERE id = ?`,
                 [
                     supplierForm.name,
                     supplierForm.contact_person || null,
                     supplierForm.phone || null,
                     supplierForm.email || null,
+                    supplierForm.dealer_number || null,
                     supplierForm.gstin || null,
                     supplierForm.address || null,
                     supplierForm.city || null,
@@ -297,6 +300,7 @@ export function SupplierManagement() {
             contact_person: supplier.contact_person || '',
             phone: supplier.phone || '',
             email: supplier.email || '',
+            dealer_number: supplier.dealer_number || '',
             gstin: supplier.gstin || '',
             address: supplier.address || '',
             city: supplier.city || '',
@@ -313,6 +317,7 @@ export function SupplierManagement() {
             contact_person: '',
             phone: '',
             email: '',
+            dealer_number: '',
             gstin: '',
             address: '',
             city: '',
@@ -649,7 +654,7 @@ export function SupplierManagement() {
                                     <div className="supplier-item-info">
                                         <div className="supplier-item-name">{supplier.name}</div>
                                         <div className="supplier-item-meta">
-                                            {supplier.city || supplier.state} • {supplier.phone || 'No phone'}
+                                            {supplier.city || supplier.state} • {supplier.phone || 'No phone'}{supplier.dealer_number ? ` • DL: ${supplier.dealer_number}` : ''}
                                         </div>
                                     </div>
                                     <div className="supplier-item-actions">
@@ -694,7 +699,7 @@ export function SupplierManagement() {
                                         <div>
                                             <h2>{selectedSupplier.name}</h2>
                                             <span className="text-sm text-secondary">
-                                                {selectedSupplier.gstin || 'No GSTIN'} • {selectedSupplier.phone || 'No phone'}
+                                                {selectedSupplier.gstin || 'No GSTIN'} • {selectedSupplier.phone || 'No phone'}{selectedSupplier.dealer_number ? ` • DL: ${selectedSupplier.dealer_number}` : ''}
                                             </span>
                                         </div>
                                     </div>
@@ -838,6 +843,16 @@ export function SupplierManagement() {
                                         />
                                     </div>
                                     <div className="form-group">
+                                        <label className="form-label">DL Number</label>
+                                        <input
+                                            type="text"
+                                            className="form-input"
+                                            value={supplierForm.dealer_number}
+                                            onChange={(e) => setSupplierForm({ ...supplierForm, dealer_number: e.target.value })}
+                                            placeholder="DL-XXXXX"
+                                        />
+                                    </div>
+                                    <div className="form-group">
                                         <label className="form-label">GSTIN</label>
                                         <input
                                             type="text"
@@ -954,6 +969,16 @@ export function SupplierManagement() {
                                             className="form-input"
                                             value={supplierForm.email}
                                             onChange={(e) => setSupplierForm({ ...supplierForm, email: e.target.value })}
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">DL Number</label>
+                                        <input
+                                            type="text"
+                                            className="form-input"
+                                            value={supplierForm.dealer_number}
+                                            onChange={(e) => setSupplierForm({ ...supplierForm, dealer_number: e.target.value })}
+                                            placeholder="DL-XXXXX"
                                         />
                                     </div>
                                     <div className="form-group">

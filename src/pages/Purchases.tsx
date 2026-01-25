@@ -114,6 +114,7 @@ export function Purchases() {
         contact_person: '',
         phone: '',
         email: '',
+        dealer_number: '',
         gstin: '',
         address: '',
         city: '',
@@ -244,6 +245,7 @@ export function Purchases() {
             contact_person: supplier.contact_person || '',
             phone: supplier.phone || '',
             email: supplier.email || '',
+            dealer_number: supplier.dealer_number || '',
             gstin: supplier.gstin || '',
             address: supplier.address || '',
             city: supplier.city || '',
@@ -261,13 +263,14 @@ export function Purchases() {
                 // Update existing supplier
                 await execute(
                     `UPDATE suppliers SET name = ?, contact_person = ?, phone = ?, email = ?, 
-                     gstin = ?, address = ?, city = ?, state = ?, pincode = ?, payment_terms = ?
+                     dealer_number = ?, gstin = ?, address = ?, city = ?, state = ?, pincode = ?, payment_terms = ?
                      WHERE id = ?`,
                     [
                         supplierForm.name,
                         supplierForm.contact_person || null,
                         supplierForm.phone || null,
                         supplierForm.email || null,
+                        supplierForm.dealer_number || null,
                         supplierForm.gstin || null,
                         supplierForm.address || null,
                         supplierForm.city || null,
@@ -281,13 +284,14 @@ export function Purchases() {
             } else {
                 // Insert new supplier
                 await execute(
-                    `INSERT INTO suppliers (name, contact_person, phone, email, gstin, address, city, state, pincode, payment_terms)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    `INSERT INTO suppliers (name, contact_person, phone, email, dealer_number, gstin, address, city, state, pincode, payment_terms)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                     [
                         supplierForm.name,
                         supplierForm.contact_person || null,
                         supplierForm.phone || null,
                         supplierForm.email || null,
+                        supplierForm.dealer_number || null,
                         supplierForm.gstin || null,
                         supplierForm.address || null,
                         supplierForm.city || null,
@@ -305,6 +309,7 @@ export function Purchases() {
                 contact_person: '',
                 phone: '',
                 email: '',
+                dealer_number: '',
                 gstin: '',
                 address: '',
                 city: '',
@@ -1020,6 +1025,7 @@ export function Purchases() {
                                             <div className="supplier-contact">
                                                 {supplier.contact_person && <span>{supplier.contact_person} | </span>}
                                                 {supplier.phone && <span>{supplier.phone} | </span>}
+                                                {supplier.dealer_number && <span>DL: {supplier.dealer_number} | </span>}
                                                 {supplier.gstin && <span>GSTIN: {supplier.gstin}</span>}
                                             </div>
                                             {supplier.address && (
@@ -1118,6 +1124,16 @@ export function Purchases() {
                                             className="form-input"
                                             value={supplierForm.email}
                                             onChange={(e) => setSupplierForm({ ...supplierForm, email: e.target.value })}
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">DL Number</label>
+                                        <input
+                                            type="text"
+                                            className="form-input"
+                                            value={supplierForm.dealer_number}
+                                            onChange={(e) => setSupplierForm({ ...supplierForm, dealer_number: e.target.value })}
+                                            placeholder="DL-XXXXX"
                                         />
                                     </div>
                                     <div className="form-group">

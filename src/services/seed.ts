@@ -103,9 +103,9 @@ export async function seedDatabase(): Promise<void> {
         // =========================================
         console.log('Seeding suppliers...');
         await execute(`
-            INSERT INTO suppliers (name, contact_person, phone, email, gstin, address, city, state, payment_terms) VALUES
-            ('ABC Pharma Distributors', 'Rajesh Kumar', '9876543210', 'rajesh@abcpharma.com', '33AABCU9603R1ZM', '123 Pharma Street, Vadapalani', 'Chennai', 'Tamil Nadu', 30),
-            ('MediCare Wholesale', 'Priya Sharma', '9876543211', 'priya@medicare.in', '33AABCU9603R2ZN', '456 Medical Lane, Guindy', 'Chennai', 'Tamil Nadu', 45)
+            INSERT INTO suppliers (name, contact_person, phone, email, dealer_number, gstin, address, city, state, payment_terms) VALUES
+            ('ABC Pharma Distributors', 'Rajesh Kumar', '9876543210', 'rajesh@abcpharma.com', 'DL-ABC-001', '33AABCU9603R1ZM', '123 Pharma Street, Vadapalani', 'Chennai', 'Tamil Nadu', 30),
+            ('MediCare Wholesale', 'Priya Sharma', '9876543211', 'priya@medicare.in', 'DL-MED-002', '33AABCU9603R2ZN', '456 Medical Lane, Guindy', 'Chennai', 'Tamil Nadu', 45)
         `, []);
 
         // =========================================
