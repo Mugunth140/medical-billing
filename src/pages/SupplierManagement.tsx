@@ -803,7 +803,7 @@ export function SupplierManagement() {
                             </button>
                         </div>
                         <form onSubmit={handleAddSupplier}>
-                            <div className="modal-body">
+                            <div className="modal-body" style={{ maxHeight: '70vh', overflowY: 'auto' }}>
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)' }}>
                                     <div className="form-group">
                                         <label className="form-label">Supplier Name *</label>
@@ -932,7 +932,7 @@ export function SupplierManagement() {
                             </button>
                         </div>
                         <form onSubmit={handleEditSupplier}>
-                            <div className="modal-body">
+                            <div className="modal-body" style={{ maxHeight: '70vh', overflowY: 'auto' }}>
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)' }}>
                                     <div className="form-group">
                                         <label className="form-label">Supplier Name *</label>
