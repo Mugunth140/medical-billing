@@ -829,6 +829,13 @@ a:hover {
   box-shadow: 0 2px 8px rgba(30, 142, 180, 0.25);
 }
 
+.nav-item:focus-visible {
+  outline: 2px solid var(--color-primary-300);
+  outline-offset: 2px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-inverse);
+}
+
 .nav-item-icon {
   width: 20px;
   height: 20px;

@@ -20,7 +20,7 @@ import {
     StickyNote,
     Users
 } from 'lucide-react';
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore, useUIStore } from '../../stores';
 
@@ -109,6 +109,70 @@ export function Layout({ children }: LayoutProps) {
         return group.items.some(item => location.pathname === item.path.split('?')[0]);
     };
 
+    const handleNavKeyDown = (event: React.KeyboardEvent, path: string) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            handleNavClick(path);
+        }
+    };
+
+    useEffect(() => {
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (!event.shiftKey) return;
+            const target = event.target as HTMLElement | null;
+            if (target) {
+                const tag = target.tagName;
+                if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable) {
+                    return;
+                }
+            }
+
+            const key = event.key.toLowerCase();
+            const shortcutMap: Array<{ key: string; path: string; adminOnly?: boolean }> = [
+                { key: '1', path: '/dashboard' },
+                { key: '2', path: '/billing' },
+                { key: '3', path: '/bill-history' },
+                { key: '4', path: '/running-bills' },
+                { key: '5', path: '/inventory' },
+                { key: '6', path: '/customers' },
+                { key: '7', path: '/purchases' },
+                { key: '8', path: '/returns' },
+                { key: '9', path: '/medicine-notes' },
+                { key: '0', path: '/reports', adminOnly: true }
+            ];
+
+            if (key === 's') {
+                if (isAdmin) {
+                    event.preventDefault();
+                    navigate('/settings');
+                }
+                return;
+            }
+
+            if (key === 'm') {
+                event.preventDefault();
+                toggleSidebar();
+                return;
+            }
+
+            if (key === 'l') {
+                event.preventDefault();
+                handleLogout();
+                return;
+            }
+
+            const shortcut = shortcutMap.find(item => item.key === key);
+            if (!shortcut) return;
+            if (shortcut.adminOnly && !isAdmin) return;
+
+            event.preventDefault();
+            navigate(shortcut.path);
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [handleLogout, isAdmin, navigate, toggleSidebar]);
+
     return (
         <div className="layout">
             {/* Sidebar */}
@@ -138,6 +202,9 @@ export function Layout({ children }: LayoutProps) {
                                     key={item.id}
                                     className={`nav-item ${isActive ? 'active' : ''}`}
                                     onClick={() => handleNavClick(item.path)}
+                                    onKeyDown={(event) => handleNavKeyDown(event, item.path)}
+                                    role="button"
+                                    tabIndex={0}
                                     title={!sidebarOpen ? item.label : undefined}
                                 >
                                     <Icon className="nav-item-icon" size={20} />
@@ -155,6 +222,14 @@ export function Layout({ children }: LayoutProps) {
                                     <div
                                         className={`nav-item nav-group-header ${isGroupActive(group) ? 'group-active' : ''}`}
                                         onClick={() => sidebarOpen ? toggleGroup(group.id) : handleNavClick(group.items[0].path)}
+                                        onKeyDown={(event) => {
+                                            if (event.key === 'Enter' || event.key === ' ') {
+                                                event.preventDefault();
+                                                sidebarOpen ? toggleGroup(group.id) : handleNavClick(group.items[0].path);
+                                            }
+                                        }}
+                                        role="button"
+                                        tabIndex={0}
                                         title={!sidebarOpen ? group.label : undefined}
                                     >
                                         <GroupIcon className="nav-item-icon" size={20} />
@@ -178,6 +253,9 @@ export function Layout({ children }: LayoutProps) {
                                                         key={item.id}
                                                         className={`nav-item nav-subitem ${isActive ? 'active' : ''}`}
                                                         onClick={() => handleNavClick(item.path)}
+                                                        onKeyDown={(event) => handleNavKeyDown(event, item.path)}
+                                                        role="button"
+                                                        tabIndex={0}
                                                     >
                                                         <Icon className="nav-item-icon" size={16} />
                                                         <span className="nav-item-label">{item.label}</span>
@@ -199,6 +277,9 @@ export function Layout({ children }: LayoutProps) {
                                     key={item.id}
                                     className={`nav-item ${isActive ? 'active' : ''}`}
                                     onClick={() => handleNavClick(item.path)}
+                                    onKeyDown={(event) => handleNavKeyDown(event, item.path)}
+                                    role="button"
+                                    tabIndex={0}
                                     title={!sidebarOpen ? item.label : undefined}
                                 >
                                     <Icon className="nav-item-icon" size={20} />

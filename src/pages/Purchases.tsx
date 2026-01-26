@@ -77,6 +77,7 @@ export function Purchases() {
     const [editingPurchase, setEditingPurchase] = useState<Purchase | null>(null);
     const [currentPage, setCurrentPage] = useState(1);
     const [currentSuppliersPage, setCurrentSuppliersPage] = useState(1);
+    const [supplierFilterId, setSupplierFilterId] = useState(0);
     const itemIdPrefix = useId();
 
     // Pagination constants
@@ -153,6 +154,14 @@ export function Purchases() {
     useEffect(() => {
         loadData();
     }, []);
+
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [supplierFilterId]);
+
+    const filteredPurchases = purchases.filter(purchase =>
+        supplierFilterId === 0 || purchase.supplier_id === supplierFilterId
+    );
 
     // Search medicines from database on-demand (debounced)
     useEffect(() => {
@@ -864,6 +873,14 @@ export function Purchases() {
           .purchase-amount {
             text-align: right;
           }
+
+                    .purchase-filters {
+                        display: flex;
+                        gap: var(--space-4);
+                        align-items: center;
+                        margin: var(--space-4) 0;
+                        flex-wrap: wrap;
+                    }
           
           .purchase-total {
             font-size: var(--text-lg);
@@ -914,18 +931,18 @@ export function Purchases() {
                         {/* Stats */}
                         <div className="purchases-stats">
                             <div className="stat-mini">
-                                <div className="stat-mini-value">{purchases.length}</div>
+                                <div className="stat-mini-value">{filteredPurchases.length}</div>
                                 <div className="stat-mini-label">Total Purchases</div>
                             </div>
                             <div className="stat-mini">
                                 <div className="stat-mini-value">
-                                    {formatCurrency(purchases.reduce((sum, p) => sum + p.grand_total, 0))}
+                                    {formatCurrency(filteredPurchases.reduce((sum, p) => sum + p.grand_total, 0))}
                                 </div>
                                 <div className="stat-mini-label">Total Value</div>
                             </div>
                             <div className="stat-mini">
                                 <div className="stat-mini-value">
-                                    {purchases.filter(p => p.payment_status === 'PENDING').length}
+                                    {filteredPurchases.filter(p => p.payment_status === 'PENDING').length}
                                 </div>
                                 <div className="stat-mini-label">Pending Payments</div>
                             </div>
@@ -935,13 +952,31 @@ export function Purchases() {
                             </div>
                         </div>
 
+                        <div className="purchase-filters">
+                            <div className="form-group" style={{ minWidth: 260 }}>
+                                <label className="form-label">Supplier Filter</label>
+                                <select
+                                    className="form-input"
+                                    value={supplierFilterId}
+                                    onChange={(e) => setSupplierFilterId(parseInt(e.target.value))}
+                                >
+                                    <option value={0}>All Suppliers</option>
+                                    {suppliers.map(supplier => (
+                                        <option key={supplier.id} value={supplier.id}>
+                                            {supplier.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+
                         {/* Purchase List */}
                         {isLoading ? (
                             <div className="empty-state">
                                 <div className="loading-spinner" />
                             </div>
-                        ) : purchases.length > 0 ? (
-                            purchases.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE).map((purchase) => (
+                        ) : filteredPurchases.length > 0 ? (
+                            filteredPurchases.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE).map((purchase) => (
                                 <div key={purchase.id} className="purchase-card">
                                     <div className="purchase-info">
                                         <div className="purchase-header">
@@ -999,15 +1034,19 @@ export function Purchases() {
                         ) : (
                             <div className="empty-state">
                                 <FileText size={48} strokeWidth={1} />
-                                <h3 className="mt-4">No purchases yet</h3>
-                                <p className="text-secondary">Use Inventory &gt; Add Stock to add inventory from suppliers</p>
+                                <h3 className="mt-4">No purchases found</h3>
+                                <p className="text-secondary">
+                                    {supplierFilterId === 0
+                                        ? 'Use Inventory > Add Stock to add inventory from suppliers'
+                                        : 'No purchases for the selected supplier'}
+                                </p>
                             </div>
                         )}
 
                         {/* Pagination */}
                         <Pagination
                             currentPage={currentPage}
-                            totalItems={purchases.length}
+                            totalItems={filteredPurchases.length}
                             itemsPerPage={ITEMS_PER_PAGE}
                             onPageChange={setCurrentPage}
                         />
