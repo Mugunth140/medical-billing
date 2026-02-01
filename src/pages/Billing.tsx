@@ -968,7 +968,15 @@ export function Billing() {
                                 className="form-select"
                                 style={{ width: 90 }}
                                 value={discountType ?? ''}
-                                onChange={(e) => setBillDiscount((e.target.value as 'PERCENTAGE' | 'FLAT') || null, discountValue)}
+                                onChange={(e) => {
+                                    const newType = e.target.value as 'PERCENTAGE' | 'FLAT' | '';
+                                    if (newType === '') {
+                                        // Clear discount when type is set to None
+                                        setBillDiscount(null, 0);
+                                    } else {
+                                        setBillDiscount(newType, discountValue);
+                                    }
+                                }}
                             >
                                 <option value="">None</option>
                                 <option value="PERCENTAGE">%</option>
@@ -978,7 +986,9 @@ export function Billing() {
                                 type="number"
                                 className="form-input"
                                 placeholder="Value"
-                                value={discountValue || ''}
+                                min="0"
+                                step="0.01"
+                                value={discountType ? (discountValue || '') : ''}
                                 onChange={(e) => setBillDiscount(discountType, parseFloat(e.target.value) || 0)}
                                 disabled={!discountType}
                             />

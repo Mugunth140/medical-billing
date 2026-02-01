@@ -29,6 +29,7 @@ import {
     getLowStockItems,
     getNonMovingItems,
     getScheduledMedicines,
+    updateBatch,
     updateMedicine
 } from '../services/inventory.service';
 import { useAuthStore } from '../stores';
@@ -64,10 +65,12 @@ export function Inventory() {
     const ITEMS_PER_PAGE = 50;
     const [showAddMedicineModal, setShowAddMedicineModal] = useState(false);
     const [showEditMedicineModal, setShowEditMedicineModal] = useState(false);
+    const [showEditBatchModal, setShowEditBatchModal] = useState(false);
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
     const [showAddBatchModal, setShowAddBatchModal] = useState(false);
     const [selectedMedicine, setSelectedMedicine] = useState<Medicine | null>(null);
     const [editingMedicine, setEditingMedicine] = useState<Medicine | null>(null);
+    const [editingBatch, setEditingBatch] = useState<StockItem | null>(null);
     const [selectedSupplierId, setSelectedSupplierId] = useState<number>(0);
     const [invoiceNumber, setInvoiceNumber] = useState('');
     const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().split('T')[0]);
@@ -138,11 +141,12 @@ export function Inventory() {
                 case 'scheduled':
                     items = await getScheduledMedicines();
                     break;
-                case 'other-products':
+                case 'other-products': {
                     // Filter for non-medicine products (no manufacturer/generic_name)
                     const allItems = await getAllStock();
                     items = allItems.filter(item => !item.manufacturer && !item.generic_name);
                     break;
+                }
                 default:
                     items = await getAllStock();
             }
@@ -647,14 +651,24 @@ export function Inventory() {
                                     <div className="action-btns">
                                         <button
                                             className="action-btn"
+                                            onClick={() => {
+                                                setEditingBatch(item);
+                                                setShowEditBatchModal(true);
+                                            }}
+                                            title="Edit Batch (MRP, Qty, Location, etc.)"
+                                        >
+                                            <Edit size={16} />
+                                        </button>
+                                        <button
+                                            className="action-btn"
                                             onClick={async () => {
                                                 // Fetch medicine on demand
                                                 const [med] = await query<Medicine>('SELECT * FROM medicines WHERE id = ?', [item.medicine_id]);
                                                 if (med) openEditMedicineModal(med);
                                             }}
-                                            title="Edit Medicine"
+                                            title="Edit Medicine Master"
                                         >
-                                            <Edit size={16} />
+                                            <Pill size={16} />
                                         </button>
                                         <button
                                             className="action-btn delete"
@@ -919,6 +933,162 @@ export function Inventory() {
                                 Delete Medicine
                             </button>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Edit Batch Modal - For editing individual batch details */}
+            {showEditBatchModal && editingBatch && (
+                <div className="modal-overlay" onClick={() => { setShowEditBatchModal(false); setEditingBatch(null); }}>
+                    <div className="modal modal-lg" onClick={(e) => e.stopPropagation()}>
+                        <div className="modal-header">
+                            <h3 className="modal-title">Edit Batch</h3>
+                            <button className="btn btn-ghost btn-icon" onClick={() => { setShowEditBatchModal(false); setEditingBatch(null); }}>
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <form onSubmit={async (e) => {
+                            e.preventDefault();
+                            if (isSubmitting || !editingBatch) return;
+                            setIsSubmitting(true);
+                            try {
+                                await updateBatch(editingBatch.batch_id, {
+                                    batch_number: editingBatch.batch_number,
+                                    expiry_date: editingBatch.expiry_date,
+                                    purchase_price: editingBatch.purchase_price,
+                                    mrp: editingBatch.mrp,
+                                    selling_price: editingBatch.selling_price,
+                                    quantity: editingBatch.quantity,
+                                    rack: editingBatch.rack,
+                                    box: editingBatch.box
+                                });
+                                showToast('success', 'Batch updated successfully!');
+                                setShowEditBatchModal(false);
+                                setEditingBatch(null);
+                                loadData();
+                            } catch (error) {
+                                console.error('Failed to update batch:', error);
+                                showToast('error', 'Failed to update batch. Please try again.');
+                            } finally {
+                                setIsSubmitting(false);
+                            }
+                        }}>
+                            <div className="modal-body">
+                                <div style={{ marginBottom: 'var(--space-4)', padding: 'var(--space-3)', background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)' }}>
+                                    <div style={{ fontWeight: 600, fontSize: 'var(--text-lg)' }}>{editingBatch.medicine_name}</div>
+                                    <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+                                        {editingBatch.manufacturer} | GST: {editingBatch.gst_rate}% | HSN: {editingBatch.hsn_code}
+                                    </div>
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 'var(--space-4)' }}>
+                                    <div className="form-group">
+                                        <label className="form-label">Batch Number *</label>
+                                        <input
+                                            type="text"
+                                            className="form-input"
+                                            value={editingBatch.batch_number}
+                                            onChange={(e) => setEditingBatch({ ...editingBatch, batch_number: e.target.value })}
+                                            required
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Expiry Date *</label>
+                                        <input
+                                            type="date"
+                                            className="form-input"
+                                            value={editingBatch.expiry_date}
+                                            onChange={(e) => setEditingBatch({ ...editingBatch, expiry_date: e.target.value })}
+                                            required
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Quantity (Tablets/Units)</label>
+                                        <input
+                                            type="number"
+                                            className="form-input"
+                                            value={editingBatch.quantity}
+                                            onChange={(e) => setEditingBatch({ ...editingBatch, quantity: parseInt(e.target.value) || 0 })}
+                                            min="0"
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Purchase Price (per strip) ₹</label>
+                                        <input
+                                            type="number"
+                                            step="0.01"
+                                            className="form-input"
+                                            value={editingBatch.purchase_price}
+                                            onChange={(e) => setEditingBatch({ ...editingBatch, purchase_price: parseFloat(e.target.value) || 0 })}
+                                            min="0"
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">MRP (per strip) ₹ *</label>
+                                        <input
+                                            type="number"
+                                            step="0.01"
+                                            className="form-input"
+                                            value={editingBatch.mrp}
+                                            onChange={(e) => {
+                                                const mrp = parseFloat(e.target.value) || 0;
+                                                setEditingBatch({ ...editingBatch, mrp, selling_price: mrp });
+                                            }}
+                                            min="0"
+                                            required
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Selling Price (per strip) ₹</label>
+                                        <input
+                                            type="number"
+                                            step="0.01"
+                                            className="form-input"
+                                            value={editingBatch.selling_price}
+                                            onChange={(e) => setEditingBatch({ ...editingBatch, selling_price: parseFloat(e.target.value) || 0 })}
+                                            min="0"
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Rack</label>
+                                        <input
+                                            type="text"
+                                            className="form-input"
+                                            value={editingBatch.rack || ''}
+                                            onChange={(e) => setEditingBatch({ ...editingBatch, rack: e.target.value })}
+                                            placeholder="e.g., A1"
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Box</label>
+                                        <input
+                                            type="text"
+                                            className="form-input"
+                                            value={editingBatch.box || ''}
+                                            onChange={(e) => setEditingBatch({ ...editingBatch, box: e.target.value })}
+                                            placeholder="e.g., B2"
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Tablets/Strip</label>
+                                        <input
+                                            type="number"
+                                            className="form-input"
+                                            value={editingBatch.tablets_per_strip}
+                                            disabled
+                                            title="Cannot modify tablets per strip after creation"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="modal-footer">
+                                <button type="button" className="btn btn-secondary" onClick={() => { setShowEditBatchModal(false); setEditingBatch(null); }}>
+                                    Cancel
+                                </button>
+                                <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
+                                    {isSubmitting ? 'Saving...' : 'Save Changes'}
+                                </button>
+                            </div>
+                        </form>
                     </div>
                 </div>
             )}
@@ -1576,6 +1746,10 @@ export function Inventory() {
                                             showToast('error', 'Invoice number required');
                                             return;
                                         }
+                                        if (!user?.id) {
+                                            showToast('error', 'User session expired. Please login again.');
+                                            return;
+                                        }
                                         setIsSubmitting(true);
                                         try {
                                             // Create purchase entry first if supplier selected
@@ -1589,7 +1763,7 @@ export function Inventory() {
                                                 const purchaseResult = await execute(
                                                     `INSERT INTO purchases (invoice_number, invoice_date, supplier_id, user_id, subtotal, cgst_amount, sgst_amount, total_gst, grand_total, payment_status, paid_amount)
                                                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', 0)`,
-                                                    [invoiceNumber, invoiceDate, selectedSupplierId, user?.id || 1, subtotal, totalGst / 2, totalGst / 2, totalGst, subtotal + totalGst]
+                                                    [invoiceNumber, invoiceDate, selectedSupplierId, user.id, subtotal, totalGst / 2, totalGst / 2, totalGst, subtotal + totalGst]
                                                 );
                                                 purchaseId = purchaseResult.lastInsertId;
                                             }

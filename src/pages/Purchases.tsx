@@ -5,6 +5,7 @@
 
 import {
     Calendar,
+    Eye,
     FileText,
     Package,
     Pencil,
@@ -72,9 +73,23 @@ export function Purchases() {
     const [showAddSupplierModal, setShowAddSupplierModal] = useState(false);
     const [showNewPurchaseModal, setShowNewPurchaseModal] = useState(false);
     const [showEditPurchaseModal, setShowEditPurchaseModal] = useState(false);
+    const [showPurchaseDetailsModal, setShowPurchaseDetailsModal] = useState(false);
     const [showQuickAddMedicineModal, setShowQuickAddMedicineModal] = useState(false);
     const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
     const [editingPurchase, setEditingPurchase] = useState<Purchase | null>(null);
+    const [viewingPurchase, setViewingPurchase] = useState<Purchase | null>(null);
+    const [viewingPurchaseItems, setViewingPurchaseItems] = useState<Array<{
+        id: number;
+        medicine_name: string;
+        batch_number: string;
+        expiry_date: string;
+        quantity: number;
+        free_quantity: number;
+        purchase_price: number;
+        mrp: number;
+        gst_rate: number;
+        total_amount: number;
+    }>>([]);
     const [currentPage, setCurrentPage] = useState(1);
     const [currentSuppliersPage, setCurrentSuppliersPage] = useState(1);
     const [supplierFilterId, setSupplierFilterId] = useState(0);
@@ -613,6 +628,12 @@ export function Purchases() {
         }
 
         try {
+            // Validate user session
+            if (!user?.id) {
+                showToast('error', 'User session expired. Please login again.');
+                return;
+            }
+
             // Insert purchase record
             const purchaseResult = await execute(
                 `INSERT INTO purchases (
@@ -624,7 +645,7 @@ export function Purchases() {
                     purchaseForm.invoice_number,
                     purchaseForm.invoice_date,
                     purchaseForm.supplier_id,
-                    user?.id || 1,
+                    user.id,
                     purchaseTotals.subtotal,
                     purchaseTotals.total_cgst,
                     purchaseTotals.total_sgst,
@@ -1007,6 +1028,42 @@ export function Purchases() {
                                                 GST: {formatCurrency(purchase.total_gst)}
                                             </div>
                                         </div>
+                                        <button
+                                            className="btn btn-ghost btn-icon"
+                                            onClick={async (e) => {
+                                                e.stopPropagation();
+                                                // Fetch purchase items
+                                                try {
+                                                    const items = await query<{
+                                                        id: number;
+                                                        medicine_name: string;
+                                                        batch_number: string;
+                                                        expiry_date: string;
+                                                        quantity: number;
+                                                        free_quantity: number;
+                                                        purchase_price: number;
+                                                        mrp: number;
+                                                        gst_rate: number;
+                                                        total_amount: number;
+                                                    }>(
+                                                        `SELECT id, medicine_name, batch_number, expiry_date, quantity, 
+                                                                COALESCE(free_quantity, 0) as free_quantity, purchase_price, 
+                                                                mrp, gst_rate, total_amount 
+                                                         FROM purchase_items WHERE purchase_id = ?`,
+                                                        [purchase.id]
+                                                    );
+                                                    setViewingPurchase(purchase);
+                                                    setViewingPurchaseItems(items);
+                                                    setShowPurchaseDetailsModal(true);
+                                                } catch (err) {
+                                                    console.error('Failed to load purchase items:', err);
+                                                    showToast('error', 'Failed to load purchase items');
+                                                }
+                                            }}
+                                            title="View purchase items"
+                                        >
+                                            <Eye size={16} />
+                                        </button>
                                         <button
                                             className="btn btn-ghost btn-icon"
                                             onClick={(e) => {
@@ -1805,6 +1862,109 @@ export function Purchases() {
                                 </button>
                             </div>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {/* View Purchase Details Modal */}
+            {showPurchaseDetailsModal && viewingPurchase && (
+                <div className="modal-overlay" onClick={() => { setShowPurchaseDetailsModal(false); setViewingPurchase(null); setViewingPurchaseItems([]); }}>
+                    <div className="modal" style={{ maxWidth: '900px', width: '90vw' }} onClick={(e) => e.stopPropagation()}>
+                        <div className="modal-header">
+                            <h3 className="modal-title">Purchase Details - {viewingPurchase.invoice_number}</h3>
+                            <button className="btn btn-ghost btn-icon" onClick={() => { setShowPurchaseDetailsModal(false); setViewingPurchase(null); setViewingPurchaseItems([]); }}>
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <div className="modal-body" style={{ maxHeight: '70vh', overflowY: 'auto' }}>
+                            {/* Purchase Header Info */}
+                            <div style={{ 
+                                display: 'grid', 
+                                gridTemplateColumns: 'repeat(4, 1fr)', 
+                                gap: 'var(--space-4)', 
+                                marginBottom: 'var(--space-4)',
+                                padding: 'var(--space-4)',
+                                background: 'var(--bg-tertiary)',
+                                borderRadius: 'var(--radius-md)'
+                            }}>
+                                <div>
+                                    <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>Supplier</div>
+                                    <div style={{ fontWeight: 600 }}>{(viewingPurchase as Purchase & { supplier_name?: string }).supplier_name || 'Unknown'}</div>
+                                </div>
+                                <div>
+                                    <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>Invoice Date</div>
+                                    <div style={{ fontWeight: 600 }}>{formatDate(viewingPurchase.invoice_date)}</div>
+                                </div>
+                                <div>
+                                    <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>Payment Status</div>
+                                    <div><span className={`badge ${getPaymentStatusBadge(viewingPurchase.payment_status)}`}>{viewingPurchase.payment_status}</span></div>
+                                </div>
+                                <div>
+                                    <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>Grand Total</div>
+                                    <div style={{ fontWeight: 700, fontSize: 'var(--text-lg)', color: 'var(--color-primary-600)' }}>{formatCurrency(viewingPurchase.grand_total)}</div>
+                                </div>
+                            </div>
+
+                            {/* Purchase Items Table */}
+                            {viewingPurchaseItems.length > 0 ? (
+                                <table className="data-table" style={{ width: '100%' }}>
+                                    <thead>
+                                        <tr>
+                                            <th style={{ textAlign: 'left' }}>Medicine</th>
+                                            <th>Batch</th>
+                                            <th>Expiry</th>
+                                            <th>Qty</th>
+                                            <th>Free</th>
+                                            <th>Purchase ₹</th>
+                                            <th>MRP ₹</th>
+                                            <th>GST %</th>
+                                            <th>Total ₹</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {viewingPurchaseItems.map((item) => (
+                                            <tr key={item.id}>
+                                                <td style={{ textAlign: 'left', fontWeight: 500 }}>{item.medicine_name}</td>
+                                                <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-sm)' }}>{item.batch_number}</td>
+                                                <td style={{ fontSize: 'var(--text-sm)' }}>{formatDate(item.expiry_date)}</td>
+                                                <td style={{ fontWeight: 500 }}>{item.quantity}</td>
+                                                <td style={{ color: item.free_quantity > 0 ? 'var(--color-success-600)' : 'var(--text-tertiary)' }}>
+                                                    {item.free_quantity > 0 ? `+${item.free_quantity}` : '-'}
+                                                </td>
+                                                <td style={{ fontFamily: 'var(--font-mono)' }}>{formatCurrency(item.purchase_price)}</td>
+                                                <td style={{ fontFamily: 'var(--font-mono)' }}>{formatCurrency(item.mrp)}</td>
+                                                <td>{item.gst_rate}%</td>
+                                                <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{formatCurrency(item.total_amount)}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                    <tfoot>
+                                        <tr style={{ borderTop: '2px solid var(--border-medium)' }}>
+                                            <td colSpan={3} style={{ textAlign: 'left', fontWeight: 600 }}>Totals</td>
+                                            <td style={{ fontWeight: 600 }}>{viewingPurchaseItems.reduce((sum, i) => sum + i.quantity, 0)}</td>
+                                            <td style={{ fontWeight: 600, color: 'var(--color-success-600)' }}>
+                                                +{viewingPurchaseItems.reduce((sum, i) => sum + i.free_quantity, 0)}
+                                            </td>
+                                            <td colSpan={3}></td>
+                                            <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--color-primary-600)' }}>
+                                                {formatCurrency(viewingPurchaseItems.reduce((sum, i) => sum + i.total_amount, 0))}
+                                            </td>
+                                        </tr>
+                                    </tfoot>
+                                </table>
+                            ) : (
+                                <div className="empty-state" style={{ padding: 'var(--space-8)' }}>
+                                    <Package size={48} strokeWidth={1} />
+                                    <h3 className="mt-4">No items found</h3>
+                                    <p className="text-secondary">This purchase has no item records.</p>
+                                </div>
+                            )}
+                        </div>
+                        <div className="modal-footer">
+                            <button className="btn btn-secondary" onClick={() => { setShowPurchaseDetailsModal(false); setViewingPurchase(null); setViewingPurchaseItems([]); }}>
+                                Close
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}

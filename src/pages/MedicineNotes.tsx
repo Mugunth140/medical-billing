@@ -54,6 +54,7 @@ export function MedicineNotes() {
     useEffect(() => {
         loadNotes();
         loadStats();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [filterStatus]);
 
     const loadStats = async () => {
