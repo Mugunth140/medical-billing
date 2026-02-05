@@ -13,6 +13,7 @@ import {
     Calendar,
     ChevronDown,
     ChevronRight,
+    Download,
     FileSpreadsheet,
     Filter,
     IndianRupee,
@@ -38,7 +39,7 @@ import { getExpiringItems, getStockValue } from '../services/inventory.service';
 import type { Bill, ScheduledMedicineRecord, StockItem } from '../types';
 import { formatCurrency, formatDate, toISODate } from '../utils';
 
-type ReportType = 'sales' | 'gst' | 'inventory' | 'expiry' | 'credit' | 'scheduled';
+type ReportType = 'sales' | 'gst' | 'inventory' | 'expiry' | 'credit' | 'scheduled' | 'sales-monthly' | 'gst-consolidated';
 
 interface SalesReportData {
     bills: Bill[];
@@ -76,6 +77,56 @@ interface ScheduledReportData {
     totalQuantity: number;
 }
 
+// Monthly Sales Report for Excel Export
+interface MonthlySalesItem {
+    date: string;
+    bill_number: string;
+    gstin: string | null;
+    hsn_code: string;
+    basic_value: number;
+    tax_rate: number;
+    gst_amount: number;
+    total: number;
+}
+
+interface MonthlySalesReportData {
+    items: MonthlySalesItem[];
+    summary: {
+        totalBasicValue: number;
+        totalGst: number;
+        grandTotal: number;
+    };
+}
+
+// GST Consolidated Report for GST Filing
+interface GstConsolidatedItem {
+    gst_rate: number;
+    hsn_code: string;
+    taxable_value: number;
+    cgst: number;
+    sgst: number;
+    total_gst: number;
+    total: number;
+}
+
+interface GstConsolidatedReportData {
+    breakdown: GstConsolidatedItem[];
+    gstRateTotals: {
+        rate: number;
+        taxable_value: number;
+        cgst: number;
+        sgst: number;
+        total_gst: number;
+    }[];
+    grandTotal: {
+        taxable_value: number;
+        cgst: number;
+        sgst: number;
+        total_gst: number;
+    };
+    shopGstin: string;
+}
+
 interface ReportData {
     sales: SalesReportData | undefined;
     gst: GstReportData | undefined;
@@ -83,6 +134,8 @@ interface ReportData {
     expiry: ExpiryReportData | undefined;
     credit: CreditReportData | undefined;
     scheduled: ScheduledReportData | undefined;
+    'sales-monthly': MonthlySalesReportData | undefined;
+    'gst-consolidated': GstConsolidatedReportData | undefined;
 }
 
 export function Reports() {
@@ -241,6 +294,119 @@ c.id,
                             records: scheduledRecords,
                             totalRecords: scheduledRecords.length,
                             totalQuantity: scheduledRecords.reduce((sum: number, r: any) => sum + r.quantity, 0)
+                        }
+                    });
+                    break;
+                }
+                case 'sales-monthly': {
+                    // Monthly Sales Report with HSN and GST details
+                    const salesItems = await query<any>(
+                        `SELECT 
+                            date(b.bill_date) as date,
+                            b.bill_number,
+                            c.gstin as customer_gstin,
+                            bi.hsn_code,
+                            bi.taxable_value as basic_value,
+                            bi.gst_rate as tax_rate,
+                            bi.total_gst as gst_amount,
+                            bi.total
+                        FROM bill_items bi
+                        JOIN bills b ON bi.bill_id = b.id
+                        LEFT JOIN customers c ON b.customer_id = c.id
+                        WHERE date(b.bill_date) BETWEEN ? AND ?
+                        AND b.status = 'COMPLETED'
+                        ORDER BY b.bill_date, b.bill_number`,
+                        [dateRange.start, dateRange.end]
+                    );
+
+                    const items: MonthlySalesItem[] = salesItems.map((item: any) => ({
+                        date: item.date,
+                        bill_number: item.bill_number,
+                        gstin: item.customer_gstin,
+                        hsn_code: item.hsn_code,
+                        basic_value: item.basic_value || 0,
+                        tax_rate: item.tax_rate || 0,
+                        gst_amount: item.gst_amount || 0,
+                        total: item.total || 0
+                    }));
+
+                    setReportData({
+                        ...reportData,
+                        'sales-monthly': {
+                            items,
+                            summary: {
+                                totalBasicValue: items.reduce((sum, i) => sum + i.basic_value, 0),
+                                totalGst: items.reduce((sum, i) => sum + i.gst_amount, 0),
+                                grandTotal: items.reduce((sum, i) => sum + i.total, 0)
+                            }
+                        }
+                    });
+                    break;
+                }
+                case 'gst-consolidated': {
+                    // GST Consolidated Report for GST Filing
+                    const gstBreakdown = await query<any>(
+                        `SELECT 
+                            bi.gst_rate,
+                            bi.hsn_code,
+                            SUM(bi.taxable_value) as taxable_value,
+                            SUM(bi.cgst) as cgst,
+                            SUM(bi.sgst) as sgst,
+                            SUM(bi.total_gst) as total_gst,
+                            SUM(bi.total) as total
+                        FROM bill_items bi
+                        JOIN bills b ON bi.bill_id = b.id
+                        WHERE date(b.bill_date) BETWEEN ? AND ?
+                        AND b.status = 'COMPLETED'
+                        GROUP BY bi.gst_rate, bi.hsn_code
+                        ORDER BY bi.gst_rate, bi.hsn_code`,
+                        [dateRange.start, dateRange.end]
+                    );
+
+                    // Get shop GSTIN from settings
+                    const settings = await query<{ value: string }>(
+                        `SELECT value FROM settings WHERE key = 'shop_gstin'`,
+                        []
+                    );
+                    const shopGstin = settings[0]?.value || '';
+
+                    // Calculate rate-wise totals
+                    const rateMap = new Map<number, { taxable_value: number; cgst: number; sgst: number; total_gst: number }>();
+                    gstBreakdown.forEach((item: any) => {
+                        const existing = rateMap.get(item.gst_rate) || { taxable_value: 0, cgst: 0, sgst: 0, total_gst: 0 };
+                        rateMap.set(item.gst_rate, {
+                            taxable_value: existing.taxable_value + (item.taxable_value || 0),
+                            cgst: existing.cgst + (item.cgst || 0),
+                            sgst: existing.sgst + (item.sgst || 0),
+                            total_gst: existing.total_gst + (item.total_gst || 0)
+                        });
+                    });
+
+                    const gstRateTotals = Array.from(rateMap.entries()).map(([rate, totals]) => ({
+                        rate,
+                        ...totals
+                    }));
+
+                    setReportData({
+                        ...reportData,
+                        'gst-consolidated': {
+                            breakdown: gstBreakdown.map((item: any) => ({
+                                gst_rate: item.gst_rate,
+                                hsn_code: item.hsn_code,
+                                taxable_value: item.taxable_value || 0,
+                                cgst: item.cgst || 0,
+                                sgst: item.sgst || 0,
+                                total_gst: item.total_gst || 0,
+                                total: item.total || 0
+                            })),
+                            gstRateTotals,
+                            grandTotal: {
+                                taxable_value: gstBreakdown.reduce((sum: number, i: any) => sum + (i.taxable_value || 0), 0),
+                                cgst: gstBreakdown.reduce((sum: number, i: any) => sum + (i.cgst || 0), 0),
+                                sgst: gstBreakdown.reduce((sum: number, i: any) => sum + (i.sgst || 0), 0),
+                                total_gst: gstBreakdown.reduce((sum: number, i: any) => sum + (i.total_gst || 0), 0)
+                            },
+                            shopGstin
                         }
                     });
                     break;
@@ -441,6 +607,73 @@ c.id,
                         ];
                     }
                     break;
+
+                case 'sales-monthly':
+                    sheetName = 'Monthly_Sales_Report';
+                    reportTitle = 'Monthly Sales Report';
+                    columns = [
+                        { header: 'Date', key: 'date', width: 12 },
+                        { header: 'GST No.', key: 'gstNo', width: 18 },
+                        { header: 'URP', key: 'urp', width: 6 },
+                        { header: 'HSN Code', key: 'hsnCode', width: 12 },
+                        { header: 'Basic Value', key: 'basicValue', width: 15 },
+                        { header: '% Tax', key: 'taxRate', width: 8 },
+                        { header: 'GST', key: 'gst', width: 12 },
+                        { header: 'Total', key: 'total', width: 15 },
+                    ];
+                    if (reportData['sales-monthly']) {
+                        data = reportData['sales-monthly'].items.map((item) => ({
+                            date: formatDate(item.date, 'dd/MM'),
+                            gstNo: item.gstin || '-',
+                            urp: item.gstin ? '-' : 'URP',
+                            hsnCode: item.hsn_code,
+                            basicValue: item.basic_value,
+                            taxRate: item.tax_rate,
+                            gst: item.gst_amount,
+                            total: item.total
+                        }));
+                        summary = [
+                            { label: 'Total Basic Value', value: reportData['sales-monthly'].summary.totalBasicValue },
+                            { label: 'Total GST', value: reportData['sales-monthly'].summary.totalGst },
+                            { label: 'Grand Total', value: reportData['sales-monthly'].summary.grandTotal }
+                        ];
+                    }
+                    break;
+
+                case 'gst-consolidated':
+                    sheetName = 'GST_Consolidated_Report';
+                    reportTitle = 'Consolidated Report for GST Filing';
+                    columns = [
+                        { header: 'GST No.', key: 'gstNo', width: 18 },
+                        { header: 'HSN Code', key: 'hsnCode', width: 12 },
+                        { header: 'Basic Value', key: 'basicValue', width: 15 },
+                        { header: '% Tax', key: 'taxRate', width: 8 },
+                        { header: 'CGST', key: 'cgst', width: 12 },
+                        { header: 'SGST', key: 'sgst', width: 12 },
+                        { header: 'Total GST', key: 'totalGst', width: 12 },
+                        { header: 'Total', key: 'total', width: 15 },
+                    ];
+                    if (reportData['gst-consolidated']) {
+                        const shopGstin = reportData['gst-consolidated'].shopGstin || 'N/A';
+                        data = reportData['gst-consolidated'].breakdown.map((item) => ({
+                            gstNo: shopGstin,
+                            hsnCode: item.hsn_code,
+                            basicValue: item.taxable_value,
+                            taxRate: item.gst_rate,
+                            cgst: item.cgst,
+                            sgst: item.sgst,
+                            totalGst: item.total_gst,
+                            total: item.total
+                        }));
+                        summary = [
+                            { label: 'Shop GSTIN', value: shopGstin },
+                            { label: 'Total Basic Value', value: reportData['gst-consolidated'].grandTotal.taxable_value },
+                            { label: 'Total CGST', value: reportData['gst-consolidated'].grandTotal.cgst },
+                            { label: 'Total SGST', value: reportData['gst-consolidated'].grandTotal.sgst },
+                            { label: 'Total GST', value: reportData['gst-consolidated'].grandTotal.total_gst }
+                        ];
+                    }
+                    break;
             }
 
             const sheet = workbook.addWorksheet(sheetName);
@@ -552,6 +785,8 @@ c.id,
         { id: 'expiry', label: 'Expiry Report', icon: Calendar },
         { id: 'credit', label: 'Credit Report', icon: Users },
         { id: 'scheduled', label: 'Scheduled Drugs', icon: AlertCircle },
+        { id: 'sales-monthly', label: 'Monthly Sales Export', icon: Download },
+        { id: 'gst-consolidated', label: 'GST Filing Report', icon: Download },
     ] as const;
 
     return (
@@ -1133,6 +1368,222 @@ c.id,
                                                 <p style={{ marginTop: 16 }}>No scheduled drug sales found for this period</p>
                                             </div>
                                         )}
+                                    </>
+                                )}
+
+                                {/* Monthly Sales Report for Excel Export */}
+                                {activeReport === 'sales-monthly' && (
+                                    <>
+                                        <div className="report-header">
+                                            <div>
+                                                <h2 className="report-title">Monthly Sales Report</h2>
+                                                <p className="report-period">
+                                                    {formatDate(dateRange.start)} - {formatDate(dateRange.end)}
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        {!isLoading && reportData['sales-monthly'] ? (
+                                            <>
+                                                <div className="summary-cards" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+                                                    <div className="summary-card">
+                                                        <div className="summary-value">{formatCurrency(reportData['sales-monthly'].summary.totalBasicValue)}</div>
+                                                        <div className="summary-label">Total Basic Value</div>
+                                                    </div>
+                                                    <div className="summary-card">
+                                                        <div className="summary-value">{formatCurrency(reportData['sales-monthly'].summary.totalGst)}</div>
+                                                        <div className="summary-label">Total GST</div>
+                                                    </div>
+                                                    <div className="summary-card">
+                                                        <div className="summary-value">{formatCurrency(reportData['sales-monthly'].summary.grandTotal)}</div>
+                                                        <div className="summary-label">Grand Total</div>
+                                                    </div>
+                                                </div>
+
+                                                <div style={{ margin: '16px 0', padding: '12px', background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                    <span style={{ fontWeight: 500 }}>
+                                                        <Download size={16} style={{ marginRight: 8, verticalAlign: 'middle' }} />
+                                                        {reportData['sales-monthly'].items.length} items ready for export
+                                                    </span>
+                                                    <button className="btn btn-primary" onClick={handleExportExcel}>
+                                                        <FileSpreadsheet size={18} />
+                                                        Export Excel
+                                                    </button>
+                                                </div>
+
+                                                {reportData['sales-monthly'].items.length > 0 ? (
+                                                    <>
+                                                        <h3 className="font-semibold mb-4">Preview (First 50 items)</h3>
+                                                        <table className="report-table">
+                                                            <thead>
+                                                                <tr>
+                                                                    <th>Date</th>
+                                                                    <th>GST No.</th>
+                                                                    <th>URP</th>
+                                                                    <th>HSN Code</th>
+                                                                    <th className="numeric">Basic Value</th>
+                                                                    <th className="numeric">% Tax</th>
+                                                                    <th className="numeric">GST</th>
+                                                                    <th className="numeric">Total</th>
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody>
+                                                                {reportData['sales-monthly'].items.slice(0, 50).map((item, idx) => (
+                                                                    <tr key={idx}>
+                                                                        <td>{formatDate(item.date, 'dd/MM')}</td>
+                                                                        <td>{item.gstin || '-'}</td>
+                                                                        <td>{item.gstin ? '-' : 'URP'}</td>
+                                                                        <td>{item.hsn_code}</td>
+                                                                        <td className="numeric">{formatCurrency(item.basic_value)}</td>
+                                                                        <td className="numeric">{item.tax_rate}%</td>
+                                                                        <td className="numeric">{formatCurrency(item.gst_amount)}</td>
+                                                                        <td className="numeric">{formatCurrency(item.total)}</td>
+                                                                    </tr>
+                                                                ))}
+                                                            </tbody>
+                                                        </table>
+                                                    </>
+                                                ) : (
+                                                    <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-tertiary)' }}>
+                                                        <FileSpreadsheet size={48} strokeWidth={1} />
+                                                        <p style={{ marginTop: 16 }}>No sales data found for this period</p>
+                                                    </div>
+                                                )}
+                                            </>
+                                        ) : !isLoading ? (
+                                            <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-tertiary)' }}>
+                                                <FileSpreadsheet size={48} strokeWidth={1} />
+                                                <p style={{ marginTop: 16 }}>No sales data found for this period</p>
+                                            </div>
+                                        ) : null}
+                                    </>
+                                )}
+
+                                {/* GST Consolidated Report for GST Filing */}
+                                {activeReport === 'gst-consolidated' && (
+                                    <>
+                                        <div className="report-header">
+                                            <div>
+                                                <h2 className="report-title">GST Consolidated Report</h2>
+                                                <p className="report-period">
+                                                    {formatDate(dateRange.start)} - {formatDate(dateRange.end)}
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        {!isLoading && reportData['gst-consolidated'] ? (
+                                            <>
+                                                <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 16 }}>
+                                                    Shop GSTIN: {reportData['gst-consolidated'].shopGstin || 'Not configured'}
+                                                </p>
+
+                                                <div className="summary-cards" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+                                                    <div className="summary-card">
+                                                        <div className="summary-value">{formatCurrency(reportData['gst-consolidated'].grandTotal.taxable_value)}</div>
+                                                        <div className="summary-label">Total Basic Value</div>
+                                                    </div>
+                                                    <div className="summary-card">
+                                                        <div className="summary-value">{formatCurrency(reportData['gst-consolidated'].grandTotal.cgst)}</div>
+                                                        <div className="summary-label">Total CGST</div>
+                                                    </div>
+                                                    <div className="summary-card">
+                                                        <div className="summary-value">{formatCurrency(reportData['gst-consolidated'].grandTotal.sgst)}</div>
+                                                        <div className="summary-label">Total SGST</div>
+                                                    </div>
+                                                    <div className="summary-card">
+                                                        <div className="summary-value">{formatCurrency(reportData['gst-consolidated'].grandTotal.total_gst)}</div>
+                                                        <div className="summary-label">Total GST</div>
+                                                    </div>
+                                                </div>
+
+                                                <div style={{ margin: '16px 0', padding: '12px', background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-md)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                    <span style={{ fontWeight: 500 }}>
+                                                        <Download size={16} style={{ marginRight: 8, verticalAlign: 'middle' }} />
+                                                        Ready for GST filing export
+                                                    </span>
+                                                    <button className="btn btn-primary" onClick={handleExportExcel}>
+                                                        <FileSpreadsheet size={18} />
+                                                        Export Excel
+                                                    </button>
+                                                </div>
+
+                                                {reportData['gst-consolidated'].breakdown.length > 0 ? (
+                                                    <>
+                                                        <h3 className="font-semibold mb-4">GST Breakup by HSN Code & Rate</h3>
+                                                        <table className="report-table">
+                                                            <thead>
+                                                                <tr>
+                                                                    <th>HSN Code</th>
+                                                                    <th className="numeric">% Tax</th>
+                                                                    <th className="numeric">Basic Value</th>
+                                                                    <th className="numeric">CGST</th>
+                                                                    <th className="numeric">SGST</th>
+                                                                    <th className="numeric">Total GST</th>
+                                                                    <th className="numeric">Total</th>
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody>
+                                                                {reportData['gst-consolidated'].breakdown.map((item, idx) => (
+                                                                    <tr key={idx}>
+                                                                        <td>{item.hsn_code}</td>
+                                                                        <td className="numeric">{item.gst_rate}%</td>
+                                                                        <td className="numeric">{formatCurrency(item.taxable_value)}</td>
+                                                                        <td className="numeric">{formatCurrency(item.cgst)}</td>
+                                                                        <td className="numeric">{formatCurrency(item.sgst)}</td>
+                                                                        <td className="numeric">{formatCurrency(item.total_gst)}</td>
+                                                                        <td className="numeric">{formatCurrency(item.total)}</td>
+                                                                    </tr>
+                                                                ))}
+                                                            </tbody>
+                                                            <tfoot>
+                                                                <tr style={{ fontWeight: 'bold', background: 'var(--bg-tertiary)' }}>
+                                                                    <td colSpan={2}>Total</td>
+                                                                    <td className="numeric">{formatCurrency(reportData['gst-consolidated'].grandTotal.taxable_value)}</td>
+                                                                    <td className="numeric">{formatCurrency(reportData['gst-consolidated'].grandTotal.cgst)}</td>
+                                                                    <td className="numeric">{formatCurrency(reportData['gst-consolidated'].grandTotal.sgst)}</td>
+                                                                    <td className="numeric">{formatCurrency(reportData['gst-consolidated'].grandTotal.total_gst)}</td>
+                                                                    <td className="numeric"></td>
+                                                                </tr>
+                                                            </tfoot>
+                                                        </table>
+
+                                                        <h3 className="font-semibold mb-4 mt-6">Summary by Tax Rate</h3>
+                                                        <table className="report-table">
+                                                            <thead>
+                                                                <tr>
+                                                                    <th>Tax Rate</th>
+                                                                    <th className="numeric">Basic Value</th>
+                                                                    <th className="numeric">CGST</th>
+                                                                    <th className="numeric">SGST</th>
+                                                                    <th className="numeric">Total GST</th>
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody>
+                                                                {reportData['gst-consolidated'].gstRateTotals.map((rate, idx) => (
+                                                                    <tr key={idx}>
+                                                                        <td>{rate.rate}%</td>
+                                                                        <td className="numeric">{formatCurrency(rate.taxable_value)}</td>
+                                                                        <td className="numeric">{formatCurrency(rate.cgst)}</td>
+                                                                        <td className="numeric">{formatCurrency(rate.sgst)}</td>
+                                                                        <td className="numeric">{formatCurrency(rate.total_gst)}</td>
+                                                                    </tr>
+                                                                ))}
+                                                            </tbody>
+                                                        </table>
+                                                    </>
+                                                ) : (
+                                                    <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-tertiary)' }}>
+                                                        <FileSpreadsheet size={48} strokeWidth={1} />
+                                                        <p style={{ marginTop: 16 }}>No GST data found for this period</p>
+                                                    </div>
+                                                )}
+                                            </>
+                                        ) : !isLoading ? (
+                                            <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-tertiary)' }}>
+                                                <FileSpreadsheet size={48} strokeWidth={1} />
+                                                <p style={{ marginTop: 16 }}>No GST data found for this period</p>
+                                            </div>
+                                        ) : null}
                                     </>
                                 )}
                             </>

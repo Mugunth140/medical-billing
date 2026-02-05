@@ -3,9 +3,11 @@
 // SQLite Database Operations via Tauri SQL Plugin
 // =====================================================
 
+import { appConfigDir } from '@tauri-apps/api/path';
 import Database from '@tauri-apps/plugin-sql';
 
 let db: Database | null = null;
+let dbPath: string | null = null;
 
 // Individual table creation statements
 const TABLE_STATEMENTS = [
@@ -442,8 +444,15 @@ export async function initDatabase(): Promise<Database> {
     try {
         console.log('Connecting to database...');
 
-        // Connect to SQLite database
-        db = await Database.load('sqlite:medbill.db');
+        // Get the app config directory and build an explicit database path
+        // This ensures the database persists across Windows app updates
+        // Using appConfigDir() to match backup.service.ts for consistency
+        const configDir = await appConfigDir();
+        dbPath = `${configDir}medbill.db`;
+        console.log('Database path:', dbPath);
+
+        // Connect to SQLite database using explicit path
+        db = await Database.load(`sqlite:${dbPath}`);
         console.log('Database connected successfully');
 
         // Enable WAL mode for better concurrent access and prevent "database is locked" errors
