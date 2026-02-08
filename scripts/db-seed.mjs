@@ -12,9 +12,9 @@ import { homedir } from 'os';
 import { join } from 'path';
 
 // Database path - same as Tauri uses
-// Windows uses AppData/Local, Linux/Mac use .config
+// Windows uses AppData/Roaming (appConfigDir), Linux/Mac use .config
 const DATA_DIR = process.platform === 'win32'
-    ? join(homedir(), 'AppData/Local/com.velanmedicals.app')
+    ? join(homedir(), 'AppData/Roaming/com.velanmedicals.app')
     : join(homedir(), '.config/com.velanmedicals.app');
 const DB_PATH = join(DATA_DIR, 'medbill.db');
 
@@ -41,7 +41,7 @@ const subDays = (days) => new Date(today.getTime() - days * 24 * 60 * 60 * 1000)
 // =====================================================
 function createTables() {
     console.log('Creating tables...');
-    
+
     const tables = [
         `CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -288,10 +288,10 @@ function createTables() {
 // =====================================================
 function clearDatabase() {
     console.log('Clearing database...');
-    
+
     // Disable foreign keys temporarily for clean delete
     db.exec('PRAGMA foreign_keys = OFF');
-    
+
     const tables = [
         'running_bills', 'credits', 'scheduled_medicine_records',
         'bill_items', 'bills', 'batches', 'medicines',
@@ -314,17 +314,17 @@ function clearDatabase() {
     // Reset bill sequence
     try {
         db.exec('UPDATE bill_sequence SET current_number = 0');
-    } catch (e) {}
+    } catch (e) { }
 
     // Reset auto-increment
     try {
         db.exec('DELETE FROM sqlite_sequence');
-    } catch (e) {}
+    } catch (e) { }
 
     // Mark tablets migration as done
     try {
         db.exec(`INSERT OR REPLACE INTO settings (key, value, category, description) VALUES ('tablets_migration_done', 'true', 'system', 'Quantity stored in tablets')`);
-    } catch (e) {}
+    } catch (e) { }
 
     console.log('Database cleared!');
 }
@@ -355,65 +355,98 @@ function seedDatabase(skipCheck = false) {
     const billDate3 = formatDate(today);
 
     // =========================================
-    // 2 SUPPLIERS
+    // 6 SUPPLIERS
     // =========================================
     console.log('  - Seeding suppliers...');
     db.exec(`
         INSERT INTO suppliers (name, contact_person, phone, email, gstin, address, city, state, payment_terms) VALUES
-        ('ABC Pharma Distributors', 'Rajesh Kumar', '9876543210', 'rajesh@abcpharma.com', '33AABCU9603R1ZM', '123 Pharma Street', 'Chennai', 'Tamil Nadu', 30),
-        ('MediCare Wholesale', 'Priya Sharma', '9876543211', 'priya@medicare.in', '33AABCU9603R2ZN', '456 Medical Lane', 'Chennai', 'Tamil Nadu', 45)
+        ('ABC Pharma Distributors', 'Rajesh Kumar', '9876543210', 'rajesh@abcpharma.com', '33AABCU9603R1ZM', '123 Pharma Street, Vadapalani', 'Chennai', 'Tamil Nadu', 30),
+        ('MediCare Wholesale', 'Priya Sharma', '9876543211', 'priya@medicare.in', '33AABCU9603R2ZN', '456 Medical Lane, Guindy', 'Chennai', 'Tamil Nadu', 45),
+        ('HealthPlus Distributors', 'Venkat Raman', '9876543212', 'venkat@healthplus.com', '33AABCU9603R3ZO', '789 Health Avenue, T Nagar', 'Chennai', 'Tamil Nadu', 30),
+        ('Lifeline Pharma', 'Anitha Krishnan', '9876543213', 'anitha@lifelinepharma.com', '33AABCU9603R4ZP', '101 Lifeline Road, Adyar', 'Chennai', 'Tamil Nadu', 60),
+        ('MedSupply India', 'Karthik Subramanian', '9876543214', 'karthik@medsupply.in', '33AABCU9603R5ZQ', '202 Supply Street, Anna Nagar', 'Chennai', 'Tamil Nadu', 15),
+        ('PharmaWorld', 'Deepa Murthy', '9876543215', 'deepa@pharmaworld.com', '33AABCU9603R6ZR', '303 World Plaza, Nungambakkam', 'Chennai', 'Tamil Nadu', 45)
     `);
 
     // =========================================
-    // 10 MEDICINES (8 regular, 2 scheduled)
+    // 25 MEDICINES (Various categories for comprehensive testing)
+    // Note: gst_rate and is_schedule are on batches table, not medicines
     // =========================================
-    console.log('  - Seeding 10 medicines...');
+    console.log('  - Seeding 25 medicines...');
     db.exec(`
-        INSERT INTO medicines (name, generic_name, manufacturer, hsn_code, gst_rate, category, unit, reorder_level, is_schedule) VALUES
-        ('Dolo 650', 'Paracetamol 650mg', 'Micro Labs', '3004', 12, 'Analgesic', 'STRIP', 50, 0),
-        ('Azithral 500', 'Azithromycin 500mg', 'Alembic Pharma', '3004', 12, 'Antibiotic', 'STRIP', 30, 0),
-        ('Pan 40', 'Pantoprazole 40mg', 'Alkem Labs', '3004', 12, 'Antacid', 'STRIP', 40, 0),
-        ('Crocin Advance', 'Paracetamol 500mg', 'GSK', '3004', 12, 'Analgesic', 'STRIP', 60, 0),
-        ('Shelcal 500', 'Calcium + Vitamin D3', 'Torrent Pharma', '3004', 0, 'Supplement', 'STRIP', 20, 0),
-        ('Allegra 120', 'Fexofenadine 120mg', 'Sanofi', '3004', 12, 'Antiallergic', 'STRIP', 25, 0),
-        ('Combiflam', 'Ibuprofen + Paracetamol', 'Sanofi', '3004', 12, 'Analgesic', 'STRIP', 40, 0),
-        ('Alprazolam 0.5', 'Alprazolam 0.5mg', 'Sun Pharma', '3004', 12, 'Anxiolytic', 'STRIP', 20, 1),
-        ('Tramadol 50', 'Tramadol HCl 50mg', 'Cipla', '3004', 12, 'Analgesic', 'STRIP', 15, 1),
-        ('Zincovit', 'Multivitamin + Zinc', 'Apex Labs', '3004', 0, 'Supplement', 'BOTTLE', 30, 0)
+        INSERT INTO medicines (name, generic_name, manufacturer, hsn_code, category, unit, reorder_level) VALUES
+        ('Dolo 650', 'Paracetamol 650mg', 'Micro Labs', '3004', 'Analgesic', 'STRIP', 50),
+        ('Azithral 500', 'Azithromycin 500mg', 'Alembic Pharma', '3004', 'Antibiotic', 'STRIP', 30),
+        ('Pan 40', 'Pantoprazole 40mg', 'Alkem Labs', '3004', 'Antacid', 'STRIP', 40),
+        ('Crocin Advance', 'Paracetamol 500mg', 'GSK', '3004', 'Analgesic', 'STRIP', 60),
+        ('Shelcal 500', 'Calcium + Vitamin D3', 'Torrent Pharma', '3004', 'Supplement', 'STRIP', 20),
+        ('Allegra 120', 'Fexofenadine 120mg', 'Sanofi', '3004', 'Antiallergic', 'STRIP', 25),
+        ('Combiflam', 'Ibuprofen + Paracetamol', 'Sanofi', '3004', 'Analgesic', 'STRIP', 40),
+        ('Alprazolam 0.5', 'Alprazolam 0.5mg', 'Sun Pharma', '3004', 'Anxiolytic', 'STRIP', 20),
+        ('Tramadol 50', 'Tramadol HCl 50mg', 'Cipla', '3004', 'Analgesic', 'STRIP', 15),
+        ('Zincovit', 'Multivitamin + Zinc', 'Apex Labs', '3004', 'Supplement', 'BOTTLE', 30),
+        ('Augmentin 625', 'Amoxicillin + Clavulanic Acid', 'GSK', '3004', 'Antibiotic', 'STRIP', 25),
+        ('Metformin 500', 'Metformin HCl 500mg', 'Sun Pharma', '3004', 'Antidiabetic', 'STRIP', 100),
+        ('Atenolol 50', 'Atenolol 50mg', 'Cipla', '3004', 'Cardiac', 'STRIP', 50),
+        ('Amlodipine 5', 'Amlodipine 5mg', 'Lupin', '3004', 'Cardiac', 'STRIP', 60),
+        ('Omeprazole 20', 'Omeprazole 20mg', 'Dr Reddys', '3004', 'Antacid', 'STRIP', 40),
+        ('Cetirizine 10', 'Cetirizine 10mg', 'Mankind', '3004', 'Antiallergic', 'STRIP', 50),
+        ('Montelukast 10', 'Montelukast 10mg', 'Sun Pharma', '3004', 'Respiratory', 'STRIP', 30),
+        ('Losartan 50', 'Losartan 50mg', 'Torrent Pharma', '3004', 'Cardiac', 'STRIP', 40),
+        ('Aspirin 75', 'Aspirin 75mg', 'USV', '3004', 'Cardiac', 'STRIP', 80),
+        ('B Complex Forte', 'Vitamin B Complex', 'Abbott', '3004', 'Supplement', 'STRIP', 40),
+        ('Diazepam 5', 'Diazepam 5mg', 'Ranbaxy', '3004', 'Anxiolytic', 'STRIP', 15),
+        ('Codeine 15', 'Codeine Phosphate 15mg', 'Wockhardt', '3004', 'Analgesic', 'STRIP', 10),
+        ('Ranitidine 150', 'Ranitidine 150mg', 'Intas', '3004', 'Antacid', 'STRIP', 30),
+        ('Amoxicillin 500', 'Amoxicillin 500mg', 'Cipla', '3004', 'Antibiotic', 'STRIP', 35),
+        ('Cough Syrup', 'Dextromethorphan + Guaifenesin', 'Himalaya', '3004', 'Respiratory', 'BOTTLE', 25)
     `);
 
     // =========================================
-    // 10 BATCHES (quantity in TABLETS)
-    // Scenarios covered:
-    // - Normal stock (Dolo, Pan)
-    // - Low stock based on strips (Shelcal, Allegra, etc.)
-    // - Expiring soon (Crocin, Combiflam)
-    // - Expired (Zincovit)
-    // - Non-moving (Shelcal - old created_at, no last_sold_date)
-    // - Scheduled drugs (Alprazolam, Tramadol)
+    // 30 BATCHES (quantity in TABLETS) - Comprehensive scenarios
     // =========================================
     console.log('  - Seeding batches (quantity in tablets)...');
-    
+
     // Dates for non-moving items (created 60+ days ago)
     const oldCreatedDate = formatDate(subDays(60));
     const recentSaleDate = formatDate(subDays(3));
-    
+
     db.exec(`
-        INSERT INTO batches (medicine_id, batch_number, expiry_date, purchase_price, mrp, selling_price, price_type, quantity, tablets_per_strip, rack, box, last_sold_date, created_at) VALUES
-        (1, 'DL24001', '${expiry1Year}', 25.00, 35.00, 32.00, 'INCLUSIVE', 600, 10, 'A1', '1', '${recentSaleDate}', CURRENT_TIMESTAMP),
-        (2, 'AZ24001', '${expiry6Months}', 80.00, 120.00, 115.00, 'INCLUSIVE', 180, 6, 'A2', '1', '${recentSaleDate}', CURRENT_TIMESTAMP),
-        (3, 'PN24001', '${expiry1Year}', 45.00, 65.00, 60.00, 'INCLUSIVE', 500, 10, 'A3', '1', '${recentSaleDate}', CURRENT_TIMESTAMP),
-        (4, 'CR24001', '${expiry25Days}', 20.00, 30.00, 28.00, 'INCLUSIVE', 150, 15, 'A4', '1', '${recentSaleDate}', CURRENT_TIMESTAMP),
-        (5, 'SH24001', '${expiry1Year}', 150.00, 210.00, 200.00, 'INCLUSIVE', 225, 15, 'B1', '2', NULL, '${oldCreatedDate}'),
-        (6, 'AL24001', '${expiry6Months}', 55.00, 85.00, 80.00, 'INCLUSIVE', 200, 10, 'B2', '2', NULL, '${oldCreatedDate}'),
-        (7, 'CF24001', '${expiry10Days}', 35.00, 50.00, 48.00, 'INCLUSIVE', 80, 10, 'B3', '2', '${recentSaleDate}', CURRENT_TIMESTAMP),
-        (8, 'AP24001', '${expiry1Year}', 25.00, 45.00, 42.00, 'INCLUSIVE', 100, 10, 'C1', '3', '${recentSaleDate}', CURRENT_TIMESTAMP),
-        (9, 'TR24001', '${expiry6Months}', 30.00, 55.00, 50.00, 'INCLUSIVE', 60, 10, 'C2', '3', NULL, '${oldCreatedDate}'),
-        (10, 'ZN24001', '${expired}', 85.00, 130.00, 125.00, 'INCLUSIVE', 25, 1, 'C3', '3', NULL, '${oldCreatedDate}')
+        INSERT INTO batches (medicine_id, batch_number, expiry_date, purchase_price, mrp, selling_price, price_type, quantity, tablets_per_strip, rack, box, last_sold_date, created_at, supplier_id) VALUES
+        (1, 'DL24001', '${expiry1Year}', 25.00, 35.00, 32.00, 'INCLUSIVE', 600, 10, 'A1', '1', '${recentSaleDate}', CURRENT_TIMESTAMP, 1),
+        (1, 'DL24002', '${expiry6Months}', 26.00, 35.00, 33.00, 'INCLUSIVE', 300, 10, 'A1', '1', '${recentSaleDate}', CURRENT_TIMESTAMP, 2),
+        (2, 'AZ24001', '${expiry6Months}', 80.00, 120.00, 115.00, 'INCLUSIVE', 180, 6, 'A2', '1', '${recentSaleDate}', CURRENT_TIMESTAMP, 1),
+        (3, 'PN24001', '${expiry1Year}', 45.00, 65.00, 60.00, 'INCLUSIVE', 500, 10, 'A3', '1', '${recentSaleDate}', CURRENT_TIMESTAMP, 3),
+        (4, 'CR24001', '${expiry25Days}', 20.00, 30.00, 28.00, 'INCLUSIVE', 150, 15, 'A4', '1', '${recentSaleDate}', CURRENT_TIMESTAMP, 1),
+        (5, 'SH24001', '${expiry1Year}', 150.00, 210.00, 200.00, 'INCLUSIVE', 225, 15, 'B1', '2', NULL, '${oldCreatedDate}', 4),
+        (6, 'AL24001', '${expiry6Months}', 55.00, 85.00, 80.00, 'INCLUSIVE', 200, 10, 'B2', '2', NULL, '${oldCreatedDate}', 2),
+        (7, 'CF24001', '${expiry10Days}', 35.00, 50.00, 48.00, 'INCLUSIVE', 80, 10, 'B3', '2', '${recentSaleDate}', CURRENT_TIMESTAMP, 1),
+        (8, 'AP24001', '${expiry1Year}', 25.00, 45.00, 42.00, 'INCLUSIVE', 100, 10, 'C1', '3', '${recentSaleDate}', CURRENT_TIMESTAMP, 5),
+        (9, 'TR24001', '${expiry6Months}', 30.00, 55.00, 50.00, 'INCLUSIVE', 60, 10, 'C2', '3', NULL, '${oldCreatedDate}', 5),
+        (10, 'ZN24001', '${expired}', 85.00, 130.00, 125.00, 'INCLUSIVE', 25, 1, 'C3', '3', NULL, '${oldCreatedDate}', 3),
+        (11, 'AG24001', '${expiry1Year}', 120.00, 180.00, 170.00, 'INCLUSIVE', 240, 6, 'D1', '4', '${recentSaleDate}', CURRENT_TIMESTAMP, 1),
+        (12, 'MF24001', '${expiry1Year}', 15.00, 25.00, 22.00, 'INCLUSIVE', 1000, 10, 'D2', '4', '${recentSaleDate}', CURRENT_TIMESTAMP, 2),
+        (13, 'AT24001', '${expiry1Year}', 20.00, 35.00, 32.00, 'INCLUSIVE', 500, 14, 'D3', '4', '${recentSaleDate}', CURRENT_TIMESTAMP, 3),
+        (14, 'AM24001', '${expiry6Months}', 18.00, 30.00, 28.00, 'INCLUSIVE', 600, 10, 'E1', '5', NULL, '${oldCreatedDate}', 4),
+        (15, 'OM24001', '${expiry1Year}', 25.00, 40.00, 38.00, 'INCLUSIVE', 400, 10, 'E2', '5', '${recentSaleDate}', CURRENT_TIMESTAMP, 1),
+        (16, 'CT24001', '${expiry25Days}', 8.00, 15.00, 12.00, 'INCLUSIVE', 300, 10, 'E3', '5', '${recentSaleDate}', CURRENT_TIMESTAMP, 6),
+        (17, 'MK24001', '${expiry1Year}', 45.00, 70.00, 65.00, 'INCLUSIVE', 200, 10, 'F1', '6', '${recentSaleDate}', CURRENT_TIMESTAMP, 2),
+        (18, 'LS24001', '${expiry6Months}', 30.00, 50.00, 45.00, 'INCLUSIVE', 280, 10, 'F2', '6', NULL, '${oldCreatedDate}', 3),
+        (19, 'AS24001', '${expiry1Year}', 10.00, 18.00, 15.00, 'INCLUSIVE', 800, 14, 'F3', '6', '${recentSaleDate}', CURRENT_TIMESTAMP, 4),
+        (20, 'BC24001', '${expiry1Year}', 35.00, 55.00, 50.00, 'INCLUSIVE', 400, 15, 'G1', '7', '${recentSaleDate}', CURRENT_TIMESTAMP, 5),
+        (21, 'DZ24001', '${expiry1Year}', 20.00, 40.00, 35.00, 'INCLUSIVE', 50, 10, 'G2', '7', NULL, '${oldCreatedDate}', 5),
+        (22, 'CD24001', '${expiry6Months}', 35.00, 60.00, 55.00, 'INCLUSIVE', 30, 10, 'G3', '7', NULL, '${oldCreatedDate}', 6),
+        (23, 'RN24001', '${expiry10Days}', 22.00, 38.00, 35.00, 'INCLUSIVE', 200, 10, 'H1', '8', '${recentSaleDate}', CURRENT_TIMESTAMP, 1),
+        (24, 'AX24001', '${expiry1Year}', 40.00, 65.00, 60.00, 'INCLUSIVE', 350, 10, 'H2', '8', '${recentSaleDate}', CURRENT_TIMESTAMP, 2),
+        (25, 'CS24001', '${expiry6Months}', 50.00, 85.00, 80.00, 'INCLUSIVE', 45, 1, 'H3', '8', NULL, '${oldCreatedDate}', 3),
+        (1, 'DL24003', '${expired}', 24.00, 35.00, 32.00, 'INCLUSIVE', 50, 10, 'A1', '1', NULL, '${oldCreatedDate}', 4),
+        (3, 'PN24002', '${expiry25Days}', 46.00, 65.00, 60.00, 'INCLUSIVE', 100, 10, 'A3', '1', '${recentSaleDate}', CURRENT_TIMESTAMP, 5),
+        (12, 'MF24002', '${expiry6Months}', 16.00, 25.00, 23.00, 'INCLUSIVE', 500, 10, 'D2', '4', NULL, '${oldCreatedDate}', 6),
+        (19, 'AS24002', '${expired}', 9.00, 18.00, 15.00, 'INCLUSIVE', 100, 14, 'F3', '6', NULL, '${oldCreatedDate}', 1)
     `);
 
     // =========================================
-    // 5 CUSTOMERS
+    // 12 CUSTOMERS
     // =========================================
     console.log('  - Seeding customers...');
     db.exec(`
@@ -422,64 +455,118 @@ function seedDatabase(skipCheck = false) {
         ('Lakshmi Devi', '9876543221', 'lakshmi@email.com', '34 Nehru Road, Chennai', 3000, 0),
         ('Suresh Babu', '9876543222', 'suresh@email.com', '56 Anna Nagar, Chennai', 10000, 2500),
         ('Kavitha Rajan', '9876543223', 'kavitha@email.com', '78 T Nagar, Chennai', 2000, 800),
-        ('Walk-in Customer', '9876543224', '', 'Walk-in', 0, 0)
+        ('Walk-in Customer', '9876543224', '', 'Walk-in', 0, 0),
+        ('Vijay Anand', '9876543225', 'vijay.anand@email.com', '90 Adyar, Chennai', 8000, 3200),
+        ('Meena Sundaram', '9876543226', 'meena@email.com', '11 Velachery, Chennai', 4000, 0),
+        ('Prakash Rao', '9876543227', 'prakash.rao@email.com', '22 Mylapore, Chennai', 15000, 5000),
+        ('Sangeetha Pillai', '9876543228', 'sangeetha@email.com', '33 Guindy, Chennai', 6000, 1800),
+        ('Arjun Menon', '9876543229', 'arjun.menon@email.com', '44 Nungambakkam, Chennai', 7500, 0),
+        ('Divya Krishnan', '9876543230', 'divya.k@email.com', '55 Besant Nagar, Chennai', 5500, 2200),
+        ('Mohan Raj', '9876543231', 'mohan.raj@email.com', '66 Kodambakkam, Chennai', 12000, 4500)
     `);
 
     // =========================================
-    // 3 SAMPLE BILLS
+    // 10 SAMPLE BILLS (All payment modes)
     // =========================================
     console.log('  - Seeding sample bills...');
-    db.exec(`UPDATE bill_sequence SET current_number = 3`);
+    const billDate4 = formatDate(subDays(10));
+    const billDate5 = formatDate(subDays(8));
+    const billDate6 = formatDate(subDays(7));
+    const billDate7 = formatDate(subDays(4));
+
+    db.exec(`UPDATE bill_sequence SET current_number = 10`);
     db.exec(`
-        INSERT INTO bills (bill_number, bill_date, customer_id, customer_name, user_id, subtotal, taxable_amount, cgst_amount, sgst_amount, total_gst, grand_total, payment_mode, cash_amount, online_amount, credit_amount, is_cancelled, total_items) VALUES
-        ('INV-2425-00001', '${billDate1}', 1, 'Ramesh Kumar', 1, 256.00, 228.57, 13.71, 13.71, 27.43, 256.00, 'CASH', 256.00, 0, 0, 0, 2),
-        ('INV-2425-00002', '${billDate2}', 2, 'Lakshmi Devi', 1, 345.00, 308.04, 18.48, 18.48, 36.96, 345.00, 'ONLINE', 0, 345.00, 0, 0, 3),
-        ('INV-2425-00003', '${billDate3}', 3, 'Suresh Babu', 1, 500.00, 446.43, 26.79, 26.79, 53.57, 500.00, 'CREDIT', 0, 0, 500.00, 0, 2)
+        INSERT INTO bills (bill_number, bill_date, customer_id, customer_name, doctor_name, user_id, subtotal, taxable_amount, cgst_amount, sgst_amount, total_gst, grand_total, payment_mode, cash_amount, online_amount, credit_amount, is_cancelled, total_items) VALUES
+        ('INV-2425-00001', '${billDate4}', 1, 'Ramesh Kumar', 'Dr. Venkat', 1, 256.00, 228.57, 13.71, 13.71, 27.43, 256.00, 'CASH', 256.00, 0, 0, 0, 2),
+        ('INV-2425-00002', '${billDate5}', 2, 'Lakshmi Devi', 'Dr. Priya', 1, 345.00, 308.04, 18.48, 18.48, 36.96, 345.00, 'ONLINE', 0, 345.00, 0, 0, 3),
+        ('INV-2425-00003', '${billDate6}', 3, 'Suresh Babu', 'Dr. Kumar', 1, 500.00, 446.43, 26.79, 26.79, 53.57, 500.00, 'CREDIT', 0, 0, 500.00, 0, 2),
+        ('INV-2425-00004', '${billDate1}', 6, 'Vijay Anand', 'Dr. Sharma', 1, 420.00, 375.00, 22.50, 22.50, 45.00, 420.00, 'SPLIT', 200.00, 220.00, 0, 0, 3),
+        ('INV-2425-00005', '${billDate1}', 8, 'Prakash Rao', 'Dr. Menon', 1, 680.00, 607.14, 36.43, 36.43, 72.86, 680.00, 'CREDIT', 0, 0, 680.00, 0, 4),
+        ('INV-2425-00006', '${billDate2}', 5, 'Walk-in Customer', NULL, 1, 150.00, 133.93, 8.04, 8.04, 16.07, 150.00, 'CASH', 150.00, 0, 0, 0, 2),
+        ('INV-2425-00007', '${billDate2}', 9, 'Sangeetha Pillai', 'Dr. Rao', 1, 890.00, 794.64, 47.68, 47.68, 95.36, 890.00, 'ONLINE', 0, 890.00, 0, 0, 5),
+        ('INV-2425-00008', '${billDate3}', 11, 'Divya Krishnan', 'Dr. Lakshmi', 1, 320.00, 285.71, 17.14, 17.14, 34.29, 320.00, 'CASH', 320.00, 0, 0, 0, 2),
+        ('INV-2425-00009', '${billDate3}', 12, 'Mohan Raj', 'Dr. Rajan', 1, 1250.00, 1116.07, 66.96, 66.96, 133.93, 1250.00, 'SPLIT', 500.00, 0, 750.00, 0, 6),
+        ('INV-2425-00010', '${billDate7}', 4, 'Kavitha Rajan', 'Dr. Anand', 1, 175.00, 156.25, 9.38, 9.38, 18.75, 175.00, 'CASH', 175.00, 0, 0, 1, 1)
     `);
 
     // =========================================
-    // BILL ITEMS (quantity in tablets)
+    // BILL ITEMS (20+ items across all bills)
     // =========================================
     console.log('  - Seeding bill items...');
     db.exec(`
         INSERT INTO bill_items (bill_id, batch_id, medicine_id, medicine_name, hsn_code, batch_number, quantity, quantity_strips, quantity_pieces, tablets_per_strip, selling_price, taxable_amount, gst_rate, cgst_amount, sgst_amount, total_amount, mrp, unit) VALUES
         (1, 1, 1, 'Dolo 650', '3004', 'DL24001', 20, 2, 0, 10, 32.00, 57.14, 12, 3.43, 3.43, 64.00, 35.00, 'STRIP'),
-        (1, 3, 3, 'Pan 40', '3004', 'PN24001', 30, 3, 0, 10, 60.00, 160.71, 12, 9.64, 9.64, 180.00, 65.00, 'STRIP'),
-        (2, 2, 2, 'Azithral 500', '3004', 'AZ24001', 6, 1, 0, 6, 115.00, 102.68, 12, 6.16, 6.16, 115.00, 120.00, 'STRIP'),
-        (2, 6, 6, 'Allegra 120', '3004', 'AL24001', 10, 1, 0, 10, 80.00, 71.43, 12, 4.29, 4.29, 80.00, 85.00, 'STRIP'),
-        (2, 5, 5, 'Shelcal 500', '3004', 'SH24001', 15, 1, 0, 15, 200.00, 133.33, 0, 0, 0, 150.00, 210.00, 'STRIP'),
-        (3, 7, 7, 'Combiflam', '3004', 'CF24001', 20, 2, 0, 10, 48.00, 85.71, 12, 5.14, 5.14, 96.00, 50.00, 'STRIP'),
-        (3, 8, 8, 'Alprazolam 0.5', '3004', 'AP24001', 10, 1, 0, 10, 42.00, 375.00, 12, 22.50, 22.50, 420.00, 45.00, 'STRIP')
+        (1, 4, 3, 'Pan 40', '3004', 'PN24001', 30, 3, 0, 10, 60.00, 160.71, 12, 9.64, 9.64, 180.00, 65.00, 'STRIP'),
+        (2, 3, 2, 'Azithral 500', '3004', 'AZ24001', 6, 1, 0, 6, 115.00, 102.68, 12, 6.16, 6.16, 115.00, 120.00, 'STRIP'),
+        (2, 7, 6, 'Allegra 120', '3004', 'AL24001', 10, 1, 0, 10, 80.00, 71.43, 12, 4.29, 4.29, 80.00, 85.00, 'STRIP'),
+        (2, 6, 5, 'Shelcal 500', '3004', 'SH24001', 15, 1, 0, 15, 200.00, 133.33, 0, 0, 0, 150.00, 210.00, 'STRIP'),
+        (3, 8, 7, 'Combiflam', '3004', 'CF24001', 20, 2, 0, 10, 48.00, 85.71, 12, 5.14, 5.14, 96.00, 50.00, 'STRIP'),
+        (3, 9, 8, 'Alprazolam 0.5', '3004', 'AP24001', 10, 1, 0, 10, 42.00, 375.00, 12, 22.50, 22.50, 420.00, 45.00, 'STRIP'),
+        (4, 12, 11, 'Augmentin 625', '3004', 'AG24001', 6, 1, 0, 6, 170.00, 151.79, 12, 9.11, 9.11, 170.00, 180.00, 'STRIP'),
+        (4, 13, 12, 'Metformin 500', '3004', 'MF24001', 30, 3, 0, 10, 22.00, 58.93, 12, 3.54, 3.54, 66.00, 25.00, 'STRIP'),
+        (4, 16, 15, 'Omeprazole 20', '3004', 'OM24001', 20, 2, 0, 10, 38.00, 67.86, 12, 4.07, 4.07, 76.00, 40.00, 'STRIP'),
+        (5, 14, 13, 'Atenolol 50', '3004', 'AT24001', 28, 2, 0, 14, 32.00, 57.14, 12, 3.43, 3.43, 64.00, 35.00, 'STRIP'),
+        (5, 15, 14, 'Amlodipine 5', '3004', 'AM24001', 30, 3, 0, 10, 28.00, 75.00, 12, 4.50, 4.50, 84.00, 30.00, 'STRIP'),
+        (5, 18, 17, 'Montelukast 10', '3004', 'MK24001', 20, 2, 0, 10, 65.00, 116.07, 12, 6.96, 6.96, 130.00, 70.00, 'STRIP'),
+        (5, 19, 18, 'Losartan 50', '3004', 'LS24001', 30, 3, 0, 10, 45.00, 120.54, 12, 7.23, 7.23, 135.00, 50.00, 'STRIP'),
+        (6, 1, 1, 'Dolo 650', '3004', 'DL24001', 10, 1, 0, 10, 32.00, 28.57, 12, 1.71, 1.71, 32.00, 35.00, 'STRIP'),
+        (6, 17, 16, 'Cetirizine 10', '3004', 'CT24001', 10, 1, 0, 10, 12.00, 10.71, 12, 0.64, 0.64, 12.00, 15.00, 'STRIP'),
+        (7, 20, 19, 'Aspirin 75', '3004', 'AS24001', 28, 2, 0, 14, 15.00, 26.79, 12, 1.61, 1.61, 30.00, 18.00, 'STRIP'),
+        (7, 21, 20, 'B Complex Forte', '3004', 'BC24001', 30, 2, 0, 15, 50.00, 89.29, 0, 0, 0, 100.00, 55.00, 'STRIP'),
+        (7, 10, 9, 'Tramadol 50', '3004', 'TR24001', 10, 1, 0, 10, 50.00, 44.64, 12, 2.68, 2.68, 50.00, 55.00, 'STRIP'),
+        (7, 22, 21, 'Diazepam 5', '3004', 'DZ24001', 10, 1, 0, 10, 35.00, 31.25, 12, 1.88, 1.88, 35.00, 40.00, 'STRIP'),
+        (7, 24, 23, 'Ranitidine 150', '3004', 'RN24001', 20, 2, 0, 10, 35.00, 62.50, 12, 3.75, 3.75, 70.00, 38.00, 'STRIP'),
+        (8, 2, 1, 'Dolo 650', '3004', 'DL24002', 20, 2, 0, 10, 33.00, 58.93, 12, 3.54, 3.54, 66.00, 35.00, 'STRIP'),
+        (8, 25, 24, 'Amoxicillin 500', '3004', 'AX24001', 20, 2, 0, 10, 60.00, 107.14, 12, 6.43, 6.43, 120.00, 65.00, 'STRIP'),
+        (9, 4, 3, 'Pan 40', '3004', 'PN24001', 50, 5, 0, 10, 60.00, 267.86, 12, 16.07, 16.07, 300.00, 65.00, 'STRIP'),
+        (9, 13, 12, 'Metformin 500', '3004', 'MF24001', 100, 10, 0, 10, 22.00, 196.43, 12, 11.79, 11.79, 220.00, 25.00, 'STRIP'),
+        (9, 14, 13, 'Atenolol 50', '3004', 'AT24001', 56, 4, 0, 14, 32.00, 114.29, 12, 6.86, 6.86, 128.00, 35.00, 'STRIP'),
+        (9, 15, 14, 'Amlodipine 5', '3004', 'AM24001', 60, 6, 0, 10, 28.00, 150.00, 12, 9.00, 9.00, 168.00, 30.00, 'STRIP'),
+        (9, 19, 18, 'Losartan 50', '3004', 'LS24001', 60, 6, 0, 10, 45.00, 241.07, 12, 14.46, 14.46, 270.00, 50.00, 'STRIP'),
+        (9, 20, 19, 'Aspirin 75', '3004', 'AS24001', 56, 4, 0, 14, 15.00, 53.57, 12, 3.21, 3.21, 60.00, 18.00, 'STRIP'),
+        (10, 5, 4, 'Crocin Advance', '3004', 'CR24001', 30, 2, 0, 15, 28.00, 50.00, 12, 3.00, 3.00, 56.00, 30.00, 'STRIP')
     `);
 
     // =========================================
-    // SCHEDULED MEDICINE RECORD
+    // SCHEDULED MEDICINE RECORDS (4 records for Schedule H drugs)
     // =========================================
     console.log('  - Seeding scheduled medicine records...');
     db.exec(`
         INSERT INTO scheduled_medicine_records (bill_id, bill_item_id, medicine_id, batch_id, patient_name, patient_age, patient_gender, patient_phone, patient_address, doctor_name, doctor_registration_number, clinic_hospital_name, prescription_number, prescription_date, doctor_prescription, quantity) VALUES
-        (3, 7, 8, 8, 'Suresh Babu', 45, 'M', '9876543222', '56 Anna Nagar, Chennai', 'Dr. Ramesh Kumar', 'TN12345', 'Apollo Clinic', 'RX2025001', '${formatDate(subDays(1))}', 'Alprazolam 0.5mg - Take 1 tablet twice daily after meals for anxiety. Duration: 2 weeks.', 10)
+        (3, 7, 8, 9, 'Suresh Babu', 45, 'M', '9876543222', '56 Anna Nagar, Chennai', 'Dr. Ramesh Kumar', 'TN12345', 'Apollo Clinic', 'RX2025001', '${formatDate(subDays(7))}', 'Alprazolam 0.5mg - Take 1 tablet twice daily after meals for anxiety. Duration: 2 weeks.', 10),
+        (7, 19, 9, 10, 'Sangeetha Pillai', 38, 'F', '9876543228', '33 Guindy, Chennai', 'Dr. Lakshmi Rao', 'TN23456', 'Fortis Hospital', 'RX2025002', '${formatDate(subDays(2))}', 'Tramadol 50mg - Take 1 tablet thrice daily for pain management.', 10),
+        (7, 20, 21, 22, 'Sangeetha Pillai', 38, 'F', '9876543228', '33 Guindy, Chennai', 'Dr. Lakshmi Rao', 'TN23456', 'Fortis Hospital', 'RX2025003', '${formatDate(subDays(2))}', 'Diazepam 5mg - Take 1 tablet at bedtime for insomnia.', 10)
     `);
 
     // =========================================
-    // RUNNING BILLS
+    // RUNNING BILLS (5 pending items)
     // =========================================
     console.log('  - Seeding running bills...');
     db.exec(`
         INSERT INTO running_bills (bill_id, medicine_name, quantity, unit_price, total_amount, gst_rate, hsn_code, notes, user_id, status) VALUES
         (1, 'Paracetamol 500mg Generic', 20, 15.00, 300.00, 12, '3004', 'Out of stock item', 1, 'PENDING'),
-        (2, 'Vitamin B Complex', 30, 8.00, 240.00, 0, '3004', 'Generic substitute given', 1, 'PENDING')
+        (2, 'Vitamin B Complex', 30, 8.00, 240.00, 0, '3004', 'Generic substitute given', 1, 'PENDING'),
+        (4, 'Ibuprofen 400mg', 15, 12.00, 180.00, 12, '3004', 'Brand not available', 1, 'PENDING'),
+        (6, 'Cough Drops', 10, 5.00, 50.00, 12, '3004', 'Small quantity sold', 1, 'STOCKED'),
+        (9, 'Antacid Syrup', 2, 85.00, 170.00, 12, '3004', 'Syrup out of stock', 1, 'PENDING')
     `);
 
     // =========================================
-    // CREDIT TRANSACTIONS
+    // CREDIT TRANSACTIONS (10 transactions)
     // =========================================
     console.log('  - Seeding credit transactions...');
     db.exec(`
         INSERT INTO credits (customer_id, bill_id, transaction_type, amount, balance_after, notes, user_id) VALUES
         (1, 1, 'SALE', 256.00, 1756.00, 'Credit sale', 1),
         (1, NULL, 'PAYMENT', 256.00, 1500.00, 'Cash payment received', 1),
-        (3, 3, 'SALE', 500.00, 3000.00, 'Credit sale', 1)
+        (3, 3, 'SALE', 500.00, 3000.00, 'Credit sale', 1),
+        (6, 4, 'SALE', 420.00, 3620.00, 'Split payment - partial credit', 1),
+        (6, NULL, 'PAYMENT', 420.00, 3200.00, 'Online payment received', 1),
+        (8, 5, 'SALE', 680.00, 5680.00, 'Credit sale - bulk purchase', 1),
+        (9, 7, 'SALE', 890.00, 2690.00, 'Online payment sale', 1),
+        (9, NULL, 'PAYMENT', 890.00, 1800.00, 'UPI payment received', 1),
+        (11, 8, 'SALE', 320.00, 2520.00, 'Cash sale', 1),
+        (12, 9, 'SALE', 750.00, 5250.00, 'Split payment - credit portion', 1)
     `);
 
     // Mark migration done
@@ -491,19 +578,16 @@ function seedDatabase(skipCheck = false) {
     console.log('========================================');
     console.log('');
     console.log('Seeded data:');
-    console.log('  - 2 Suppliers');
-    console.log('  - 10 Medicines (8 regular, 2 scheduled drugs)');
-    console.log('  - 10 Batches with tablet-based quantities:');
-    console.log('      * Normal stock: Dolo (60 strips), Pan (50 strips)');
-    console.log('      * Expiring soon: Crocin (25 days), Combiflam (10 days)');
-    console.log('      * Expired: Zincovit');
-    console.log('      * Non-moving (60+ days): Shelcal, Allegra, Tramadol, Zincovit');
-    console.log('      * Schedule H drugs: Alprazolam, Tramadol');
-    console.log('  - 5 Customers (3 with credit balances)');
-    console.log('  - 3 Sample bills with 7 items');
-    console.log('  - 2 Running bills (pending reconciliation)');
-    console.log('  - 1 Scheduled medicine record');
-    console.log('  - 3 Credit transactions');
+    console.log('  - 6 Suppliers');
+    console.log('  - 25 Medicines (21 regular, 4 scheduled drugs)');
+    console.log('  - 30 Batches with various scenarios:');
+    console.log('      * Normal stock, Low stock, Expiring soon, Expired');
+    console.log('      * Non-moving items, Multiple batches per medicine');
+    console.log('  - 12 Customers (8 with credit balances)');
+    console.log('  - 10 Sample bills with 30 items');
+    console.log('  - 5 Running bills (4 pending, 1 stocked)');
+    console.log('  - 3 Scheduled medicine records');
+    console.log('  - 10 Credit transactions');
     console.log('');
     console.log('Stock storage: TABLETS (strips are derived for display)');
     console.log('Prices: Per STRIP (converted to per-tablet at billing time)');
@@ -539,18 +623,18 @@ if (args.includes('--help') || args.includes('-h')) {
 
 try {
     createTables();
-    
+
     const isReset = args.includes('--reset');
-    
+
     if (args.includes('--clear') || isReset) {
         clearDatabase();
     }
-    
+
     if (args.includes('--seed') || isReset) {
         // Skip data check if we just cleared (reset mode)
         seedDatabase(isReset);
     }
-    
+
     if (!args.includes('--clear') && !args.includes('--seed') && !isReset) {
         console.log('');
         console.log('No action specified. Use one of:');
