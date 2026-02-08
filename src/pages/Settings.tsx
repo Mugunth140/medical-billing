@@ -217,16 +217,12 @@ export function Settings() {
         setIsBackingUp(false);
     };
 
-    const handleRestoreBackup = async (filename: string) => {
-        if (!confirm(`⚠️ WARNING: This will replace ALL current data with the backup "${filename}".\n\nThe application will reload after restore. Are you sure you want to continue?`)) {
-            return;
-        }
-
+    const handleRestoreFromJSON = async () => {
         setIsRestoring(true);
         try {
-            // Show open dialog
+            // Show open dialog to pick a JSON backup file
             const filePath = await open({
-                title: 'Select Backup File',
+                title: 'Select JSON Backup File to Restore',
                 filters: [{ name: 'JSON Backup', extensions: ['json'] }],
                 multiple: false
             });
@@ -236,16 +232,49 @@ export function Settings() {
                 const fileData = await readFile(filePath);
                 const decoder = new TextDecoder();
                 const jsonString = decoder.decode(fileData);
-                const backupData = JSON.parse(jsonString);
+                let backupData: Record<string, unknown[]>;
+
+                try {
+                    backupData = JSON.parse(jsonString);
+                } catch {
+                    alert('❌ Invalid JSON file. The file may be corrupted or is not a valid backup.');
+                    setIsRestoring(false);
+                    return;
+                }
+
+                // Validate backup format
+                if (!backupData._meta || !Array.isArray(backupData._meta)) {
+                    alert('❌ Invalid backup file format. The file does not contain valid backup metadata.');
+                    setIsRestoring(false);
+                    return;
+                }
+
+                const meta = backupData._meta[0] as Record<string, unknown>;
+                const tableCount = Object.keys(backupData).filter(k => k !== '_meta').length;
+                const createdAt = meta?.created_at ? new Date(meta.created_at as string).toLocaleString('en-IN') : 'Unknown';
+
+                if (!confirm(
+                    `⚠️ RESTORE BACKUP\n\n` +
+                    `Backup created: ${createdAt}\n` +
+                    `Tables found: ${tableCount}\n` +
+                    `File: ${filePath.split(/[\\/]/).pop()}\n\n` +
+                    `WARNING: This will replace ALL current data with the backup data.\n` +
+                    `The 240K medicine catalog will be automatically re-imported.\n` +
+                    `The application will reload after restore.\n\n` +
+                    `Are you sure you want to continue?`
+                )) {
+                    setIsRestoring(false);
+                    return;
+                }
 
                 // Import the data
                 await importDatabase(backupData);
-                alert('Database restored successfully! The app will now reload.');
+                alert('✅ Database restored successfully! The app will now reload.');
                 window.location.reload();
             }
         } catch (error) {
             console.error('Restore failed:', error);
-            alert('Failed to restore backup. The file may be corrupted.');
+            alert('❌ Failed to restore backup. The file may be corrupted or incompatible.\n\nError: ' + (error instanceof Error ? error.message : String(error)));
         }
         setIsRestoring(false);
     };
@@ -961,6 +990,10 @@ export function Settings() {
                                                 <RefreshCw size={16} className={isLoadingBackups ? 'animate-spin' : ''} />
                                                 Refresh
                                             </button>
+                                            <button className="btn btn-secondary" onClick={handleRestoreFromJSON} disabled={isRestoring} title="Restore from a JSON backup file">
+                                                <Upload size={18} />
+                                                {isRestoring ? 'Restoring...' : 'Restore Backup'}
+                                            </button>
                                             <button className="btn btn-primary" onClick={handleBackup} disabled={isBackingUp}>
                                                 <Download size={18} />
                                                 {isBackingUp ? 'Creating...' : 'Create Backup'}
@@ -1028,15 +1061,6 @@ export function Settings() {
                                                             </div>
                                                         </div>
                                                         <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-                                                            <button
-                                                                className="btn btn-secondary btn-sm"
-                                                                onClick={() => handleRestoreBackup(backup.filename)}
-                                                                disabled={isRestoring}
-                                                                title="Restore this backup"
-                                                            >
-                                                                <Upload size={16} />
-                                                                {isRestoring ? 'Restoring...' : 'Restore'}
-                                                            </button>
                                                             <button
                                                                 className="btn btn-ghost btn-sm"
                                                                 onClick={() => handleDeleteBackup(backup.filename)}

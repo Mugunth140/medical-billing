@@ -306,15 +306,15 @@ c.id,
                             b.bill_number,
                             c.gstin as customer_gstin,
                             bi.hsn_code,
-                            bi.taxable_value as basic_value,
+                            bi.taxable_amount as basic_value,
                             bi.gst_rate as tax_rate,
-                            bi.total_gst as gst_amount,
-                            bi.total
+                            (bi.cgst_amount + bi.sgst_amount) as gst_amount,
+                            bi.total_amount as total
                         FROM bill_items bi
                         JOIN bills b ON bi.bill_id = b.id
                         LEFT JOIN customers c ON b.customer_id = c.id
                         WHERE date(b.bill_date) BETWEEN ? AND ?
-                        AND b.status = 'COMPLETED'
+                        AND b.is_cancelled = 0
                         ORDER BY b.bill_date, b.bill_number`,
                         [dateRange.start, dateRange.end]
                     );
@@ -349,15 +349,15 @@ c.id,
                         `SELECT 
                             bi.gst_rate,
                             bi.hsn_code,
-                            SUM(bi.taxable_value) as taxable_value,
-                            SUM(bi.cgst) as cgst,
-                            SUM(bi.sgst) as sgst,
-                            SUM(bi.total_gst) as total_gst,
-                            SUM(bi.total) as total
+                            SUM(bi.taxable_amount) as taxable_value,
+                            SUM(bi.cgst_amount) as cgst,
+                            SUM(bi.sgst_amount) as sgst,
+                            SUM(bi.cgst_amount + bi.sgst_amount) as total_gst,
+                            SUM(bi.total_amount) as total
                         FROM bill_items bi
                         JOIN bills b ON bi.bill_id = b.id
                         WHERE date(b.bill_date) BETWEEN ? AND ?
-                        AND b.status = 'COMPLETED'
+                        AND b.is_cancelled = 0
                         GROUP BY bi.gst_rate, bi.hsn_code
                         ORDER BY bi.gst_rate, bi.hsn_code`,
                         [dateRange.start, dateRange.end]

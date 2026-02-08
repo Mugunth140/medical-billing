@@ -8,6 +8,7 @@ import Database from '@tauri-apps/plugin-sql';
 
 let db: Database | null = null;
 let dbPath: string | null = null;
+let initPromise: Promise<Database> | null = null;
 
 // Individual table creation statements
 const TABLE_STATEMENTS = [
@@ -440,6 +441,18 @@ const DEFAULT_DATA_STATEMENTS = [
  */
 export async function initDatabase(): Promise<Database> {
     if (db) return db;
+    // Prevent duplicate concurrent initialization (React Strict Mode calls useEffect twice)
+    if (initPromise) return initPromise;
+    initPromise = _doInitDatabase();
+    try {
+        return await initPromise;
+    } finally {
+        initPromise = null;
+    }
+}
+
+async function _doInitDatabase(): Promise<Database> {
+    if (db) return db;
 
     try {
         console.log('Connecting to database...');
@@ -630,6 +643,48 @@ export async function initDatabase(): Promise<Database> {
 
         console.log('Migrations complete');
 
+        // One-time dedup: remove duplicate medicines created by repeated force imports
+        // Keeps the medicine with the lowest ID for each name, only deletes unreferenced duplicates
+        try {
+            const dedupFlag = await db.select<{ value: string }[]>(
+                `SELECT value FROM settings WHERE key = 'medicines_dedup_done'`
+            );
+            if (dedupFlag.length === 0) {
+                const countBefore = await db.select<{ count: number }[]>(
+                    `SELECT COUNT(*) as count FROM medicines`
+                );
+                const before = countBefore[0]?.count ?? 0;
+
+                if (before > 260000) {
+                    console.log(`[Dedup] Found ${before.toLocaleString()} medicines, running dedup...`);
+                    // Delete duplicate medicines that:
+                    // 1. Are NOT the first occurrence of a name (keep lowest ID per name)
+                    // 2. Are NOT referenced by any foreign key (batches, bill_items, etc.)
+                    await db.execute(
+                        `DELETE FROM medicines WHERE id NOT IN (
+                            SELECT MIN(id) FROM medicines GROUP BY name
+                        ) AND id NOT IN (
+                            SELECT DISTINCT medicine_id FROM batches
+                            UNION SELECT DISTINCT medicine_id FROM bill_items
+                            UNION SELECT DISTINCT medicine_id FROM purchase_items
+                        )`
+                    );
+
+                    const countAfter = await db.select<{ count: number }[]>(
+                        `SELECT COUNT(*) as count FROM medicines`
+                    );
+                    const after = countAfter[0]?.count ?? 0;
+                    console.log(`[Dedup] Removed ${(before - after).toLocaleString()} duplicate medicines. Now: ${after.toLocaleString()}`);
+                }
+
+                await db.execute(
+                    `INSERT INTO settings (key, value, category, description) VALUES ('medicines_dedup_done', 'true', 'system', 'Duplicate medicines cleaned up')`
+                );
+            }
+        } catch (dedupErr) {
+            console.warn('[Dedup] Medicine dedup skipped:', dedupErr);
+        }
+
         // Import bundled medicines if table is empty
         try {
             const { invoke } = await import('@tauri-apps/api/core');
@@ -637,6 +692,17 @@ export async function initDatabase(): Promise<Database> {
             const importCount = await invoke<number>('import_bundled_medicines');
             if (importCount > 0) {
                 console.log(`Medicines imported/loaded: ${importCount.toLocaleString()}`);
+                // CRITICAL: The Rust import used its own SQLite connection.
+                // Our JS connection's WAL snapshot is stale and won't see the
+                // 246K medicines Rust just inserted.  Close and reopen to get
+                // a fresh connection that sees the current database state.
+                console.log('Refreshing DB connection after medicine import...');
+                await db!.close();
+                db = await Database.load(`sqlite:${dbPath}`);
+                await db.execute('PRAGMA journal_mode = WAL');
+                await db.execute('PRAGMA busy_timeout = 5000');
+                await db.execute('PRAGMA foreign_keys = ON');
+                console.log('DB connection refreshed — medicines are now visible');
             }
         } catch (importErr) {
             console.warn('Medicine import skipped (may already exist or bundle not found):', importErr);
@@ -799,11 +865,13 @@ export async function closeDatabase(): Promise<void> {
 
 /**
  * Export entire database to JSON for backup
+ * NOTE: Only exports medicines that have batches (user's actual stock data).
+ * The 240K bundled medicine catalog is NOT exported — it will be automatically
+ * re-imported from the embedded bundle during restore.
  */
 export async function exportDatabase(): Promise<Record<string, unknown[]>> {
     const tables = [
         'users',
-        'medicines',
         'batches',
         'suppliers',
         'customers',
@@ -814,15 +882,21 @@ export async function exportDatabase(): Promise<Record<string, unknown[]>> {
         'credits',
         'scheduled_medicine_records',
         'running_bills',
+        'sales_returns',
+        'sales_return_items',
+        'purchase_returns',
+        'purchase_return_items',
+        'medicine_notes',
+        'audit_log',
         'settings',
         'bill_sequence'
     ];
 
     const backup: Record<string, unknown[]> = {
         _meta: [{
-            version: '1.0.0',
+            version: '2.0.0',
             created_at: new Date().toISOString(),
-            tables: tables
+            tables: [...tables, 'medicines']
         }]
     };
 
@@ -833,6 +907,32 @@ export async function exportDatabase(): Promise<Record<string, unknown[]>> {
         } catch (error) {
             console.warn(`Failed to export table ${table}:`, error);
             backup[table] = [];
+        }
+    }
+
+    // Export only medicines that are referenced by batches, bills, purchases, etc.
+    // This avoids exporting 240K bundled catalog medicines (they'll be re-imported from bundle)
+    try {
+        const medicines = await query<unknown>(
+            `SELECT DISTINCT m.* FROM medicines m
+             WHERE m.id IN (
+                SELECT DISTINCT medicine_id FROM batches
+                UNION SELECT DISTINCT medicine_id FROM bill_items
+                UNION SELECT DISTINCT medicine_id FROM purchase_items
+                UNION SELECT DISTINCT medicine_id FROM scheduled_medicine_records
+                UNION SELECT DISTINCT medicine_id FROM running_bills WHERE medicine_id IS NOT NULL
+                UNION SELECT DISTINCT medicine_id FROM purchase_return_items
+             )`,
+            []
+        );
+        backup.medicines = medicines;
+        console.log(`[Export] Exported ${medicines.length} referenced medicines (skipping bundled catalog)`);
+    } catch (error) {
+        console.warn('Failed to export medicines selectively, falling back to all:', error);
+        try {
+            backup.medicines = await query<unknown>('SELECT * FROM medicines', []);
+        } catch {
+            backup.medicines = [];
         }
     }
 
@@ -848,7 +948,14 @@ export async function importDatabase(backup: Record<string, unknown[]>): Promise
         throw new Error('Invalid backup format: missing metadata');
     }
 
-    const tables = [
+    // Delete order: children first, then parents (respects FK constraints)
+    const deleteOrder = [
+        'audit_log',
+        'medicine_notes',
+        'purchase_return_items',
+        'purchase_returns',
+        'sales_return_items',
+        'sales_returns',
         'scheduled_medicine_records',
         'running_bills',
         'credits',
@@ -862,22 +969,110 @@ export async function importDatabase(backup: Record<string, unknown[]>): Promise
         'suppliers',
         'settings',
         'bill_sequence'
-        // Note: users table is handled separately to preserve current user
     ];
 
-    // Clear existing data (except current user)
-    for (const table of tables) {
+    // Insert order: parents first, then children (respects FK constraints)
+    const insertOrder = [
+        'settings',
+        'bill_sequence',
+        'suppliers',
+        'customers',
+        'medicines',
+        'batches',
+        'purchases',
+        'bills',
+        'purchase_items',
+        'bill_items',
+        'credits',
+        'sales_returns',
+        'purchase_returns',
+        'sales_return_items',
+        'purchase_return_items',
+        'scheduled_medicine_records',
+        'running_bills',
+        'medicine_notes',
+        'audit_log'
+    ];
+
+    console.log('[Import] Starting database restore...');
+
+    // Disable foreign keys during import for robustness
+    try {
+        await execute('PRAGMA foreign_keys = OFF', []);
+    } catch (err) {
+        console.warn('[Import] Could not disable foreign keys:', err);
+    }
+
+    // Clear existing data (except users) — children first
+    for (const table of deleteOrder) {
         try {
             await execute(`DELETE FROM ${table}`, []);
         } catch (error) {
-            console.warn(`Failed to clear table ${table}:`, error);
+            console.warn(`[Import] Failed to clear table ${table}:`, error);
         }
     }
 
-    // Import data for each table
-    for (const table of tables) {
-        const data = backup[table];
+    // Handle users first — import but don't replace current user
+    if (backup.users && Array.isArray(backup.users)) {
+        console.log(`[Import] Importing ${backup.users.length} users...`);
+        for (const row of backup.users) {
+            if (typeof row !== 'object' || row === null) continue;
+            const userRow = row as Record<string, unknown>;
+
+            const columns = Object.keys(userRow);
+            const values = Object.values(userRow);
+            const placeholders = columns.map(() => '?').join(', ');
+
+            try {
+                await execute(
+                    `INSERT OR IGNORE INTO users (${columns.join(', ')}) VALUES (${placeholders})`,
+                    values
+                );
+            } catch (error) {
+                console.warn(`[Import] Failed to import user:`, error);
+            }
+        }
+    }
+
+    // Import data — parents first, then children
+    for (const table of insertOrder) {
+        let data = backup[table];
         if (!data || !Array.isArray(data) || data.length === 0) continue;
+
+        // For medicines: if the backup has a huge number (old format with full catalog),
+        // only import medicines that are referenced by batches in the backup.
+        // The 240K catalog will be re-imported from the Rust bundle at the end.
+        if (table === 'medicines' && data.length > 1000) {
+            const batchData = backup.batches;
+            const billItemData = backup.bill_items;
+            const referencedIds = new Set<unknown>();
+
+            if (batchData && Array.isArray(batchData)) {
+                for (const b of batchData) {
+                    if (b && typeof b === 'object' && 'medicine_id' in b) {
+                        referencedIds.add((b as Record<string, unknown>).medicine_id);
+                    }
+                }
+            }
+            if (billItemData && Array.isArray(billItemData)) {
+                for (const bi of billItemData) {
+                    if (bi && typeof bi === 'object' && 'medicine_id' in bi) {
+                        referencedIds.add((bi as Record<string, unknown>).medicine_id);
+                    }
+                }
+            }
+
+            if (referencedIds.size > 0) {
+                const originalCount = data.length;
+                data = data.filter(row => {
+                    if (!row || typeof row !== 'object' || !('id' in row)) return true;
+                    return referencedIds.has((row as Record<string, unknown>).id);
+                });
+                console.log(`[Import] Filtered medicines: ${data.length} referenced out of ${originalCount} (catalog will be re-imported from bundle)`);
+            }
+        }
+
+        console.log(`[Import] Importing ${data.length} rows into ${table}...`);
 
         for (const row of data) {
             if (typeof row !== 'object' || row === null) continue;
@@ -892,32 +1087,55 @@ export async function importDatabase(backup: Record<string, unknown[]>): Promise
                     values
                 );
             } catch (error) {
-                console.warn(`Failed to import row into ${table}:`, error);
+                console.warn(`[Import] Failed to import row into ${table}:`, error);
             }
         }
     }
 
-    // Handle users separately - import but don't replace current user
-    if (backup.users && Array.isArray(backup.users)) {
-        for (const row of backup.users) {
-            if (typeof row !== 'object' || row === null) continue;
-            const userRow = row as Record<string, unknown>;
+    // Re-enable foreign keys
+    try {
+        await execute('PRAGMA foreign_keys = ON', []);
+    } catch (err) {
+        console.warn('[Import] Could not re-enable foreign keys:', err);
+    }
 
-            const columns = Object.keys(userRow);
-            const values = Object.values(userRow);
-            const placeholders = columns.map(() => '?').join(', ');
+    console.log('[Import] Backup data restored. Flushing WAL before bundle import...');
 
-            try {
-                // Use INSERT OR IGNORE to not overwrite existing users
-                await execute(
-                    `INSERT OR IGNORE INTO users (${columns.join(', ')}) VALUES (${placeholders})`,
-                    values
-                );
-            } catch (error) {
-                console.warn(`Failed to import user:`, error);
-            }
+    // CRITICAL: Force a WAL checkpoint to write all changes to the main DB file.
+    // The Rust import_bundled_medicines opens its OWN SQLite connection and won't
+    // see uncommitted WAL changes. A TRUNCATE checkpoint writes everything and
+    // removes the WAL file, guaranteeing Rust sees the current state.
+    try {
+        await execute('PRAGMA wal_checkpoint(TRUNCATE)', []);
+        console.log('[Import] WAL checkpoint completed successfully');
+    } catch (walErr) {
+        console.warn('[Import] WAL checkpoint failed, trying FULL:', walErr);
+        try {
+            await execute('PRAGMA wal_checkpoint(FULL)', []);
+        } catch {
+            console.warn('[Import] WAL FULL checkpoint also failed');
         }
     }
+
+    // Now close the connection
+    await closeDatabase();
+
+    // Re-import the 240K bundled medicines catalog after restore
+    // Rust opens its own connection, sees the clean DB state after deletes,
+    // and uses WHERE NOT EXISTS (by name) to avoid duplicates
+    try {
+        const { invoke } = await import('@tauri-apps/api/core');
+        console.log('[Import] Re-importing bundled medicines catalog...');
+        const totalCount = await invoke<number>('import_bundled_medicines', { force: true });
+        console.log(`[Import] Bundled medicines re-imported. Total medicines: ${totalCount.toLocaleString()}`);
+    } catch (importErr) {
+        console.warn('[Import] Bundled medicine re-import after restore skipped:', importErr);
+    }
+
+    // Re-initialize the database connection for the app to use
+    await initDatabase();
+
+    console.log('[Import] Database restore complete!');
 }
 
 export default {
