@@ -17,6 +17,7 @@ import {
     HardDrive,
     Printer,
     RefreshCw,
+    RotateCcw,
     Save,
     Store,
     Trash2,
@@ -31,7 +32,8 @@ import {
     deleteBackup,
     formatFileSize,
     getBackupFolderPath,
-    listBackups
+    listBackups,
+    restoreFromBackup
 } from '../services/backup.service';
 import { execute, exportDatabase, importDatabase, query } from '../services/database';
 import { useAuthStore, useSettingsStore } from '../stores';
@@ -81,6 +83,7 @@ export function Settings() {
     const [isLoadingBackups, setIsLoadingBackups] = useState(false);
     const [backupFolder, setBackupFolder] = useState<string>('');
     const [deletingBackup, setDeletingBackup] = useState<string | null>(null);
+    const [restoringBackup, setRestoringBackup] = useState<string | null>(null);
 
     // Shop settings form
     const [shopForm, setShopForm] = useState({
@@ -293,6 +296,32 @@ export function Settings() {
             alert('Failed to delete backup.');
         }
         setDeletingBackup(null);
+    };
+
+    const handleRestoreFromDbBackup = async (backup: BackupInfo) => {
+        if (!confirm(
+            `⚠️ RESTORE BACKUP\n\n` +
+            `Backup: ${backup.filename}\n` +
+            `Created: ${backup.createdAt.toLocaleString('en-IN')}\n` +
+            `Size: ${formatFileSize(backup.sizeBytes)}\n\n` +
+            `WARNING: This will replace the current database with this backup.\n` +
+            `All current data will be lost.\n` +
+            `The application will reload after restore.\n\n` +
+            `Are you sure you want to continue?`
+        )) {
+            return;
+        }
+
+        setRestoringBackup(backup.filename);
+        try {
+            await restoreFromBackup(backup.filename);
+            alert('✅ Database restored successfully! The app will now reload.');
+            window.location.reload();
+        } catch (error) {
+            console.error('Restore failed:', error);
+            alert('❌ Failed to restore backup.\n\nError: ' + (error instanceof Error ? error.message : String(error)));
+        }
+        setRestoringBackup(null);
     };
 
 
@@ -1061,6 +1090,19 @@ export function Settings() {
                                                             </div>
                                                         </div>
                                                         <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+                                                            <button
+                                                                className="btn btn-ghost btn-sm"
+                                                                onClick={() => handleRestoreFromDbBackup(backup)}
+                                                                disabled={restoringBackup === backup.filename || isRestoring}
+                                                                title="Restore from this backup"
+                                                                style={{ color: 'var(--color-success-600)' }}
+                                                            >
+                                                                {restoringBackup === backup.filename ? (
+                                                                    <RefreshCw size={16} className="animate-spin" />
+                                                                ) : (
+                                                                    <RotateCcw size={16} />
+                                                                )}
+                                                            </button>
                                                             <button
                                                                 className="btn btn-ghost btn-sm"
                                                                 onClick={() => handleDeleteBackup(backup.filename)}

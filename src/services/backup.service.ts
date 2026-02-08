@@ -279,6 +279,24 @@ export async function restoreFromBackup(filename: string): Promise<void> {
         // Reinitialize database connection
         await initDatabase();
 
+        // Re-import the 240K bundled medicines catalog after restore
+        // This ensures all medicines are available, not just those in the backup
+        try {
+            const { invoke } = await import('@tauri-apps/api/core');
+            console.log('[Backup] Re-importing bundled medicines catalog...');
+            const totalCount = await invoke<number>('import_bundled_medicines', { force: true });
+            console.log(`[Backup] Bundled medicines re-imported. Total medicines: ${totalCount.toLocaleString()}`);
+
+            // CRITICAL: Rust import uses its own SQLite connection.
+            // The JS connection won't see the new medicines until we refresh it.
+            console.log('[Backup] Refreshing DB connection after medicine import...');
+            await closeDatabase();
+            await initDatabase();
+            console.log('[Backup] DB connection refreshed — medicines are now visible');
+        } catch (importErr) {
+            console.warn('[Backup] Bundled medicine re-import after restore skipped:', importErr);
+        }
+
         console.log('[Backup] Restore completed successfully');
     } catch (error) {
         // Try to reinitialize database even if restore fails
@@ -291,6 +309,7 @@ export async function restoreFromBackup(filename: string): Promise<void> {
         throw new Error(`Failed to restore backup: ${error}`);
     }
 }
+
 
 /**
  * Delete a backup file

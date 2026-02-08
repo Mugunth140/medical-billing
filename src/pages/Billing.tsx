@@ -18,7 +18,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useToast } from '../components/common/Toast';
 import { createBill } from '../services/billing.service';
-import { query } from '../services/database';
+import { execute, query } from '../services/database';
 import { calculateBill, formatCurrency } from '../services/gst.service';
 import { searchMedicinesForBilling } from '../services/inventory.service';
 import { silentPrintBill } from '../services/print.service';
@@ -62,7 +62,10 @@ export function Billing() {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [showPatientModal, setShowPatientModal] = useState(false);
-    const [doctorName, setDoctorName] = useState(''); // Optional doctor name for all bills
+    // Walk-in customer optional fields
+    const [walkInName, setWalkInName] = useState('');
+    const [walkInPhone, setWalkInPhone] = useState('');
+    const [walkInDoctor, setWalkInDoctor] = useState('');
     const [tempPatientInfo, setTempPatientInfo] = useState<ScheduledMedicineInput>({
         patient_name: '',
         patient_age: undefined,
@@ -274,12 +277,36 @@ export function Billing() {
         setError(null);
 
         try {
+            // Auto-create customer if walk-in name and phone are both provided
+            let billCustomerId = customerId;
+            let billCustomerName = customerName;
+
+            if (!customerId && walkInName.trim() && walkInPhone.trim()) {
+                // Create new customer
+                const result = await execute(
+                    `INSERT INTO customers (name, phone, credit_limit, current_balance, is_active)
+                     VALUES (?, ?, 0, 0, 1)`,
+                    [walkInName.trim(), walkInPhone.trim()]
+                );
+                billCustomerId = result.lastInsertId;
+                billCustomerName = walkInName.trim();
+                // Refresh customers list for future bills
+                const updatedCustomers = await query<Customer>(
+                    'SELECT * FROM customers WHERE is_active = 1 ORDER BY name',
+                    []
+                );
+                setCustomers(updatedCustomers);
+            } else if (!customerId && walkInName.trim()) {
+                // Just use the name without creating customer
+                billCustomerName = walkInName.trim();
+            }
+
             // 1. Save bill to database
             const bill = await createBill(
                 {
-                    customer_id: customerId ?? undefined,
-                    customer_name: customerName || undefined,
-                    doctor_name: doctorName || (hasScheduled && patientInfo?.doctor_name ? patientInfo.doctor_name : undefined),
+                    customer_id: billCustomerId ?? undefined,
+                    customer_name: billCustomerName || undefined,
+                    doctor_name: walkInDoctor || (hasScheduled && patientInfo?.doctor_name ? patientInfo.doctor_name : undefined),
                     items: items.map(item => ({
                         batch_id: item.batch.batch_id,
                         quantity: item.quantity,
@@ -316,7 +343,9 @@ export function Billing() {
 
             // 4. Clear bill and reset form
             clearBill();
-            setDoctorName('');
+            setWalkInName('');
+            setWalkInPhone('');
+            setWalkInDoctor('');
             setTempPatientInfo({
                 patient_name: '',
                 patient_age: undefined,
@@ -845,16 +874,40 @@ export function Billing() {
                             </div>
                         )}
 
-                        {!hasScheduled && (
-                            <div style={{ marginTop: 12 }}>
+                        {/* Walk-in customer details (show when no saved customer selected) */}
+                        {!customerId && (
+                            <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
                                 <input
                                     type="text"
                                     className="form-input"
-                                    placeholder="Doctor Name (Optional)"
-                                    value={doctorName}
-                                    onChange={(e) => setDoctorName(e.target.value)}
-                                    aria-label="Doctor Name"
+                                    placeholder="Customer Name (Optional)"
+                                    value={walkInName}
+                                    onChange={(e) => setWalkInName(e.target.value)}
+                                    aria-label="Walk-in Customer Name"
                                 />
+                                <input
+                                    type="tel"
+                                    className="form-input"
+                                    placeholder="Phone Number (Optional)"
+                                    value={walkInPhone}
+                                    onChange={(e) => setWalkInPhone(e.target.value)}
+                                    aria-label="Walk-in Customer Phone"
+                                />
+                                {!hasScheduled && (
+                                    <input
+                                        type="text"
+                                        className="form-input"
+                                        placeholder="Doctor Name (Optional)"
+                                        value={walkInDoctor}
+                                        onChange={(e) => setWalkInDoctor(e.target.value)}
+                                        aria-label="Doctor Name"
+                                    />
+                                )}
+                                {walkInName && walkInPhone && (
+                                    <div style={{ fontSize: 11, color: 'var(--color-success-600)', fontStyle: 'italic' }}>
+                                        ✓ Customer will be saved to database
+                                    </div>
+                                )}
                             </div>
                         )}
                     </div>

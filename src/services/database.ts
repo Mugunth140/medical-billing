@@ -461,7 +461,7 @@ async function _doInitDatabase(): Promise<Database> {
         // This ensures the database persists across Windows app updates
         // Using appConfigDir() to match backup.service.ts for consistency
         const configDir = await appConfigDir();
-        dbPath = `${configDir}medbill.db`;
+        dbPath = `${configDir}/medbill.db`;
         console.log('Database path:', dbPath);
 
         // Connect to SQLite database using explicit path
