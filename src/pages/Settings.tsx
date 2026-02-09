@@ -1425,7 +1425,7 @@ export function Settings() {
                                     <div className="about-status-row">
                                         <div className="about-version-badge">
                                             <span className="w-2.5 h-2.5 rounded-full bg-green-400 animate-pulse"></span>
-                                            Version 1.0.0 Stable
+                                            Version 1.2.0 Stable
                                         </div>
                                     </div>
 

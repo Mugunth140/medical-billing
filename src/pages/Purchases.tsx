@@ -40,6 +40,7 @@ interface PurchaseItemEntry {
     purchase_price: number;     // Per strip
     mrp: number;                // Per strip
     selling_price: number;      // Per strip
+    discount_percent: number;   // Discount percentage per item
     rack?: string;
     box?: string;
     cgst: number;
@@ -54,6 +55,7 @@ interface PurchaseForm {
     invoice_date: string;
     payment_status: 'PENDING' | 'PARTIAL' | 'PAID';
     paid_amount: number;
+    discount_amount: number;
     due_date?: string;
     notes?: string;
 }
@@ -95,6 +97,26 @@ export function Purchases() {
     const [supplierFilterId, setSupplierFilterId] = useState(0);
     const itemIdPrefix = useId();
 
+    // Edit purchase items state
+    const [editPurchaseItems, setEditPurchaseItems] = useState<Array<{
+        id: number;
+        medicine_id: number;
+        medicine_name: string;
+        batch_id: number;
+        batch_number: string;
+        expiry_date: string;
+        quantity: number;
+        free_quantity: number;
+        purchase_price: number;
+        mrp: number;
+        selling_price: number;
+        discount_percent: number;
+        gst_rate: number;
+        cgst_amount: number;
+        sgst_amount: number;
+        total_amount: number;
+    }>>([]);
+
     // Pagination constants
     const ITEMS_PER_PAGE = 50;
 
@@ -121,6 +143,7 @@ export function Purchases() {
         invoice_date: new Date().toISOString().split('T')[0],
         payment_status: 'PENDING',
         paid_amount: 0,
+        discount_amount: 0,
     });
     const [purchaseItems, setPurchaseItems] = useState<PurchaseItemEntry[]>([]);
 
@@ -396,6 +419,7 @@ export function Purchases() {
             purchase_price: lastBatch?.purchase_price || 0,  // Per strip
             mrp: lastBatch?.mrp || 0,                        // Per strip
             selling_price: lastBatch?.selling_price || 0,    // Per strip
+            discount_percent: 0,
             rack: lastBatch?.rack || '',
             box: lastBatch?.box || '',
             cgst: 0,
@@ -482,18 +506,22 @@ export function Purchases() {
 
                 const updated = { ...item, [field]: value };
 
-                // Recalculate GST and total when price or quantity changes
-                if (['purchase_price', 'quantity', 'gst_rate'].includes(field)) {
+                // Recalculate GST and total when price, quantity, gst_rate, or discount changes
+                if (['purchase_price', 'quantity', 'gst_rate', 'discount_percent'].includes(field)) {
                     const qty = field === 'quantity' ? Number(value) : updated.quantity;
                     const price = field === 'purchase_price' ? Number(value) : updated.purchase_price;
                     const gstRate = field === 'gst_rate' ? clampGstRate(value as number) : updated.gst_rate;
+                    const discountPct = field === 'discount_percent' ? Math.min(100, Math.max(0, Number(value))) : updated.discount_percent;
 
                     const subtotal = qty * price;
+                    const discountAmount = (subtotal * discountPct) / 100;
+                    const afterDiscount = subtotal - discountAmount;
                     const halfGstRate = gstRate / 2;
-                    updated.cgst = (subtotal * halfGstRate) / 100;
-                    updated.sgst = (subtotal * halfGstRate) / 100;
+                    updated.cgst = (afterDiscount * halfGstRate) / 100;
+                    updated.sgst = (afterDiscount * halfGstRate) / 100;
                     updated.total_gst = updated.cgst + updated.sgst;
-                    updated.total = subtotal + updated.total_gst;
+                    updated.total = afterDiscount + updated.total_gst;
+                    updated.discount_percent = discountPct;
                 }
 
                 return updated;
@@ -508,14 +536,19 @@ export function Purchases() {
 
     // Calculate purchase totals
     const purchaseTotals = purchaseItems.reduce(
-        (acc, item) => ({
-            subtotal: acc.subtotal + (item.quantity * item.purchase_price),
-            total_cgst: acc.total_cgst + item.cgst,
-            total_sgst: acc.total_sgst + item.sgst,
-            total_gst: acc.total_gst + item.total_gst,
-            grand_total: acc.grand_total + item.total,
-        }),
-        { subtotal: 0, total_cgst: 0, total_sgst: 0, total_gst: 0, grand_total: 0 }
+        (acc, item) => {
+            const subtotal = item.quantity * item.purchase_price;
+            const discount = (subtotal * item.discount_percent) / 100;
+            return {
+                subtotal: acc.subtotal + subtotal,
+                total_discount: acc.total_discount + discount,
+                total_cgst: acc.total_cgst + item.cgst,
+                total_sgst: acc.total_sgst + item.sgst,
+                total_gst: acc.total_gst + item.total_gst,
+                grand_total: acc.grand_total + item.total,
+            };
+        },
+        { subtotal: 0, total_discount: 0, total_cgst: 0, total_sgst: 0, total_gst: 0, grand_total: 0 }
     );
 
     // Reset purchase form
@@ -526,6 +559,7 @@ export function Purchases() {
             invoice_date: new Date().toISOString().split('T')[0],
             payment_status: 'PENDING',
             paid_amount: 0,
+            discount_amount: 0,
             notes: ''
         });
         setPurchaseItems([]);
@@ -534,7 +568,7 @@ export function Purchases() {
     };
 
     // Handle Edit Purchase Click
-    const handleEditPurchase = (purchase: Purchase) => {
+    const handleEditPurchase = async (purchase: Purchase) => {
         setEditingPurchase(purchase);
         setPurchaseForm({
             supplier_id: purchase.supplier_id,
@@ -542,25 +576,137 @@ export function Purchases() {
             invoice_date: purchase.invoice_date,
             payment_status: purchase.payment_status,
             paid_amount: purchase.paid_amount || 0,
+            discount_amount: (purchase as Purchase & { discount_amount?: number }).discount_amount || 0,
             notes: purchase.notes || ''
         });
+
+        // Load purchase items for editing
+        try {
+            const items = await query<{
+                id: number;
+                medicine_id: number;
+                medicine_name: string;
+                batch_id: number;
+                batch_number: string;
+                expiry_date: string;
+                quantity: number;
+                free_quantity: number;
+                purchase_price: number;
+                mrp: number;
+                selling_price: number;
+                discount_percent: number;
+                gst_rate: number;
+                cgst_amount: number;
+                sgst_amount: number;
+                total_amount: number;
+            }>(
+                `SELECT pi.id, pi.medicine_id, pi.medicine_name, COALESCE(pi.batch_id, 0) as batch_id, pi.batch_number, pi.expiry_date,
+                        pi.quantity, COALESCE(pi.free_quantity, 0) as free_quantity,
+                        pi.purchase_price, pi.mrp,
+                        COALESCE(b.selling_price, 0) as selling_price,
+                        COALESCE(pi.discount_percent, 0) as discount_percent,
+                        pi.gst_rate, pi.cgst_amount, pi.sgst_amount, pi.total_amount
+                 FROM purchase_items pi
+                 LEFT JOIN batches b ON pi.batch_id = b.id
+                 WHERE pi.purchase_id = ?`,
+                [purchase.id]
+            );
+            setEditPurchaseItems(items);
+        } catch (err) {
+            console.error('Failed to load purchase items for editing:', err);
+            setEditPurchaseItems([]);
+        }
+
         setShowEditPurchaseModal(true);
     };
 
-    // Update Purchase Details (Header only)
+    // Update a single edit purchase item field
+    const updateEditPurchaseItem = (itemId: number, field: string, value: number | string) => {
+        setEditPurchaseItems(items =>
+            items.map(item => {
+                if (item.id !== itemId) return item;
+                const updated = { ...item, [field]: value };
+
+                // Recalculate totals when relevant fields change
+                if (['purchase_price', 'quantity', 'gst_rate', 'discount_percent'].includes(field)) {
+                    const qty = field === 'quantity' ? Number(value) : updated.quantity;
+                    const price = field === 'purchase_price' ? Number(value) : updated.purchase_price;
+                    const gstRate = field === 'gst_rate' ? clampGstRate(value as number) : updated.gst_rate;
+                    const discountPct = field === 'discount_percent' ? Math.min(100, Math.max(0, Number(value))) : updated.discount_percent;
+
+                    const subtotal = qty * price;
+                    const discountAmount = (subtotal * discountPct) / 100;
+                    const afterDiscount = subtotal - discountAmount;
+                    updated.cgst_amount = (afterDiscount * gstRate / 2) / 100;
+                    updated.sgst_amount = (afterDiscount * gstRate / 2) / 100;
+                    updated.total_amount = afterDiscount + updated.cgst_amount + updated.sgst_amount;
+                    updated.discount_percent = discountPct;
+                }
+
+                return updated;
+            })
+        );
+    };
+
+    // Save individual purchase item update
+    const saveEditPurchaseItem = async (item: typeof editPurchaseItems[0]) => {
+        try {
+            // Update the purchase_item record
+            await execute(
+                `UPDATE purchase_items SET
+                    quantity = ?, free_quantity = ?, purchase_price = ?, mrp = ?,
+                    discount_percent = ?, gst_rate = ?, cgst_amount = ?, sgst_amount = ?, total_amount = ?
+                 WHERE id = ?`,
+                [item.quantity, item.free_quantity, item.purchase_price, item.mrp,
+                 item.discount_percent, item.gst_rate, item.cgst_amount, item.sgst_amount, item.total_amount,
+                 item.id]
+            );
+
+            // Update the batch record if it exists
+            if (item.batch_id) {
+                await execute(
+                    `UPDATE batches SET
+                        purchase_price = ?, mrp = ?, selling_price = ?, expiry_date = ?
+                     WHERE id = ?`,
+                    [item.purchase_price, item.mrp, item.selling_price, item.expiry_date, item.batch_id]
+                );
+            }
+
+            // Recalculate purchase totals
+            if (editingPurchase) {
+                const allItems = editPurchaseItems.map(i => i.id === item.id ? item : i);
+                const newSubtotal = allItems.reduce((sum, i) => sum + i.quantity * i.purchase_price, 0);
+                const newGst = allItems.reduce((sum, i) => sum + i.cgst_amount + i.sgst_amount, 0);
+                const newGrandTotal = allItems.reduce((sum, i) => sum + i.total_amount, 0);
+                await execute(
+                    `UPDATE purchases SET subtotal = ?, total_gst = ?, cgst_amount = ?, sgst_amount = ?, grand_total = ? WHERE id = ?`,
+                    [newSubtotal, newGst, newGst / 2, newGst / 2, newGrandTotal - (purchaseForm.discount_amount || 0), editingPurchase.id]
+                );
+            }
+
+            showToast('success', `${item.medicine_name} updated`);
+            loadData();
+        } catch (err) {
+            console.error('Failed to update purchase item:', err);
+            showToast('error', 'Failed to update item');
+        }
+    };
+
+    // Update Purchase Header
     const handleUpdatePurchase = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!editingPurchase) return;
 
         try {
             await execute(
-                `UPDATE purchases SET 
-                    supplier_id = ?, 
-                    invoice_number = ?, 
-                    invoice_date = ?, 
-                    payment_status = ?, 
-                    paid_amount = ?, 
-                    notes = ? 
+                `UPDATE purchases SET
+                    supplier_id = ?,
+                    invoice_number = ?,
+                    invoice_date = ?,
+                    payment_status = ?,
+                    paid_amount = ?,
+                    discount_amount = ?,
+                    notes = ?
                  WHERE id = ?`,
                 [
                     purchaseForm.supplier_id,
@@ -568,6 +714,7 @@ export function Purchases() {
                     purchaseForm.invoice_date,
                     purchaseForm.payment_status,
                     purchaseForm.paid_amount,
+                    purchaseForm.discount_amount || 0,
                     purchaseForm.notes || null,
                     editingPurchase.id
                 ]
@@ -638,9 +785,9 @@ export function Purchases() {
             const purchaseResult = await execute(
                 `INSERT INTO purchases (
                     invoice_number, invoice_date, supplier_id, user_id,
-                    subtotal, cgst_amount, sgst_amount, total_gst, grand_total,
+                    subtotal, cgst_amount, sgst_amount, total_gst, discount_amount, grand_total,
                     payment_status, paid_amount, notes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     purchaseForm.invoice_number,
                     purchaseForm.invoice_date,
@@ -650,7 +797,8 @@ export function Purchases() {
                     purchaseTotals.total_cgst,
                     purchaseTotals.total_sgst,
                     purchaseTotals.total_gst,
-                    purchaseTotals.grand_total,
+                    purchaseTotals.total_discount + (purchaseForm.discount_amount || 0),
+                    purchaseTotals.grand_total - (purchaseForm.discount_amount || 0),
                     purchaseForm.payment_status,
                     purchaseForm.paid_amount || 0,
                     purchaseForm.notes || null,
@@ -750,7 +898,7 @@ export function Purchases() {
                         item.free_quantity,
                         item.purchase_price,
                         item.mrp,
-                        0, // discount_percent
+                        item.discount_percent,
                         item.gst_rate,
                         item.cgst,
                         item.sgst,
@@ -1320,7 +1468,7 @@ export function Purchases() {
                         <form onSubmit={handleSavePurchase}>
                             <div className="modal-body" style={{ maxHeight: '60vh', overflowY: 'auto' }}>
                                 {/* Invoice Details */}
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--space-4)', marginBottom: 'var(--space-6)' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 'var(--space-4)', marginBottom: 'var(--space-6)' }}>
                                     <div className="form-group">
                                         <label className="form-label">Supplier *</label>
                                         <select
@@ -1367,6 +1515,18 @@ export function Purchases() {
                                             <option value="PARTIAL">Partial</option>
                                             <option value="PAID">Paid</option>
                                         </select>
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Discount (₹)</label>
+                                        <input
+                                            type="number"
+                                            className="form-input"
+                                            value={purchaseForm.discount_amount || ''}
+                                            onChange={(e) => setPurchaseForm({ ...purchaseForm, discount_amount: parseFloat(e.target.value) || 0 })}
+                                            placeholder="0"
+                                            min={0}
+                                            step={0.01}
+                                        />
                                     </div>
                                 </div>
 
@@ -1454,7 +1614,7 @@ export function Purchases() {
                                         }}>
                                             💡 All prices are <strong>per strip/pack</strong>. Qty is in strips. Pieces = Qty × Pcs/Strip
                                         </div>
-                                        <table className="data-table" style={{ minWidth: 1200 }}>
+                                        <table className="data-table" style={{ minWidth: 1300 }}>
                                             <thead>
                                                 <tr>
                                                     <th style={{ minWidth: 180 }}>Medicine</th>
@@ -1466,6 +1626,7 @@ export function Purchases() {
                                                     <th style={{ minWidth: 100 }}>Purchase/Strip *</th>
                                                     <th style={{ minWidth: 100 }}>MRP/Strip *</th>
                                                     <th style={{ minWidth: 100 }}>Sell/Strip *</th>
+                                                    <th style={{ minWidth: 60 }}>Disc%</th>
                                                     <th style={{ minWidth: 60 }}>GST%</th>
                                                     <th style={{ minWidth: 60 }}>Rack</th>
                                                     <th style={{ minWidth: 60 }}>Box</th>
@@ -1569,6 +1730,18 @@ export function Purchases() {
                                                                 type="number"
                                                                 className="form-input"
                                                                 style={{ padding: 'var(--space-2)', fontSize: 'var(--text-sm)', textAlign: 'right' }}
+                                                                value={item.discount_percent || ''}
+                                                                onChange={(e) => updatePurchaseItem(item.id, 'discount_percent', parseFloat(e.target.value) || 0)}
+                                                                min={0}
+                                                                max={100}
+                                                                step={0.01}
+                                                            />
+                                                        </td>
+                                                        <td>
+                                                            <input
+                                                                type="number"
+                                                                className="form-input"
+                                                                style={{ padding: 'var(--space-2)', fontSize: 'var(--text-sm)', textAlign: 'right' }}
                                                                 value={item.gst_rate}
                                                                 onChange={(e) => updatePurchaseItem(item.id, 'gst_rate', clampGstRate(e.target.value))}
                                                                 min={0}
@@ -1635,6 +1808,12 @@ export function Purchases() {
                                                 <span>Subtotal:</span>
                                                 <span style={{ fontFamily: 'var(--font-mono)' }}>{formatCurrency(purchaseTotals.subtotal)}</span>
                                             </div>
+                                            {(purchaseTotals.total_discount > 0 || (purchaseForm.discount_amount || 0) > 0) && (
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 'var(--space-2)', fontSize: 'var(--text-sm)', color: 'var(--color-success-600)' }}>
+                                                    <span>Discount:</span>
+                                                    <span style={{ fontFamily: 'var(--font-mono)' }}>-{formatCurrency(purchaseTotals.total_discount + (purchaseForm.discount_amount || 0))}</span>
+                                                </div>
+                                            )}
                                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 'var(--space-2)', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
                                                 <span>CGST:</span>
                                                 <span style={{ fontFamily: 'var(--font-mono)' }}>{formatCurrency(purchaseTotals.total_cgst)}</span>
@@ -1653,7 +1832,7 @@ export function Purchases() {
                                             }}>
                                                 <span>Grand Total:</span>
                                                 <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-primary-600)' }}>
-                                                    {formatCurrency(purchaseTotals.grand_total)}
+                                                    {formatCurrency(purchaseTotals.grand_total - (purchaseForm.discount_amount || 0))}
                                                 </span>
                                             </div>
                                         </div>
@@ -1774,87 +1953,201 @@ export function Purchases() {
             )}
             {/* Edit Purchase Modal */}
             {showEditPurchaseModal && (
-                <div className="modal-overlay" onClick={() => { setShowEditPurchaseModal(false); resetPurchaseForm(); }}>
-                    <div className="modal" style={{ maxWidth: '600px' }} onClick={(e) => e.stopPropagation()}>
+                <div className="modal-overlay" onClick={() => { setShowEditPurchaseModal(false); resetPurchaseForm(); setEditPurchaseItems([]); }}>
+                    <div className="modal" style={{ maxWidth: '95vw', width: '1200px', maxHeight: '90vh' }} onClick={(e) => e.stopPropagation()}>
                         <div className="modal-header">
-                            <h3 className="modal-title">Edit Purchase Details</h3>
-                            <button className="btn btn-ghost btn-icon" onClick={() => { setShowEditPurchaseModal(false); resetPurchaseForm(); }}>
+                            <h3 className="modal-title">Edit Purchase - {purchaseForm.invoice_number}</h3>
+                            <button className="btn btn-ghost btn-icon" onClick={() => { setShowEditPurchaseModal(false); resetPurchaseForm(); setEditPurchaseItems([]); }}>
                                 <X size={20} />
                             </button>
                         </div>
                         <form onSubmit={handleUpdatePurchase}>
-                            <div className="modal-body">
-                                <div className="form-group">
-                                    <label className="form-label">Supplier</label>
-                                    <select
-                                        className="form-input"
-                                        value={purchaseForm.supplier_id}
-                                        onChange={(e) => setPurchaseForm({ ...purchaseForm, supplier_id: parseInt(e.target.value) })}
-                                        required
-                                    >
-                                        <option value={0}>Select Supplier</option>
-                                        {suppliers.map(s => (
-                                            <option key={s.id} value={s.id}>{s.name}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                                <div className="form-group">
-                                    <label className="form-label">Invoice Number</label>
-                                    <input
-                                        type="text"
-                                        className="form-input"
-                                        value={purchaseForm.invoice_number}
-                                        onChange={(e) => setPurchaseForm({ ...purchaseForm, invoice_number: e.target.value })}
-                                        required
-                                    />
-                                </div>
-                                <div className="form-group">
-                                    <label className="form-label">Invoice Date</label>
-                                    <input
-                                        type="date"
-                                        className="form-input"
-                                        value={purchaseForm.invoice_date}
-                                        onChange={(e) => setPurchaseForm({ ...purchaseForm, invoice_date: e.target.value })}
-                                        required
-                                    />
-                                </div>
-                                <div className="form-group">
-                                    <label className="form-label">Payment Status</label>
-                                    <select
-                                        className="form-input"
-                                        value={purchaseForm.payment_status}
-                                        onChange={(e) => setPurchaseForm({ ...purchaseForm, payment_status: e.target.value as 'PENDING' | 'PARTIAL' | 'PAID' })}
-                                    >
-                                        <option value="PENDING">Pending</option>
-                                        <option value="PARTIAL">Partial</option>
-                                        <option value="PAID">Paid</option>
-                                    </select>
-                                </div>
-                                {purchaseForm.payment_status !== 'PENDING' && (
+                            <div className="modal-body" style={{ maxHeight: '70vh', overflowY: 'auto' }}>
+                                {/* Header Fields */}
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 'var(--space-4)', marginBottom: 'var(--space-4)' }}>
                                     <div className="form-group">
-                                        <label className="form-label">Paid Amount</label>
-                                        <input
-                                            type="number"
+                                        <label className="form-label">Supplier</label>
+                                        <select
                                             className="form-input"
-                                            value={purchaseForm.paid_amount}
-                                            onChange={(e) => setPurchaseForm({ ...purchaseForm, paid_amount: parseFloat(e.target.value) || 0 })}
-                                            min={0}
-                                        />
+                                            value={purchaseForm.supplier_id}
+                                            onChange={(e) => setPurchaseForm({ ...purchaseForm, supplier_id: parseInt(e.target.value) })}
+                                            required
+                                        >
+                                            <option value={0}>Select Supplier</option>
+                                            {suppliers.map(s => (
+                                                <option key={s.id} value={s.id}>{s.name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Invoice Number</label>
+                                        <input type="text" className="form-input" value={purchaseForm.invoice_number}
+                                            onChange={(e) => setPurchaseForm({ ...purchaseForm, invoice_number: e.target.value })} required />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Invoice Date</label>
+                                        <input type="date" className="form-input" value={purchaseForm.invoice_date}
+                                            onChange={(e) => setPurchaseForm({ ...purchaseForm, invoice_date: e.target.value })} required />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Payment Status</label>
+                                        <select className="form-input" value={purchaseForm.payment_status}
+                                            onChange={(e) => setPurchaseForm({ ...purchaseForm, payment_status: e.target.value as 'PENDING' | 'PARTIAL' | 'PAID' })}>
+                                            <option value="PENDING">Pending</option>
+                                            <option value="PARTIAL">Partial</option>
+                                            <option value="PAID">Paid</option>
+                                        </select>
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Discount (₹)</label>
+                                        <input type="number" className="form-input" value={purchaseForm.discount_amount || ''}
+                                            onChange={(e) => setPurchaseForm({ ...purchaseForm, discount_amount: parseFloat(e.target.value) || 0 })}
+                                            placeholder="0" min={0} step={0.01} />
+                                    </div>
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 'var(--space-4)', marginBottom: 'var(--space-6)' }}>
+                                    {purchaseForm.payment_status !== 'PENDING' && (
+                                        <div className="form-group">
+                                            <label className="form-label">Paid Amount</label>
+                                            <input type="number" className="form-input" value={purchaseForm.paid_amount}
+                                                onChange={(e) => setPurchaseForm({ ...purchaseForm, paid_amount: parseFloat(e.target.value) || 0 })} min={0} />
+                                        </div>
+                                    )}
+                                    <div className="form-group" style={{ gridColumn: purchaseForm.payment_status !== 'PENDING' ? 'span 4' : 'span 5' }}>
+                                        <label className="form-label">Notes</label>
+                                        <input type="text" className="form-input" value={purchaseForm.notes || ''}
+                                            onChange={(e) => setPurchaseForm({ ...purchaseForm, notes: e.target.value })} placeholder="Add notes..." />
+                                    </div>
+                                </div>
+
+                                {/* Purchase Items Table */}
+                                {editPurchaseItems.length > 0 && (
+                                    <div style={{ overflowX: 'auto' }}>
+                                        <div style={{ fontSize: 'var(--text-sm)', fontWeight: 600, marginBottom: 'var(--space-2)', color: 'var(--text-secondary)' }}>
+                                            Medicine Items ({editPurchaseItems.length})
+                                        </div>
+                                        <table className="data-table" style={{ minWidth: 1000 }}>
+                                            <thead>
+                                                <tr>
+                                                    <th style={{ minWidth: 180 }}>Medicine</th>
+                                                    <th style={{ minWidth: 90 }}>Batch</th>
+                                                    <th style={{ minWidth: 100 }}>Expiry</th>
+                                                    <th style={{ minWidth: 70 }}>Qty</th>
+                                                    <th style={{ minWidth: 60 }}>Free</th>
+                                                    <th style={{ minWidth: 90 }}>Purchase ₹</th>
+                                                    <th style={{ minWidth: 90 }}>MRP ₹</th>
+                                                    <th style={{ minWidth: 90 }}>Sell ₹</th>
+                                                    <th style={{ minWidth: 60 }}>Disc%</th>
+                                                    <th style={{ minWidth: 60 }}>GST%</th>
+                                                    <th style={{ minWidth: 90 }}>Total</th>
+                                                    <th style={{ width: 60 }}></th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {editPurchaseItems.map((item) => (
+                                                    <tr key={item.id}>
+                                                        <td>
+                                                            <div style={{ fontWeight: 500, fontSize: 'var(--text-sm)' }}>{item.medicine_name}</div>
+                                                        </td>
+                                                        <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-sm)' }}>
+                                                            {item.batch_number}
+                                                        </td>
+                                                        <td>
+                                                            <input type="date" className="form-input"
+                                                                style={{ padding: 'var(--space-1)', fontSize: 'var(--text-xs)' }}
+                                                                value={item.expiry_date}
+                                                                onChange={(e) => updateEditPurchaseItem(item.id, 'expiry_date', e.target.value)} />
+                                                        </td>
+                                                        <td>
+                                                            <input type="number" className="form-input"
+                                                                style={{ padding: 'var(--space-1)', fontSize: 'var(--text-sm)', textAlign: 'right', width: 60 }}
+                                                                value={item.quantity || ''}
+                                                                onChange={(e) => updateEditPurchaseItem(item.id, 'quantity', parseInt(e.target.value) || 0)} min={0} />
+                                                        </td>
+                                                        <td>
+                                                            <input type="number" className="form-input"
+                                                                style={{ padding: 'var(--space-1)', fontSize: 'var(--text-sm)', textAlign: 'right', width: 50 }}
+                                                                value={item.free_quantity || ''}
+                                                                onChange={(e) => updateEditPurchaseItem(item.id, 'free_quantity', parseInt(e.target.value) || 0)} min={0} />
+                                                        </td>
+                                                        <td>
+                                                            <input type="number" className="form-input"
+                                                                style={{ padding: 'var(--space-1)', fontSize: 'var(--text-sm)', textAlign: 'right', width: 80 }}
+                                                                value={item.purchase_price || ''}
+                                                                onChange={(e) => updateEditPurchaseItem(item.id, 'purchase_price', parseFloat(e.target.value) || 0)}
+                                                                step={0.01} min={0} />
+                                                        </td>
+                                                        <td>
+                                                            <input type="number" className="form-input"
+                                                                style={{ padding: 'var(--space-1)', fontSize: 'var(--text-sm)', textAlign: 'right', width: 80 }}
+                                                                value={item.mrp || ''}
+                                                                onChange={(e) => updateEditPurchaseItem(item.id, 'mrp', parseFloat(e.target.value) || 0)}
+                                                                step={0.01} min={0} />
+                                                        </td>
+                                                        <td>
+                                                            <input type="number" className="form-input"
+                                                                style={{ padding: 'var(--space-1)', fontSize: 'var(--text-sm)', textAlign: 'right', width: 80 }}
+                                                                value={item.selling_price || ''}
+                                                                onChange={(e) => updateEditPurchaseItem(item.id, 'selling_price', parseFloat(e.target.value) || 0)}
+                                                                step={0.01} min={0} />
+                                                        </td>
+                                                        <td>
+                                                            <input type="number" className="form-input"
+                                                                style={{ padding: 'var(--space-1)', fontSize: 'var(--text-sm)', textAlign: 'right', width: 55 }}
+                                                                value={item.discount_percent || ''}
+                                                                onChange={(e) => updateEditPurchaseItem(item.id, 'discount_percent', parseFloat(e.target.value) || 0)}
+                                                                min={0} max={100} step={0.01} />
+                                                        </td>
+                                                        <td>
+                                                            <input type="number" className="form-input"
+                                                                style={{ padding: 'var(--space-1)', fontSize: 'var(--text-sm)', textAlign: 'right', width: 55 }}
+                                                                value={item.gst_rate}
+                                                                onChange={(e) => updateEditPurchaseItem(item.id, 'gst_rate', clampGstRate(e.target.value))}
+                                                                min={0} max={28} step={0.01} />
+                                                        </td>
+                                                        <td style={{ textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 'var(--text-sm)' }}>
+                                                            {formatCurrency(item.total_amount)}
+                                                        </td>
+                                                        <td>
+                                                            <button type="button" className="btn btn-ghost btn-icon"
+                                                                onClick={() => saveEditPurchaseItem(item)}
+                                                                title="Save this item"
+                                                                style={{ color: 'var(--color-primary-600)' }}>
+                                                                <Pencil size={14} />
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                            <tfoot>
+                                                <tr style={{ borderTop: '2px solid var(--border-medium)' }}>
+                                                    <td colSpan={3} style={{ textAlign: 'left', fontWeight: 600 }}>Totals</td>
+                                                    <td style={{ fontWeight: 600, textAlign: 'right' }}>
+                                                        {editPurchaseItems.reduce((sum, i) => sum + i.quantity, 0)}
+                                                    </td>
+                                                    <td style={{ fontWeight: 600, textAlign: 'right', color: 'var(--color-success-600)' }}>
+                                                        +{editPurchaseItems.reduce((sum, i) => sum + i.free_quantity, 0)}
+                                                    </td>
+                                                    <td colSpan={5}></td>
+                                                    <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, textAlign: 'right', color: 'var(--color-primary-600)' }}>
+                                                        {formatCurrency(editPurchaseItems.reduce((sum, i) => sum + i.total_amount, 0))}
+                                                    </td>
+                                                    <td></td>
+                                                </tr>
+                                            </tfoot>
+                                        </table>
                                     </div>
                                 )}
-                                <div className="form-group">
-                                    <label className="form-label">Notes</label>
-                                    <textarea
-                                        className="form-textarea"
-                                        rows={3}
-                                        value={purchaseForm.notes || ''}
-                                        onChange={(e) => setPurchaseForm({ ...purchaseForm, notes: e.target.value })}
-                                        placeholder="Add notes..."
-                                    />
-                                </div>
+
+                                {editPurchaseItems.length === 0 && (
+                                    <div style={{ textAlign: 'center', padding: 'var(--space-6)', color: 'var(--text-tertiary)' }}>
+                                        <Package size={32} strokeWidth={1} />
+                                        <p style={{ marginTop: 'var(--space-2)' }}>No items found for this purchase</p>
+                                    </div>
+                                )}
                             </div>
                             <div className="modal-footer">
-                                <button type="button" className="btn btn-secondary" onClick={() => { setShowEditPurchaseModal(false); resetPurchaseForm(); }}>
+                                <button type="button" className="btn btn-secondary" onClick={() => { setShowEditPurchaseModal(false); resetPurchaseForm(); setEditPurchaseItems([]); }}>
                                     Cancel
                                 </button>
                                 <button type="submit" className="btn btn-primary">

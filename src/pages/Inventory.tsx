@@ -74,6 +74,7 @@ export function Inventory() {
     const [selectedSupplierId, setSelectedSupplierId] = useState<number>(0);
     const [invoiceNumber, setInvoiceNumber] = useState('');
     const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().split('T')[0]);
+    const [invoiceDiscount, setInvoiceDiscount] = useState<number>(0);
 
     // Multi-item stock cart
     interface StockCartItem {
@@ -1100,6 +1101,7 @@ export function Inventory() {
                     setSelectedSupplierId(0);
                     setInvoiceNumber('');
                     setInvoiceDate(new Date().toISOString().split('T')[0]);
+                    setInvoiceDiscount(0);
                     setMedicineSearchQuery('');
                     setMedicineSearchResults([]);
                     setSelectedMedicine(null);
@@ -1689,6 +1691,12 @@ export function Inventory() {
                                         <span style={{ color: 'var(--text-secondary)' }}>MRP Value</span>
                                         <span style={{ fontWeight: 500 }}>₹{stockCart.reduce((sum, item) => sum + item.quantity * item.mrp, 0).toFixed(2)}</span>
                                     </div>
+                                    {invoiceDiscount > 0 && (
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--text-sm)', color: 'var(--color-success-600)' }}>
+                                            <span>Discount</span>
+                                            <span style={{ fontWeight: 500 }}>-₹{invoiceDiscount.toFixed(2)}</span>
+                                        </div>
+                                    )}
                                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--text-sm)', borderTop: '1px solid var(--border-color)', paddingTop: 'var(--space-2)' }}>
                                         <span style={{ color: 'var(--text-secondary)' }}>Profit Margin</span>
                                         <span style={{ fontWeight: 600, color: 'var(--color-success-600)' }}>
@@ -1724,7 +1732,7 @@ export function Inventory() {
                                                     value={invoiceNumber} placeholder="INV-001"
                                                     onChange={(e) => setInvoiceNumber(e.target.value)} />
                                             </div>
-                                            <div className="form-group" style={{ marginBottom: 0 }}>
+                                            <div className="form-group" style={{ marginBottom: 'var(--space-2)' }}>
                                                 <label className="form-label" style={{ fontSize: 'var(--text-xs)' }}>Invoice Date</label>
                                                 <input type="date" className="form-input" style={{ fontSize: 'var(--text-sm)' }}
                                                     value={invoiceDate}
@@ -1732,6 +1740,14 @@ export function Inventory() {
                                             </div>
                                         </>
                                     )}
+                                    <div className="form-group" style={{ marginBottom: 0 }}>
+                                        <label className="form-label" style={{ fontSize: 'var(--text-xs)' }}>Discount (₹)</label>
+                                        <input type="number" className="form-input" style={{ fontSize: 'var(--text-sm)' }}
+                                            value={invoiceDiscount || ''}
+                                            placeholder="0"
+                                            min="0"
+                                            onChange={(e) => setInvoiceDiscount(parseFloat(e.target.value) || 0)} />
+                                    </div>
                                 </div>
 
                                 {/* Save All Button */}
@@ -1760,10 +1776,11 @@ export function Inventory() {
                                                     const itemTotal = item.quantity * item.purchase_price;
                                                     return sum + (itemTotal * item.gst_rate / 100);
                                                 }, 0);
+                                                const grandTotal = subtotal + totalGst - invoiceDiscount;
                                                 const purchaseResult = await execute(
-                                                    `INSERT INTO purchases (invoice_number, invoice_date, supplier_id, user_id, subtotal, cgst_amount, sgst_amount, total_gst, grand_total, payment_status, paid_amount)
-                                                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', 0)`,
-                                                    [invoiceNumber, invoiceDate, selectedSupplierId, user.id, subtotal, totalGst / 2, totalGst / 2, totalGst, subtotal + totalGst]
+                                                    `INSERT INTO purchases (invoice_number, invoice_date, supplier_id, user_id, subtotal, cgst_amount, sgst_amount, total_gst, discount_amount, grand_total, payment_status, paid_amount)
+                                                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', 0)`,
+                                                    [invoiceNumber, invoiceDate, selectedSupplierId, user.id, subtotal, totalGst / 2, totalGst / 2, totalGst, invoiceDiscount, grandTotal]
                                                 );
                                                 purchaseId = purchaseResult.lastInsertId;
                                             }
@@ -1804,6 +1821,7 @@ export function Inventory() {
                                             setStockCart([]);
                                             setSelectedSupplierId(0);
                                             setInvoiceNumber('');
+                                            setInvoiceDiscount(0);
                                             loadData();
                                         } catch (err) {
                                             console.error(err);

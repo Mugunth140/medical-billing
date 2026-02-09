@@ -3,13 +3,13 @@
 // View and manage past bills
 // =====================================================
 
-import { Calendar, Eye, Pill, Printer, Search, X } from 'lucide-react';
+import { Calendar, Eye, Pencil, Pill, Printer, Search, Trash2, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { Pagination } from '../components/common/Pagination';
-import { query } from '../services/database';
+import { execute, query } from '../services/database';
 import { formatCurrency } from '../services/gst.service';
 import { printBill } from '../services/print.service';
-import { useSettingsStore } from '../stores';
+import { useAuthStore, useSettingsStore } from '../stores';
 import type { Bill, BillItem, ScheduledMedicineRecord } from '../types';
 import { formatDate } from '../utils';
 
@@ -32,6 +32,15 @@ export function BillHistory() {
     const [selectedRecord, setSelectedRecord] = useState<ScheduledMedicineRecord | null>(null);
     const [loading, setLoading] = useState(true);
     const [currentPage, setCurrentPage] = useState(1);
+    const { user } = useAuthStore();
+    const isAdmin = user?.role === 'admin';
+
+    // Edit date modal state
+    const [showEditDateModal, setShowEditDateModal] = useState(false);
+    const [editingBillDate, setEditingBillDate] = useState('');
+
+    // Delete confirmation state
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
     // Pagination constants
     const ITEMS_PER_PAGE = 50;
@@ -116,7 +125,7 @@ export function BillHistory() {
         setLoading(false);
     }, [searchQuery, dateFrom, dateTo]);
 
-     
+
     useEffect(() => {
         if (viewMode === 'all') {
             loadBills();
@@ -161,6 +170,34 @@ export function BillHistory() {
             setSelectedRecord(record);
         } catch (err) {
             console.error('Failed to load record details:', err);
+        }
+    };
+
+    // Handle editing bill date
+    const handleEditBillDate = async () => {
+        if (!selectedBill || !editingBillDate) return;
+        try {
+            await execute('UPDATE bills SET bill_date = ? WHERE id = ?', [editingBillDate, selectedBill.id]);
+            setShowEditDateModal(false);
+            setSelectedBill({ ...selectedBill, bill_date: editingBillDate });
+            loadBills();
+        } catch (err) {
+            console.error('Failed to update bill date:', err);
+        }
+    };
+
+    // Handle deleting a bill (admin only)
+    const handleDeleteBill = async () => {
+        if (!selectedBill) return;
+        try {
+            await execute('DELETE FROM bill_items WHERE bill_id = ?', [selectedBill.id]);
+            await execute('DELETE FROM scheduled_medicine_records WHERE bill_id = ?', [selectedBill.id]);
+            await execute('DELETE FROM bills WHERE id = ?', [selectedBill.id]);
+            setShowDeleteConfirm(false);
+            setSelectedBill(null);
+            loadBills();
+        } catch (err) {
+            console.error('Failed to delete bill:', err);
         }
     };
 
@@ -612,21 +649,122 @@ export function BillHistory() {
                                 </div>
                             </div>
                         </div>
-                        <div className="modal-footer">
-                            <button
-                                className="btn btn-secondary"
-                                onClick={() => {
-                                    if (selectedBill?.items) {
-                                        printBill(selectedBill, selectedBill.items, { paperSize: printerType });
-                                    }
-                                }}
-                            >
-                                <Printer size={16} /> Print Receipt
+                        <div className="modal-footer" style={{ justifyContent: 'space-between' }}>
+                            <div style={{ display: 'flex', gap: 8 }}>
+                                <button
+                                    className="btn btn-ghost"
+                                    onClick={() => {
+                                        setEditingBillDate(selectedBill.bill_date.split('T')[0]);
+                                        setShowEditDateModal(true);
+                                    }}
+                                    title="Edit bill date"
+                                >
+                                    <Pencil size={16} /> Edit Date
+                                </button>
+                                {isAdmin && (
+                                    <button
+                                        className="btn btn-ghost"
+                                        style={{ color: 'var(--color-danger-600)' }}
+                                        onClick={() => setShowDeleteConfirm(true)}
+                                        title="Delete invoice (Admin only)"
+                                    >
+                                        <Trash2 size={16} /> Delete
+                                    </button>
+                                )}
+                            </div>
+                            <div style={{ display: 'flex', gap: 8 }}>
+                                <button
+                                    className="btn btn-secondary"
+                                    onClick={() => {
+                                        if (selectedBill?.items) {
+                                            printBill(selectedBill, selectedBill.items, { paperSize: printerType });
+                                        }
+                                    }}
+                                >
+                                    <Printer size={16} /> Print Receipt
+                                </button>
+                                <button className="btn btn-primary" onClick={() => setSelectedBill(null)}>
+                                    Close
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Edit Date Modal */}
+            {showEditDateModal && selectedBill && (
+                <div className="modal-overlay" onClick={() => setShowEditDateModal(false)}>
+                    <div className="modal" style={{ maxWidth: 400 }} onClick={(e) => e.stopPropagation()}>
+                        <div className="modal-header">
+                            <h3 className="modal-title">Edit Bill Date</h3>
+                            <button className="btn btn-ghost btn-sm" onClick={() => setShowEditDateModal(false)}>
+                                <X size={18} />
                             </button>
-                            <button className="btn btn-primary" onClick={() => {
-                                setSelectedBill(null);
+                        </div>
+                        <div className="modal-body">
+                            <div className="form-group">
+                                <label className="form-label">Bill Number</label>
+                                <div style={{ fontWeight: 600, color: 'var(--color-primary-600)' }}>
+                                    {selectedBill.bill_number}
+                                </div>
+                            </div>
+                            <div className="form-group">
+                                <label className="form-label">New Date</label>
+                                <input
+                                    type="date"
+                                    className="form-input"
+                                    value={editingBillDate}
+                                    onChange={(e) => setEditingBillDate(e.target.value)}
+                                />
+                            </div>
+                        </div>
+                        <div className="modal-footer">
+                            <button className="btn btn-secondary" onClick={() => setShowEditDateModal(false)}>
+                                Cancel
+                            </button>
+                            <button className="btn btn-primary" onClick={handleEditBillDate}>
+                                Save Changes
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Delete Confirmation Modal */}
+            {showDeleteConfirm && selectedBill && (
+                <div className="modal-overlay" onClick={() => setShowDeleteConfirm(false)}>
+                    <div className="modal" style={{ maxWidth: 450 }} onClick={(e) => e.stopPropagation()}>
+                        <div className="modal-header">
+                            <h3 className="modal-title" style={{ color: 'var(--color-danger-600)' }}>Delete Invoice</h3>
+                            <button className="btn btn-ghost btn-sm" onClick={() => setShowDeleteConfirm(false)}>
+                                <X size={18} />
+                            </button>
+                        </div>
+                        <div className="modal-body">
+                            <p style={{ marginBottom: 16 }}>
+                                Are you sure you want to delete invoice <strong>{selectedBill.bill_number}</strong>?
+                            </p>
+                            <div style={{
+                                background: 'var(--color-warning-50)',
+                                border: '1px solid var(--color-warning-300)',
+                                borderRadius: 8,
+                                padding: 12,
+                                fontSize: 13
                             }}>
-                                Close
+                                <strong>Warning:</strong> This action cannot be undone. Stock quantities will NOT be restored.
+                            </div>
+                        </div>
+                        <div className="modal-footer">
+                            <button className="btn btn-secondary" onClick={() => setShowDeleteConfirm(false)}>
+                                Cancel
+                            </button>
+                            <button
+                                className="btn"
+                                style={{ background: 'var(--color-danger-600)', color: 'white' }}
+                                onClick={handleDeleteBill}
+                            >
+                                <Trash2 size={16} /> Delete Invoice
                             </button>
                         </div>
                     </div>
