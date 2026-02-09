@@ -692,6 +692,45 @@ export function Purchases() {
         }
     };
 
+    // Delete individual purchase item
+    const deleteEditPurchaseItem = async (item: typeof editPurchaseItems[0]) => {
+        if (!confirm(`Are you sure you want to delete ${item.medicine_name} from this purchase?`)) {
+            return;
+        }
+
+        try {
+            // Delete the purchase_item record
+            await execute('DELETE FROM purchase_items WHERE id = ?', [item.id]);
+
+            // Remove from local state
+            const remainingItems = editPurchaseItems.filter(i => i.id !== item.id);
+            setEditPurchaseItems(remainingItems);
+
+            // Recalculate purchase totals
+            if (editingPurchase && remainingItems.length > 0) {
+                const newSubtotal = remainingItems.reduce((sum, i) => sum + i.quantity * i.purchase_price, 0);
+                const newGst = remainingItems.reduce((sum, i) => sum + i.cgst_amount + i.sgst_amount, 0);
+                const newGrandTotal = remainingItems.reduce((sum, i) => sum + i.total_amount, 0);
+                await execute(
+                    `UPDATE purchases SET subtotal = ?, total_gst = ?, cgst_amount = ?, sgst_amount = ?, grand_total = ? WHERE id = ?`,
+                    [newSubtotal, newGst, newGst / 2, newGst / 2, newGrandTotal - (purchaseForm.discount_amount || 0), editingPurchase.id]
+                );
+            } else if (editingPurchase && remainingItems.length === 0) {
+                // If no items left, set totals to 0
+                await execute(
+                    `UPDATE purchases SET subtotal = 0, total_gst = 0, cgst_amount = 0, sgst_amount = 0, grand_total = 0 WHERE id = ?`,
+                    [editingPurchase.id]
+                );
+            }
+
+            showToast('success', `${item.medicine_name} deleted from purchase`);
+            loadData();
+        } catch (err) {
+            console.error('Failed to delete purchase item:', err);
+            showToast('error', 'Failed to delete item');
+        }
+    };
+
     // Update Purchase Header
     const handleUpdatePurchase = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -2040,7 +2079,7 @@ export function Purchases() {
                                                     <th style={{ minWidth: 60 }}>Disc%</th>
                                                     <th style={{ minWidth: 60 }}>GST%</th>
                                                     <th style={{ minWidth: 90 }}>Total</th>
-                                                    <th style={{ width: 60 }}></th>
+                                                    <th style={{ width: 80 }}>Actions</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
@@ -2109,12 +2148,20 @@ export function Purchases() {
                                                             {formatCurrency(item.total_amount)}
                                                         </td>
                                                         <td>
-                                                            <button type="button" className="btn btn-ghost btn-icon"
-                                                                onClick={() => saveEditPurchaseItem(item)}
-                                                                title="Save this item"
-                                                                style={{ color: 'var(--color-primary-600)' }}>
-                                                                <Pencil size={14} />
-                                                            </button>
+                                                            <div style={{ display: 'flex', gap: 'var(--space-1)' }}>
+                                                                <button type="button" className="btn btn-ghost btn-icon"
+                                                                    onClick={() => saveEditPurchaseItem(item)}
+                                                                    title="Save this item"
+                                                                    style={{ color: 'var(--color-primary-600)' }}>
+                                                                    <Pencil size={14} />
+                                                                </button>
+                                                                <button type="button" className="btn btn-ghost btn-icon"
+                                                                    onClick={() => deleteEditPurchaseItem(item)}
+                                                                    title="Delete this item"
+                                                                    style={{ color: 'var(--color-danger-600)' }}>
+                                                                    <Trash2 size={14} />
+                                                                </button>
+                                                            </div>
                                                         </td>
                                                     </tr>
                                                 ))}
