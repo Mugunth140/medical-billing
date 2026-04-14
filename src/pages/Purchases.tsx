@@ -107,6 +107,7 @@ export function Purchases() {
         expiry_date: string;
         quantity: number;
         free_quantity: number;
+        tablets_per_strip: number;
         purchase_price: number;
         mrp: number;
         selling_price: number;
@@ -591,6 +592,7 @@ export function Purchases() {
                 expiry_date: string;
                 quantity: number;
                 free_quantity: number;
+                tablets_per_strip: number;
                 purchase_price: number;
                 mrp: number;
                 selling_price: number;
@@ -602,6 +604,7 @@ export function Purchases() {
             }>(
                 `SELECT pi.id, pi.medicine_id, pi.medicine_name, COALESCE(pi.batch_id, 0) as batch_id, pi.batch_number, pi.expiry_date,
                         pi.quantity, COALESCE(pi.free_quantity, 0) as free_quantity,
+                        COALESCE(b.tablets_per_strip, 10) as tablets_per_strip,
                         pi.purchase_price, pi.mrp,
                         COALESCE(b.selling_price, 0) as selling_price,
                         COALESCE(pi.discount_percent, 0) as discount_percent,
@@ -611,7 +614,21 @@ export function Purchases() {
                  WHERE pi.purchase_id = ?`,
                 [purchase.id]
             );
-            setEditPurchaseItems(items);
+            // Recalculate totals from raw values to ensure consistency
+            const recalculatedItems = items.map(item => {
+                const subtotal = item.quantity * item.purchase_price;
+                const discountAmount = (subtotal * item.discount_percent) / 100;
+                const afterDiscount = subtotal - discountAmount;
+                const cgst = (afterDiscount * item.gst_rate / 2) / 100;
+                const sgst = (afterDiscount * item.gst_rate / 2) / 100;
+                return {
+                    ...item,
+                    cgst_amount: cgst,
+                    sgst_amount: sgst,
+                    total_amount: afterDiscount + cgst + sgst,
+                };
+            });
+            setEditPurchaseItems(recalculatedItems);
         } catch (err) {
             console.error('Failed to load purchase items for editing:', err);
             setEditPurchaseItems([]);
@@ -666,9 +683,9 @@ export function Purchases() {
             if (item.batch_id) {
                 await execute(
                     `UPDATE batches SET
-                        purchase_price = ?, mrp = ?, selling_price = ?, expiry_date = ?
+                        purchase_price = ?, mrp = ?, selling_price = ?, expiry_date = ?, tablets_per_strip = ?
                      WHERE id = ?`,
-                    [item.purchase_price, item.mrp, item.selling_price, item.expiry_date, item.batch_id]
+                    [item.purchase_price, item.mrp, item.selling_price, item.expiry_date, item.tablets_per_strip || 10, item.batch_id]
                 );
             }
 
@@ -731,12 +748,13 @@ export function Purchases() {
         }
     };
 
-    // Update Purchase Header
+    // Update Purchase Header + All Items
     const handleUpdatePurchase = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!editingPurchase) return;
 
         try {
+            // 1. Update purchase header
             await execute(
                 `UPDATE purchases SET
                     supplier_id = ?,
@@ -758,9 +776,49 @@ export function Purchases() {
                     editingPurchase.id
                 ]
             );
+
+            // 2. Save all edited items
+            for (const item of editPurchaseItems) {
+                // Update purchase_item record
+                await execute(
+                    `UPDATE purchase_items SET
+                        quantity = ?, free_quantity = ?, purchase_price = ?, mrp = ?,
+                        discount_percent = ?, gst_rate = ?, cgst_amount = ?, sgst_amount = ?, total_amount = ?,
+                        expiry_date = ?
+                     WHERE id = ?`,
+                    [item.quantity, item.free_quantity, item.purchase_price, item.mrp,
+                     item.discount_percent, item.gst_rate, item.cgst_amount, item.sgst_amount, item.total_amount,
+                     item.expiry_date,
+                     item.id]
+                );
+
+                // Update the batch record if it exists
+                if (item.batch_id) {
+                    const tabletsPerStrip = item.tablets_per_strip || 10;
+                    await execute(
+                        `UPDATE batches SET
+                            purchase_price = ?, mrp = ?, selling_price = ?,
+                            expiry_date = ?, tablets_per_strip = ?
+                         WHERE id = ?`,
+                        [item.purchase_price, item.mrp, item.selling_price,
+                         item.expiry_date, tabletsPerStrip, item.batch_id]
+                    );
+                }
+            }
+
+            // 3. Recalculate and update purchase totals
+            const newSubtotal = editPurchaseItems.reduce((sum, i) => sum + i.quantity * i.purchase_price, 0);
+            const newGst = editPurchaseItems.reduce((sum, i) => sum + i.cgst_amount + i.sgst_amount, 0);
+            const newGrandTotal = editPurchaseItems.reduce((sum, i) => sum + i.total_amount, 0);
+            await execute(
+                `UPDATE purchases SET subtotal = ?, total_gst = ?, cgst_amount = ?, sgst_amount = ?, grand_total = ? WHERE id = ?`,
+                [newSubtotal, newGst, newGst / 2, newGst / 2, newGrandTotal - (purchaseForm.discount_amount || 0), editingPurchase.id]
+            );
+
             showToast('success', 'Purchase updated successfully');
             setShowEditPurchaseModal(false);
             resetPurchaseForm();
+            setEditPurchaseItems([]);
             loadData();
         } catch (error) {
             console.error('Failed to update purchase:', error);
@@ -1993,7 +2051,7 @@ export function Purchases() {
             {/* Edit Purchase Modal */}
             {showEditPurchaseModal && (
                 <div className="modal-overlay" onClick={() => { setShowEditPurchaseModal(false); resetPurchaseForm(); setEditPurchaseItems([]); }}>
-                    <div className="modal" style={{ maxWidth: '95vw', width: '1200px', maxHeight: '90vh' }} onClick={(e) => e.stopPropagation()}>
+                    <div className="modal" style={{ maxWidth: '95vw', width: '1400px', maxHeight: '90vh' }} onClick={(e) => e.stopPropagation()}>
                         <div className="modal-header">
                             <h3 className="modal-title">Edit Purchase - {purchaseForm.invoice_number}</h3>
                             <button className="btn btn-ghost btn-icon" onClick={() => { setShowEditPurchaseModal(false); resetPurchaseForm(); setEditPurchaseItems([]); }}>
@@ -2003,9 +2061,18 @@ export function Purchases() {
                         <form onSubmit={handleUpdatePurchase}>
                             <div className="modal-body" style={{ maxHeight: '70vh', overflowY: 'auto' }}>
                                 {/* Header Fields */}
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 'var(--space-4)', marginBottom: 'var(--space-4)' }}>
-                                    <div className="form-group">
-                                        <label className="form-label">Supplier</label>
+                                <div style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                                    gap: 'var(--space-4)',
+                                    marginBottom: 'var(--space-4)',
+                                    padding: 'var(--space-4)',
+                                    background: 'var(--bg-tertiary)',
+                                    borderRadius: 'var(--radius-md)',
+                                    border: '1px solid var(--border-light)'
+                                }}>
+                                    <div className="form-group" style={{ marginBottom: 0 }}>
+                                        <label className="form-label" style={{ fontSize: 'var(--text-xs)', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-tertiary)' }}>Supplier</label>
                                         <select
                                             className="form-input"
                                             value={purchaseForm.supplier_id}
@@ -2018,18 +2085,18 @@ export function Purchases() {
                                             ))}
                                         </select>
                                     </div>
-                                    <div className="form-group">
-                                        <label className="form-label">Invoice Number</label>
+                                    <div className="form-group" style={{ marginBottom: 0 }}>
+                                        <label className="form-label" style={{ fontSize: 'var(--text-xs)', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-tertiary)' }}>Invoice Number</label>
                                         <input type="text" className="form-input" value={purchaseForm.invoice_number}
                                             onChange={(e) => setPurchaseForm({ ...purchaseForm, invoice_number: e.target.value })} required />
                                     </div>
-                                    <div className="form-group">
-                                        <label className="form-label">Invoice Date</label>
+                                    <div className="form-group" style={{ marginBottom: 0 }}>
+                                        <label className="form-label" style={{ fontSize: 'var(--text-xs)', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-tertiary)' }}>Invoice Date</label>
                                         <input type="date" className="form-input" value={purchaseForm.invoice_date}
                                             onChange={(e) => setPurchaseForm({ ...purchaseForm, invoice_date: e.target.value })} required />
                                     </div>
-                                    <div className="form-group">
-                                        <label className="form-label">Payment Status</label>
+                                    <div className="form-group" style={{ marginBottom: 0 }}>
+                                        <label className="form-label" style={{ fontSize: 'var(--text-xs)', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-tertiary)' }}>Payment Status</label>
                                         <select className="form-input" value={purchaseForm.payment_status}
                                             onChange={(e) => setPurchaseForm({ ...purchaseForm, payment_status: e.target.value as 'PENDING' | 'PARTIAL' | 'PAID' })}>
                                             <option value="PENDING">Pending</option>
@@ -2037,23 +2104,32 @@ export function Purchases() {
                                             <option value="PAID">Paid</option>
                                         </select>
                                     </div>
-                                    <div className="form-group">
-                                        <label className="form-label">Discount (₹)</label>
+                                    <div className="form-group" style={{ marginBottom: 0 }}>
+                                        <label className="form-label" style={{ fontSize: 'var(--text-xs)', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-tertiary)' }}>Discount (₹)</label>
                                         <input type="number" className="form-input" value={purchaseForm.discount_amount || ''}
                                             onChange={(e) => setPurchaseForm({ ...purchaseForm, discount_amount: parseFloat(e.target.value) || 0 })}
                                             placeholder="0" min={0} step={0.01} />
                                     </div>
                                 </div>
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 'var(--space-4)', marginBottom: 'var(--space-6)' }}>
+                                <div style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                                    gap: 'var(--space-4)',
+                                    marginBottom: 'var(--space-4)',
+                                    padding: 'var(--space-4)',
+                                    background: 'var(--bg-tertiary)',
+                                    borderRadius: 'var(--radius-md)',
+                                    border: '1px solid var(--border-light)'
+                                }}>
                                     {purchaseForm.payment_status !== 'PENDING' && (
-                                        <div className="form-group">
-                                            <label className="form-label">Paid Amount</label>
+                                        <div className="form-group" style={{ marginBottom: 0 }}>
+                                            <label className="form-label" style={{ fontSize: 'var(--text-xs)', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-tertiary)' }}>Paid Amount</label>
                                             <input type="number" className="form-input" value={purchaseForm.paid_amount}
                                                 onChange={(e) => setPurchaseForm({ ...purchaseForm, paid_amount: parseFloat(e.target.value) || 0 })} min={0} />
                                         </div>
                                     )}
-                                    <div className="form-group" style={{ gridColumn: purchaseForm.payment_status !== 'PENDING' ? 'span 4' : 'span 5' }}>
-                                        <label className="form-label">Notes</label>
+                                    <div className="form-group" style={{ marginBottom: 0, gridColumn: purchaseForm.payment_status !== 'PENDING' ? undefined : '1 / -1' }}>
+                                        <label className="form-label" style={{ fontSize: 'var(--text-xs)', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-tertiary)' }}>Notes</label>
                                         <input type="text" className="form-input" value={purchaseForm.notes || ''}
                                             onChange={(e) => setPurchaseForm({ ...purchaseForm, notes: e.target.value })} placeholder="Add notes..." />
                                     </div>
@@ -2062,24 +2138,36 @@ export function Purchases() {
                                 {/* Purchase Items Table */}
                                 {editPurchaseItems.length > 0 && (
                                     <div style={{ overflowX: 'auto' }}>
-                                        <div style={{ fontSize: 'var(--text-sm)', fontWeight: 600, marginBottom: 'var(--space-2)', color: 'var(--text-secondary)' }}>
-                                            Medicine Items ({editPurchaseItems.length})
+                                        <div style={{
+                                            padding: 'var(--space-2) var(--space-3)',
+                                            background: 'var(--color-primary-50)',
+                                            borderRadius: 'var(--radius-sm)',
+                                            marginBottom: 'var(--space-2)',
+                                            fontSize: 'var(--text-xs)',
+                                            color: 'var(--color-primary-700)',
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center'
+                                        }}>
+                                            <span>💡 All prices are <strong>per strip/pack</strong>. Qty is in strips/packs.</span>
+                                            <span style={{ fontWeight: 600 }}>Medicine Items ({editPurchaseItems.length})</span>
                                         </div>
-                                        <table className="data-table" style={{ minWidth: 1000 }}>
+                                        <table className="data-table" style={{ minWidth: 1300, width: '100%' }}>
                                             <thead>
                                                 <tr>
-                                                    <th style={{ minWidth: 180 }}>Medicine</th>
-                                                    <th style={{ minWidth: 90 }}>Batch</th>
-                                                    <th style={{ minWidth: 100 }}>Expiry</th>
-                                                    <th style={{ minWidth: 70 }}>Qty</th>
-                                                    <th style={{ minWidth: 60 }}>Free</th>
-                                                    <th style={{ minWidth: 90 }}>Purchase ₹</th>
-                                                    <th style={{ minWidth: 90 }}>MRP ₹</th>
-                                                    <th style={{ minWidth: 90 }}>Sell ₹</th>
-                                                    <th style={{ minWidth: 60 }}>Disc%</th>
-                                                    <th style={{ minWidth: 60 }}>GST%</th>
-                                                    <th style={{ minWidth: 90 }}>Total</th>
-                                                    <th style={{ width: 80 }}>Actions</th>
+                                                    <th style={{ minWidth: 160, textAlign: 'left' }}>Medicine</th>
+                                                    <th style={{ minWidth: 90, textAlign: 'left' }}>Batch</th>
+                                                    <th style={{ minWidth: 110 }}>Expiry</th>
+                                                    <th style={{ minWidth: 65, textAlign: 'center' }}>Strips</th>
+                                                    <th style={{ minWidth: 55, textAlign: 'center' }}>Free</th>
+                                                    <th style={{ minWidth: 65, textAlign: 'center' }}>Pcs/Strip</th>
+                                                    <th style={{ minWidth: 90, textAlign: 'right' }}>Purchase/Strip</th>
+                                                    <th style={{ minWidth: 85, textAlign: 'right' }}>MRP/Strip</th>
+                                                    <th style={{ minWidth: 85, textAlign: 'right' }}>Sell/Strip</th>
+                                                    <th style={{ minWidth: 55, textAlign: 'center' }}>Disc%</th>
+                                                    <th style={{ minWidth: 55, textAlign: 'center' }}>GST%</th>
+                                                    <th style={{ minWidth: 90, textAlign: 'right' }}>Total</th>
+                                                    <th style={{ width: 70, textAlign: 'center' }}>Actions</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
@@ -2087,78 +2175,87 @@ export function Purchases() {
                                                     <tr key={item.id}>
                                                         <td>
                                                             <div style={{ fontWeight: 500, fontSize: 'var(--text-sm)' }}>{item.medicine_name}</div>
+                                                            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-tertiary)' }}>
+                                                                {(item.quantity + item.free_quantity) * (item.tablets_per_strip || 10)} pcs total
+                                                            </div>
                                                         </td>
                                                         <td style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-sm)' }}>
                                                             {item.batch_number}
                                                         </td>
                                                         <td>
                                                             <input type="date" className="form-input"
-                                                                style={{ padding: 'var(--space-1)', fontSize: 'var(--text-xs)' }}
+                                                                style={{ padding: 'var(--space-1) var(--space-2)', fontSize: 'var(--text-xs)', width: '100%' }}
                                                                 value={item.expiry_date}
                                                                 onChange={(e) => updateEditPurchaseItem(item.id, 'expiry_date', e.target.value)} />
                                                         </td>
                                                         <td>
                                                             <input type="number" className="form-input"
-                                                                style={{ padding: 'var(--space-1)', fontSize: 'var(--text-sm)', textAlign: 'right', width: 60 }}
+                                                                style={{ padding: 'var(--space-1) var(--space-2)', fontSize: 'var(--text-sm)', textAlign: 'right', width: '100%' }}
                                                                 value={item.quantity || ''}
                                                                 onChange={(e) => updateEditPurchaseItem(item.id, 'quantity', parseInt(e.target.value) || 0)} min={0} />
                                                         </td>
                                                         <td>
                                                             <input type="number" className="form-input"
-                                                                style={{ padding: 'var(--space-1)', fontSize: 'var(--text-sm)', textAlign: 'right', width: 50 }}
+                                                                style={{ padding: 'var(--space-1) var(--space-2)', fontSize: 'var(--text-sm)', textAlign: 'right', width: '100%' }}
                                                                 value={item.free_quantity || ''}
                                                                 onChange={(e) => updateEditPurchaseItem(item.id, 'free_quantity', parseInt(e.target.value) || 0)} min={0} />
                                                         </td>
                                                         <td>
                                                             <input type="number" className="form-input"
-                                                                style={{ padding: 'var(--space-1)', fontSize: 'var(--text-sm)', textAlign: 'right', width: 80 }}
+                                                                style={{ padding: 'var(--space-1) var(--space-2)', fontSize: 'var(--text-sm)', textAlign: 'right', width: '100%' }}
+                                                                value={item.tablets_per_strip || 10}
+                                                                onChange={(e) => updateEditPurchaseItem(item.id, 'tablets_per_strip', parseInt(e.target.value) || 10)} min={1} />
+                                                        </td>
+                                                        <td>
+                                                            <input type="number" className="form-input"
+                                                                style={{ padding: 'var(--space-1) var(--space-2)', fontSize: 'var(--text-sm)', textAlign: 'right', width: '100%' }}
                                                                 value={item.purchase_price || ''}
                                                                 onChange={(e) => updateEditPurchaseItem(item.id, 'purchase_price', parseFloat(e.target.value) || 0)}
                                                                 step={0.01} min={0} />
                                                         </td>
                                                         <td>
                                                             <input type="number" className="form-input"
-                                                                style={{ padding: 'var(--space-1)', fontSize: 'var(--text-sm)', textAlign: 'right', width: 80 }}
+                                                                style={{ padding: 'var(--space-1) var(--space-2)', fontSize: 'var(--text-sm)', textAlign: 'right', width: '100%' }}
                                                                 value={item.mrp || ''}
                                                                 onChange={(e) => updateEditPurchaseItem(item.id, 'mrp', parseFloat(e.target.value) || 0)}
                                                                 step={0.01} min={0} />
                                                         </td>
                                                         <td>
                                                             <input type="number" className="form-input"
-                                                                style={{ padding: 'var(--space-1)', fontSize: 'var(--text-sm)', textAlign: 'right', width: 80 }}
+                                                                style={{ padding: 'var(--space-1) var(--space-2)', fontSize: 'var(--text-sm)', textAlign: 'right', width: '100%' }}
                                                                 value={item.selling_price || ''}
                                                                 onChange={(e) => updateEditPurchaseItem(item.id, 'selling_price', parseFloat(e.target.value) || 0)}
                                                                 step={0.01} min={0} />
                                                         </td>
                                                         <td>
                                                             <input type="number" className="form-input"
-                                                                style={{ padding: 'var(--space-1)', fontSize: 'var(--text-sm)', textAlign: 'right', width: 55 }}
+                                                                style={{ padding: 'var(--space-1) var(--space-2)', fontSize: 'var(--text-sm)', textAlign: 'right', width: '100%' }}
                                                                 value={item.discount_percent || ''}
                                                                 onChange={(e) => updateEditPurchaseItem(item.id, 'discount_percent', parseFloat(e.target.value) || 0)}
                                                                 min={0} max={100} step={0.01} />
                                                         </td>
                                                         <td>
                                                             <input type="number" className="form-input"
-                                                                style={{ padding: 'var(--space-1)', fontSize: 'var(--text-sm)', textAlign: 'right', width: 55 }}
+                                                                style={{ padding: 'var(--space-1) var(--space-2)', fontSize: 'var(--text-sm)', textAlign: 'right', width: '100%' }}
                                                                 value={item.gst_rate}
                                                                 onChange={(e) => updateEditPurchaseItem(item.id, 'gst_rate', clampGstRate(e.target.value))}
                                                                 min={0} max={28} step={0.01} />
                                                         </td>
-                                                        <td style={{ textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 'var(--text-sm)' }}>
+                                                        <td style={{ textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 'var(--text-sm)', whiteSpace: 'nowrap' }}>
                                                             {formatCurrency(item.total_amount)}
                                                         </td>
                                                         <td>
-                                                            <div style={{ display: 'flex', gap: 'var(--space-1)' }}>
+                                                            <div style={{ display: 'flex', gap: 'var(--space-1)', justifyContent: 'center' }}>
                                                                 <button type="button" className="btn btn-ghost btn-icon"
                                                                     onClick={() => saveEditPurchaseItem(item)}
                                                                     title="Save this item"
-                                                                    style={{ color: 'var(--color-primary-600)' }}>
+                                                                    style={{ color: 'var(--color-primary-600)', padding: 'var(--space-1)' }}>
                                                                     <Pencil size={14} />
                                                                 </button>
                                                                 <button type="button" className="btn btn-ghost btn-icon"
                                                                     onClick={() => deleteEditPurchaseItem(item)}
                                                                     title="Delete this item"
-                                                                    style={{ color: 'var(--color-danger-600)' }}>
+                                                                    style={{ color: 'var(--color-danger-600)', padding: 'var(--space-1)' }}>
                                                                     <Trash2 size={14} />
                                                                 </button>
                                                             </div>
@@ -2166,23 +2263,66 @@ export function Purchases() {
                                                     </tr>
                                                 ))}
                                             </tbody>
-                                            <tfoot>
-                                                <tr style={{ borderTop: '2px solid var(--border-medium)' }}>
-                                                    <td colSpan={3} style={{ textAlign: 'left', fontWeight: 600 }}>Totals</td>
-                                                    <td style={{ fontWeight: 600, textAlign: 'right' }}>
-                                                        {editPurchaseItems.reduce((sum, i) => sum + i.quantity, 0)}
-                                                    </td>
-                                                    <td style={{ fontWeight: 600, textAlign: 'right', color: 'var(--color-success-600)' }}>
-                                                        +{editPurchaseItems.reduce((sum, i) => sum + i.free_quantity, 0)}
-                                                    </td>
-                                                    <td colSpan={5}></td>
-                                                    <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, textAlign: 'right', color: 'var(--color-primary-600)' }}>
-                                                        {formatCurrency(editPurchaseItems.reduce((sum, i) => sum + i.total_amount, 0))}
-                                                    </td>
-                                                    <td></td>
-                                                </tr>
-                                            </tfoot>
                                         </table>
+
+                                        {/* Totals Summary */}
+                                        <div style={{
+                                            display: 'flex',
+                                            justifyContent: 'flex-end',
+                                            marginTop: 'var(--space-4)',
+                                            paddingTop: 'var(--space-4)',
+                                            borderTop: '1px solid var(--border-light)'
+                                        }}>
+                                            <div style={{ minWidth: 280 }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 'var(--space-2)' }}>
+                                                    <span>Subtotal:</span>
+                                                    <span style={{ fontFamily: 'var(--font-mono)' }}>
+                                                        {formatCurrency(editPurchaseItems.reduce((sum, i) => sum + i.quantity * i.purchase_price, 0))}
+                                                    </span>
+                                                </div>
+                                                {editPurchaseItems.some(i => i.discount_percent > 0) && (
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 'var(--space-2)', fontSize: 'var(--text-sm)', color: 'var(--color-success-600)' }}>
+                                                        <span>Item Discounts:</span>
+                                                        <span style={{ fontFamily: 'var(--font-mono)' }}>
+                                                            -{formatCurrency(editPurchaseItems.reduce((sum, i) => sum + (i.quantity * i.purchase_price * i.discount_percent / 100), 0))}
+                                                        </span>
+                                                    </div>
+                                                )}
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 'var(--space-2)', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+                                                    <span>CGST:</span>
+                                                    <span style={{ fontFamily: 'var(--font-mono)' }}>
+                                                        {formatCurrency(editPurchaseItems.reduce((sum, i) => sum + i.cgst_amount, 0))}
+                                                    </span>
+                                                </div>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 'var(--space-2)', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+                                                    <span>SGST:</span>
+                                                    <span style={{ fontFamily: 'var(--font-mono)' }}>
+                                                        {formatCurrency(editPurchaseItems.reduce((sum, i) => sum + i.sgst_amount, 0))}
+                                                    </span>
+                                                </div>
+                                                {(purchaseForm.discount_amount || 0) > 0 && (
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 'var(--space-2)', fontSize: 'var(--text-sm)', color: 'var(--color-success-600)' }}>
+                                                        <span>Purchase Discount:</span>
+                                                        <span style={{ fontFamily: 'var(--font-mono)' }}>
+                                                            -{formatCurrency(purchaseForm.discount_amount || 0)}
+                                                        </span>
+                                                    </div>
+                                                )}
+                                                <div style={{
+                                                    display: 'flex',
+                                                    justifyContent: 'space-between',
+                                                    paddingTop: 'var(--space-2)',
+                                                    borderTop: '2px solid var(--border-medium)',
+                                                    fontWeight: 700,
+                                                    fontSize: 'var(--text-lg)'
+                                                }}>
+                                                    <span>Grand Total:</span>
+                                                    <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-primary-600)' }}>
+                                                        {formatCurrency(editPurchaseItems.reduce((sum, i) => sum + i.total_amount, 0) - (purchaseForm.discount_amount || 0))}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
                                 )}
 
